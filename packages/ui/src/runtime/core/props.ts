@@ -18,7 +18,9 @@ function isFrameworkProp(name: string): boolean {
     name === 'key' ||
     name === 'animate' ||
     name === 'innerHTML' ||
-    name === 'on'
+    name === 'on' ||
+    name === 'eventSource' ||
+    name === 'initial'
   )
 }
 

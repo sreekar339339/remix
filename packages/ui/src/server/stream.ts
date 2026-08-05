@@ -11,6 +11,11 @@ import {
   shouldStringifyBooleanAttribute,
 } from '../runtime/core/attributes.ts'
 import { appendFlushMarker, type FlushKind, stripFlushMarkers } from '../runtime/stream-protocol.ts'
+import {
+  computeInitialEventInput,
+  resolveEventedProps,
+  resolveEventSourceProtocols,
+} from '../runtime/event-source.ts'
 import { REMIX_UI_STYLE_LAYER } from '../style/layers.ts'
 
 interface VNode {
@@ -509,6 +514,17 @@ function buildElementSegment(
   frameState: SsrFrameState,
 ): Segment {
   let mixedProps = resolveSsrMixedProps(tag, props, context, frameState)
+  if (mixedProps.eventSource != null) {
+    // Event-aware elements render their initial event input on the server;
+    // subscriptions only exist on the client.
+    let sources = resolveEventSourceProtocols(mixedProps.eventSource)
+    let input = computeInitialEventInput(sources, mixedProps.initial)
+    let children =
+      typeof mixedProps.children === 'function' ? mixedProps.children(input) : mixedProps.children
+    mixedProps = { ...resolveEventedProps(mixedProps, input), children }
+    // Children are built from the raw props below; hand them the resolved value.
+    props = { ...props, children }
+  }
   let processedProps = processStyleProps(mixedProps)
   // Determine namespace context for the current element and its children
   let currentIsSvg = context.insideSvg || tag === 'svg'

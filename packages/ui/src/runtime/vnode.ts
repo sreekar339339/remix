@@ -1,5 +1,6 @@
 import type { ComponentHandle, Fragment, Frame, FrameHandle, FrameProps } from './component.ts'
 import { isRemixElement } from './core/vnode.ts'
+import type { EventedHostState } from './event-source.ts'
 import type { Frame as FrameInstance } from './frame.ts'
 import type { RemixNode } from './jsx.ts'
 import type { ElementFunction } from './element-function.ts'
@@ -124,6 +125,7 @@ export type CommittedHostNode = CommittedNodeBase<'host', string> & {
   _directEventState?: DirectEventState
   _controlledState?: ControlledReflectionState
   _persistence?: HostPersistenceState
+  _evented?: EventedHostState
 }
 
 export type CommittedFragmentNode = CommittedNodeBase<'fragment', typeof Fragment> & {

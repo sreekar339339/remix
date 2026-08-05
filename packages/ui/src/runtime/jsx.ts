@@ -77,8 +77,33 @@ type MixinElementType = ((
   __rmxMixinElementType: string
 }
 
+/** Opt-in for components whose call signatures directly describe JSX props. */
+export interface GenericJSXComponent {
+  readonly __rmxGenericJSXComponent: true
+}
+
+type GenericJSXElementType = GenericJSXComponent & ((...args: any[]) => unknown)
+
 /**
- * Get the props for a specific element type.
+ * Input passed to reactive prop and children callbacks on event-aware
+ * elements. When a subscribed source retains a value, the input carries that
+ * value as `detail`; otherwise the input is the matched event itself, which
+ * also carries a `detail` payload.
+ */
+export type EventInput = { detail: unknown }
+
+type NonReactivePropKeys = 'key' | 'mix' | 'innerHTML' | 'eventSource' | 'initial' | `on${string}`
+
+type EventedElementProps<props> = {
+  [key in keyof props]: key extends NonReactivePropKeys
+    ? props[key]
+    : props[key] | ((input: EventInput) => props[key])
+}
+
+/**
+ * Get the props for a specific element type, without reactive event-aware
+ * forms. Component prop types should extend this; JSX host elements accept
+ * reactive props through {@link JSX.IntrinsicElements}.
  *
  * @example
  * interface MyButtonProps extends Props<"button"> {
@@ -86,7 +111,7 @@ type MixinElementType = ((
  * }
  */
 export type Props<T extends keyof JSX.IntrinsicElements> = NormalizeMixProp<
-  JSX.IntrinsicElements[T]
+  JSX.IntrinsicElementProps[T]
 >
 
 /**
@@ -119,6 +144,8 @@ declare global {
       | ((handle: Handle<any, any>) => RenderFn)
       // Mixin element used internally by mixin render callbacks
       | MixinElementType
+      // Generic components whose call signatures preserve JSX inference
+      | GenericJSXElementType
 
     type ElementChildrenAttribute = {
       children: any
@@ -128,15 +155,17 @@ declare global {
       props: any
     }
 
-    type LibraryManagedAttributes<component, props> = component extends MixinElementType
-      ? ExpandMixProp<Parameters<ReturnType<component>>[0]>
-      : component extends () => RenderFn
-        ? ExpandMixProp<Record<string, never>>
-        : component extends (handle: Handle<infer P, any>) => RenderFn
-          ? // It's a ComponentFactory - infer props from the handle
-            ExpandMixProp<P>
-          : // Otherwise use props as-is (simple function component)
-            ExpandMixProp<props>
+    type LibraryManagedAttributes<component, props> = component extends GenericJSXComponent
+      ? ExpandMixProp<props>
+      : component extends MixinElementType
+        ? ExpandMixProp<Parameters<ReturnType<component>>[0]>
+        : component extends () => RenderFn
+          ? ExpandMixProp<Record<string, never>>
+          : component extends (handle: Handle<infer P, any>) => RenderFn
+            ? // It's a ComponentFactory - infer props from the handle
+              ExpandMixProp<P>
+            : // Otherwise use props as-is (simple function component)
+              ExpandMixProp<props>
 
     export interface IntrinsicSVGElements {
       svg: dom.SVGProps<SVGSVGElement>
@@ -358,7 +387,11 @@ declare global {
       wbr: dom.WbrHTMLProps<HTMLElement>
     }
 
-    export interface IntrinsicElements
+    export interface IntrinsicElementProps
       extends IntrinsicSVGElements, IntrinsicMathMLElements, IntrinsicHTMLElements {}
+
+    export type IntrinsicElements = {
+      [key in keyof IntrinsicElementProps]: EventedElementProps<IntrinsicElementProps[key]>
+    }
   }
 }

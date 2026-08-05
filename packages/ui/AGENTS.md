@@ -1349,6 +1349,37 @@ Keys can be any type (string, number, bigint, object, symbol), but should be sta
 }
 ```
 
+### Event-Aware Elements (eventSource)
+
+Any host element can subscribe to event sources directly with the `eventSource` prop — no wrapper component and no `handle.update()` bookkeeping. The element becomes event-aware: on every matched event it re-resolves its reactive props and children through the normal vdom diff:
+
+```tsx
+<select
+  eventSource={[events.people, events.prefix, events.selectedId]}
+  value={({ detail: [, , selectedId] }) => selectedId ?? ''}
+>
+  {({ detail: [people, prefix] }) =>
+    visiblePeople(people, prefix).map((person) => (
+      <option value={person.id}>
+        {person.surname}, {person.name}
+      </option>
+    ))
+  }
+</select>
+```
+
+Rules:
+
+- `eventSource` accepts one source or an array (empty slots allowed); an element accepts one source per event type.
+- Any prop may be a function of the event input (except `children`, `key`, `mix`, `innerHTML`, `eventSource`, `initial`, and `on*` props); `children` may be a function returning `RemixNode`.
+- The input is `{ detail }`: the source's current value for one source, a tuple index-aligned with `eventSource` for several. Its `detail` is typed `unknown` — narrow it in the callback.
+- `initial` supplies the input rendered before an occurrence first matches; sources that retain a value ignore it.
+- The element keeps the event's value across parent re-renders; unsubscribing happens automatically when the element is removed.
+- Server rendering resolves the initial input only; subscriptions are client-side.
+- Structural changes (creating, deleting, reordering elements) still belong to the owning component render; `eventSource` updates the attributes and children of an existing element.
+
+Event sources are any objects exposing the `EVENT_SOURCE` protocol brand with `{ read?, subscribe(subscriber, signal) }`, so event models plug in without the renderer knowing their internals. Use `getEventSourceProtocol()` and the `EventSource`/`EventSourceProtocol`/`EventSourceSubscriber` types when authoring an event model.
+
 ### Composition Through props.children
 
 Components can compose other components via `children`:

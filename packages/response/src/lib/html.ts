@@ -83,9 +83,9 @@ function prependDoctypeToStream(stream: ReadableStream<Uint8Array>): ReadableStr
 
         // Pass through remaining chunks
         while (true) {
-          let { done, value } = await reader.read()
-          if (done) break
-          controller.enqueue(value)
+          let result = await reader.read()
+          if (result.done) break
+          controller.enqueue(result.value)
         }
 
         controller.close()

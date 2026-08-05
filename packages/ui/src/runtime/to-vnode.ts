@@ -24,6 +24,22 @@ function flatMapChildrenToVNodes(props: RuntimeHostProps): VNodeInput[] {
   return vnodes
 }
 
+/**
+ * Resolves the children of an event-aware host element: a function child is
+ * called with the event input, static children pass through. Used when the
+ * element (re-)renders from an event rather than a parent render.
+ *
+ * @param children Raw children value from the element props.
+ * @param input The callback input.
+ * @returns The resolved child vnodes.
+ */
+export function resolveEventedChildInputs(children: unknown, input: unknown): VNodeInput[] {
+  let resolved = typeof children === 'function' ? children(input) : children
+  if (resolved === undefined || resolved === null) return []
+  invariant(isRemixNode(resolved), 'Invalid host children')
+  return flatMapChildrenToVNodes({ children: resolved })
+}
+
 function flattenChildrenToVNodes(nodes: RemixNode[], out: VNodeInput[]): void {
   let children = normalizeChildren(nodes)
   for (let i = 0; i < children.length; i++) {
@@ -58,8 +74,11 @@ export function toVNode(node: RemixNode): VNodeInput {
 
     if (typeof node.type === 'string') {
       let props = parseHostProps(node.props)
+      // Event-aware elements resolve their children from the event input at
+      // commit time instead of converting them here.
+      let evented = props.eventSource != null
       // When innerHTML is set, ignore children
-      let children = props.innerHTML != null ? [] : flatMapChildrenToVNodes(props)
+      let children = props.innerHTML != null || evented ? [] : flatMapChildrenToVNodes(props)
       return {
         kind: 'host',
         type: node.type,
@@ -87,7 +106,11 @@ function isFrameProps(props: RuntimeElementProps): props is RuntimeElementProps 
 
 function parseHostProps(props: RuntimeElementProps): RuntimeHostProps {
   let children = props.children
-  invariant(children === undefined || isRemixNode(children), 'Invalid host children')
+  let evented = props.eventSource != null
+  invariant(
+    children === undefined || isRemixNode(children) || (evented && typeof children === 'function'),
+    'Invalid host children',
+  )
 
   let innerHTML = props.innerHTML
   invariant(innerHTML === undefined || typeof innerHTML === 'string', 'Invalid innerHTML prop')

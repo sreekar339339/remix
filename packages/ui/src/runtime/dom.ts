@@ -1,4 +1,5 @@
 import type { StyleProps } from '../style/style.ts'
+import type { EventSourceInput } from './event-source.ts'
 import type { RemixNode } from './jsx.ts'
 import type { MixInput } from './mixins/mixin.ts'
 
@@ -40,6 +41,17 @@ export interface HostProps<eventTarget extends EventTarget> {
    * Use with caution as this can expose XSS vulnerabilities if the content is not sanitized.
    */
   innerHTML?: string
+  /**
+   * Event sources that make this element event-aware. The element subscribes
+   * to the sources while mounted and re-renders its reactive props and
+   * children through the vdom on every matched event.
+   */
+  eventSource?: EventSourceInput
+  /**
+   * Callback input rendered before an occurrence first matches. Ignored when
+   * an event source retains a current value.
+   */
+  initial?: unknown
 }
 
 /**

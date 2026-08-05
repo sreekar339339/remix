@@ -27,7 +27,16 @@ const BOOLEANISH_STRING_ATTRIBUTES = new Set([
   'spellcheck',
 ])
 
-export const FRAMEWORK_PROPS = new Set(['children', 'mix', 'key', 'animate', 'innerHTML', 'on'])
+export const FRAMEWORK_PROPS = new Set([
+  'children',
+  'mix',
+  'key',
+  'animate',
+  'innerHTML',
+  'on',
+  'eventSource',
+  'initial',
+])
 
 export const SELF_CLOSING_TAGS = new Set([
   'area',
