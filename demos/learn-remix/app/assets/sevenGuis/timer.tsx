@@ -1,9 +1,9 @@
 import { clientEntry, on, ref } from 'remix/ui'
-import { customEvents } from '../utils/customEvents/index.tsx'
+import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTimer() {
-  let { view, events, state } = customEvents().store({
+  let { events, state } = customEvents().store({
     elapsed: 0,
     duration: 10,
   })
@@ -30,13 +30,14 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
     >
       <h2>Timer</h2>
       <div>
-        <view.progress
+        <evented.progress
+          eventSource={events}
           value={({ detail }) => Math.min(1, detail.elapsed / detail.duration)}
           max={1}
         />
-        <view.output on={events.elapsed}>
+        <evented.output eventSource={events.elapsed}>
           {({ detail }) => `${detail.toFixed(1)}s elapsed`}
-        </view.output>
+        </evented.output>
       </div>
       <label mix={rowCss}>
         Duration
@@ -57,7 +58,9 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
             }),
           ]}
         />
-        <view.span on={events.duration}>{({ detail }) => `${detail.toFixed(1)}s`}</view.span>
+        <evented.span eventSource={events.duration}>
+          {({ detail }) => `${detail.toFixed(1)}s`}
+        </evented.span>
       </label>
       <button
         type="button"

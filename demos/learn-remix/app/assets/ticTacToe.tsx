@@ -1,5 +1,5 @@
 import { clientEntry, css, on, ref } from 'remix/ui'
-import { customEvents } from './utils/customEvents/index.tsx'
+import { customEvents, evented } from './utils/customEvents/index.tsx'
 
 type Player = 'X' | 'O'
 type Result = Player | 'Draw'
@@ -35,10 +35,11 @@ const arrowKeyIdxIncrementMap = {
   ArrowRight: 1,
 }
 
-const isArrowKey = (eventKey: unknown): eventKey is keyof typeof arrowKeyIdxIncrementMap => Object.hasOwn(arrowKeyIdxIncrementMap, eventKey as string)
+const isArrowKey = (eventKey: unknown): eventKey is keyof typeof arrowKeyIdxIncrementMap =>
+  Object.hasOwn(arrowKeyIdxIncrementMap, eventKey as string)
 
 export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTacToeCustomEvents() {
-  let { view, events, state } = customEvents().store({
+  let { events, state } = customEvents().store({
     position: new Map<number, Player>(),
     result: null as Result | null,
     focusTarget: NaN,
@@ -104,8 +105,8 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
         ]}
       >
         {Array.from({ length: 9 }, (_, index) => (
-          <view.button
-            on={[events.position.get(index), events.result]}
+          <evented.button
+            eventSource={[events.position.get(index), events.result]}
             key={index}
             data-idx={String(index)}
             aria-label={`Cell ${index}`}
@@ -129,7 +130,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
             ]}
           >
             {({ detail: [pos] }) => pos}
-          </view.button>
+          </evented.button>
         ))}
       </div>
       <button
@@ -163,13 +164,13 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
           }),
         ]}
       >
-        <view.span on={events.result}>
+        <evented.span eventSource={events.result}>
           {({ detail }) => {
             if (!detail) return 'Game in progress'
             if (detail === 'Draw') return 'Game is drawn.'
             return `${detail} has won!`
           }}
-        </view.span>
+        </evented.span>
       </p>
     </div>
   )

@@ -1,5 +1,5 @@
 import { addEventListeners, type Handle, type RemixNode } from 'remix/ui'
-import { customEvents } from './utils/customEvents/index.tsx'
+import { customEvents, evented } from './utils/customEvents/index.tsx'
 
 export type AppContextValue = {
   user: { name: string; age: number } | null
@@ -46,11 +46,13 @@ export function UserDisplay(handle: Handle) {
 
 // Event-aware elements can display context values without calling handle.update().
 export function EventUserDisplay(handle: Handle) {
-  let { view, events } = handle.context.get(AppProvider)
+  let { events } = handle.context.get(AppProvider)
 
   return () => (
     <div>
-      <view.div on={events.user.name}>{({ detail }) => detail ?? 'Not logged in'}</view.div>
+      <evented.div eventSource={events.user.name}>
+        {({ detail }) => detail ?? 'Not logged in'}
+      </evented.div>
     </div>
   )
 }
@@ -74,11 +76,11 @@ export function SettingsDisplay(handle: Handle) {
 }
 
 export function EventSettingsDisplay(handle: Handle) {
-  let { view, events } = handle.context.get(AppProvider)
+  let { events } = handle.context.get(AppProvider)
 
   return () => (
-    <view.pre on={events.settings}>
+    <evented.pre eventSource={events.settings}>
       {({ detail }) => `Layout: ${detail.layout}, Theme: ${detail.theme}`}
-    </view.pre>
+    </evented.pre>
   )
 }

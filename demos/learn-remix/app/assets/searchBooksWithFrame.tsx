@@ -1,6 +1,6 @@
 import { clientEntry, css, Frame, on, ref, type Handle } from 'remix/ui'
 import { routes } from '../routes.ts'
-import { customEvents } from './utils/customEvents/index.tsx'
+import { customEvents, evented } from './utils/customEvents/index.tsx'
 
 export const SearchBooksWithFrame = clientEntry(
   import.meta.url,
@@ -46,7 +46,7 @@ export const SearchBooksWithFrame = clientEntry(
             />
           </label>
         </form>
-        <events.view.div initial={initialEvent}>
+        <evented.div eventSource={events} initial={initialEvent}>
           {(event) => {
             switch (event.type) {
               case 'queryEmpty':
@@ -61,7 +61,7 @@ export const SearchBooksWithFrame = clientEntry(
                 )
             }
           }}
-        </events.view.div>
+        </evented.div>
       </div>
     )
   },

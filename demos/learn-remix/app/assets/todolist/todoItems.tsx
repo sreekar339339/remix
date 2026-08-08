@@ -1,6 +1,7 @@
 import { clientEntry, css, on, type Dispatched, type Handle } from 'remix/ui'
 import { routes } from '../../routes.ts'
 import type { Todo } from '../../data/todolist.ts'
+import { evented } from '../utils/customEvents/index.tsx'
 import { events, type TodoActionDetail } from './todoList.tsx'
 
 const todoListCss = css({
@@ -135,7 +136,8 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
       {handle.props.todos.map(({ id, completed, text }) => (
         <li key={id} mix={todoItemCss}>
           <form method="POST" action={routes.todolist.todos.action.href()} mix={events.asHost}>
-            <events.view.button
+            <evented.button
+              eventSource={events}
               mix={[todoActionButtonCss, deleteTodoButtonCss]}
               name="intent"
               value="delete"
@@ -143,10 +145,11 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
               class={(event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
             >
               🗑️
-            </events.view.button>
+            </evented.button>
             <input hidden name="id" value={id} />
           </form>
-          <events.view.form
+          <evented.form
+            eventSource={events}
             data-action={(event) => event?.type}
             mix={[
               events.asHost,
@@ -163,18 +166,20 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
           >
             <button hidden name="intent" value="update" />
             <input hidden name="id" value={id} />
-            <events.view.input
+            <evented.input
+              eventSource={events}
               mix={[editTodoInputCss]}
               defaultValue={text}
               name="text"
               disabled={(event) => event?.type === 'actionSubmitted'}
               class={(event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
             />
-          </events.view.form>
+          </evented.form>
           <form method="POST" action={routes.todolist.todos.action.href()} mix={events.asHost}>
             <input hidden name="completed" value={String(!completed)} />
             <input hidden name="id" value={id} />
-            <events.view.button
+            <evented.button
+              eventSource={events}
               initial={events.create('actionSucceeded', { completed })}
               disabled={(event) => event.type === 'actionSubmitted'}
               class={(event) => (event.type === 'actionSubmitted' ? 'pending' : '')}
@@ -191,7 +196,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
                   ? '✓'
                   : ''
               }
-            </events.view.button>
+            </evented.button>
           </form>
         </li>
       ))}

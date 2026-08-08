@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents } from './utils/customEvents/index.tsx'
+import { customEvents, evented } from './utils/customEvents/index.tsx'
 
 type Card = {
   title: string
@@ -90,7 +90,7 @@ function initialColumns() {
 }
 
 export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
-  let { view, events, state } = customEvents().store({
+  let { events, state } = customEvents().store({
     columns: initialColumns(),
   })
   let renderCounts = new Map<string, number>()
@@ -130,7 +130,10 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
             <section key={columnId} mix={columnCss}>
               <header>
                 <h2>{column.title}</h2>
-                <view.output on={events.columns.get(columnId)} aria-label={`${column.title} view`}>
+                <evented.output
+                  eventSource={events.columns.get(columnId)}
+                  aria-label={`${column.title} view`}
+                >
                   {({ detail }) => {
                     if (!detail) return null
                     let urgent = detail.cards
@@ -138,13 +141,13 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                       .reduce((count, card) => count + Number(card.urgent), 0)
                     return `${urgent} urgent · rendered ${nextRenderCount(columnId)}`
                   }}
-                </view.output>
+                </evented.output>
               </header>
               {column.cards
                 .entries()
                 .map(([cardId, initialCard]) => (
-                  <view.article
-                    on={events.columns.get(columnId).cards.get(cardId)}
+                  <evented.article
+                    eventSource={events.columns.get(columnId).cards.get(cardId)}
                     key={cardId}
                     aria-label={initialCard.title}
                     data-urgent={({ detail }) => detail?.urgent}
@@ -178,7 +181,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                         </>
                       )
                     }}
-                  </view.article>
+                  </evented.article>
                 ))
                 .toArray()}
             </section>

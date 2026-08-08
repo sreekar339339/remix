@@ -1,8 +1,8 @@
 import { clientEntry, on } from 'remix/ui'
-import { customEvents } from './utils/customEvents/index.tsx'
+import { customEvents, evented } from './utils/customEvents/index.tsx'
 
 export const Counter = clientEntry(import.meta.url, function Counter(handle) {
-  let { view, events, state } = customEvents().store({
+  let { events, state } = customEvents().store({
     count: 0,
   })
   let incrementOffset = 1
@@ -17,7 +17,7 @@ export const Counter = clientEntry(import.meta.url, function Counter(handle) {
           }),
         ]}
       >
-        <view.span>{({ detail }) => detail.count}</view.span>
+        <evented.span eventSource={events}>{({ detail }) => detail.count}</evented.span>
       </button>
       <label>
         Increment by{' '}

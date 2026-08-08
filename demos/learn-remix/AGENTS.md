@@ -29,7 +29,7 @@ pnpm -C demos/learn-remix run benchmark:custom-events
 
 - Import only from `remix/<subpath>` (`remix/router`, `remix/ui`, `remix/test`, ...). There is no top-level `remix` import.
 - UI components are **not React**: they receive a `handle`, read `handle.props`, and return a zero-arg render function. `jsxImportSource` is `remix/ui`.
-- Host elements are event-aware via the `eventSource` prop (`packages/ui/src/runtime/event-source.ts`): `<select eventSource={[events.a, events.b]} value={({detail}) => ...}>{({detail}) => ...}</select>`. Any prop and `children` may be a function of the event input; the element re-renders through the vdom on matched events. `app/assets/utils/customEvents/` sources implement the protocol, and `view.<tag>` remains as a typed shim over it.
+- Host elements are event-aware via the `eventSource` prop (`packages/ui/src/runtime/event-source.ts`): `<select eventSource={[events.a, events.b]} value={({detail}) => ...}>{({detail}) => ...}</select>`. Any prop and `children` may be a function of the event input; the element re-renders through the vdom on matched events. `app/assets/utils/customEvents/` sources implement the protocol, and `evented.<tag>` is a type-only intrinsic alias (`evented.button` is the string `'button'` at runtime) that preserves typed callback inference over `eventSource`, inferring the event map from the descriptor passed as `eventSource`; the descriptor itself is the explicit wildcard source (`eventSource={events}`).
 - `app/routes.ts` is the source of truth for URLs; use `routes.<name>.href(...)` for links/redirects/tests. Controllers return explicit `Response` objects; validate at boundaries with `remix/data-schema`.
 
 ## Layout

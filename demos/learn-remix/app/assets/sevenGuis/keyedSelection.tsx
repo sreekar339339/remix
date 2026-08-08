@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents } from '../utils/customEvents/index.tsx'
+import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, rowCss, taskCss } from './styles.ts'
 
 const items = [
@@ -9,7 +9,7 @@ const items = [
 ]
 
 export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelection() {
-  let { view, events, state } = customEvents<{
+  let { events, state } = customEvents<{
     selectedId: string | null
   }>().store({
     selectedId: items[0]!.id,
@@ -24,8 +24,8 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
       </p>
       <div mix={rowCss}>
         {items.map((item) => (
-          <view.button
-            on={events.selectedId.as(item.id)}
+          <evented.button
+            eventSource={events.selectedId.as(item.id)}
             key={item.id}
             aria-label={item.label}
             type="button"
@@ -51,11 +51,14 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
             ]}
           >
             {item.label}
-          </view.button>
+          </evented.button>
         ))}
       </div>
       <p>
-        Selected: <view.output on={events.selectedId}>{({ detail }) => detail ?? ''}</view.output>
+        Selected:{' '}
+        <evented.output eventSource={events.selectedId}>
+          {({ detail }) => detail ?? ''}
+        </evented.output>
       </p>
     </section>
   )

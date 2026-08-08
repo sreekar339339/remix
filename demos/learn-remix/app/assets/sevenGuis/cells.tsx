@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents } from '../utils/customEvents/index.tsx'
+import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { taskCss } from './styles.ts'
 
 const columns = ['A', 'B', 'C', 'D', 'E', 'F'] as const
@@ -66,7 +66,7 @@ function calculate(formulas: Values): Values {
   return values
 }
 
-let cellCss = css({
+const cellCss = css({
   width: '100%',
   padding: '4px 6px',
   textAlign: 'right',
@@ -80,7 +80,7 @@ let cellCss = css({
 export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCells() {
   let formulas: Values = { A0: '10', B0: '20', C0: '=A0+B0' }
   let renderCounts = new Map<CellId, number>()
-  let { view, events, state } = customEvents<{ cellDrafted: string }>().store({
+  let { events, state } = customEvents<{ cellDrafted: string }>().store({
     values: calculate(formulas),
     focusTarget: cellId('A', 0),
   })
@@ -116,8 +116,8 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                 <th>{row}</th>
                 {columns.map((column, __, _, id = cellId(column, row)) => (
                   <td key={id}>
-                    <view.input
-                      on={[events.values[id], events.cellDrafted]}
+                    <evented.input
+                      eventSource={[events.values[id], events.cellDrafted]}
                       aria-label={id}
                       data-render-count={() => {
                         let count = (renderCounts.get(id) ?? 0) + 1

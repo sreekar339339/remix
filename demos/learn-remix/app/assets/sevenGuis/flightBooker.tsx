@@ -1,5 +1,5 @@
 import { clientEntry, on } from 'remix/ui'
-import { customEvents } from '../utils/customEvents/index.tsx'
+import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 type FlightKind = 'one-way flight' | 'return flight'
@@ -38,7 +38,7 @@ export const SevenGuisFlightBooker = clientEntry(
   import.meta.url,
   function SevenGuisFlightBooker(handle) {
     let today = new Date().toISOString().slice(0, 10)
-    let { view, events, state, host } = customEvents<FlightEvents>().store({
+    let { events, state, host } = customEvents<FlightEvents>().store({
       kind: 'one-way flight',
       startDate: today,
       returnDate: today,
@@ -115,14 +115,17 @@ export const SevenGuisFlightBooker = clientEntry(
         >
           Book
         </button>
-        <view.output on={events.bookingConfirmed} hidden={({ detail }) => detail === undefined}>
+        <evented.output
+          eventSource={events.bookingConfirmed}
+          hidden={({ detail }) => detail === undefined}
+        >
           {({ detail }) => {
             if (detail === undefined || !confirmedFlight) return null
             return confirmedFlight.kind === 'one-way flight'
               ? `You have booked a one-way flight on ${confirmedFlight.startDate}.`
               : `You have booked a return flight from ${confirmedFlight.startDate} to ${confirmedFlight.returnDate}.`
           }}
-        </view.output>
+        </evented.output>
       </section>
     )
   },
