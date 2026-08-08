@@ -101,6 +101,15 @@ type EventedElementProps<props> = {
 }
 
 /**
+ * Event-aware props for the virtual `list` element: children stay a per-item
+ * template (never a callback of the event input) while remaining props accept
+ * the usual reactive forms.
+ */
+type EventedListElementProps<props> = Omit<EventedElementProps<props>, 'children'> & {
+  children: props extends { children?: infer Children } ? Children : never
+}
+
+/**
  * Get the props for a specific element type, without reactive event-aware
  * forms. Component prop types should extend this; JSX host elements accept
  * reactive props through {@link JSX.IntrinsicElements}.
@@ -329,6 +338,7 @@ declare global {
       legend: dom.LegendHTMLProps<HTMLLegendElement>
       li: dom.LiHTMLProps<HTMLLIElement>
       link: dom.LinkHTMLProps<HTMLLinkElement>
+      list: dom.ListProps<HTMLElement>
       main: dom.MainHTMLProps<HTMLElement>
       map: dom.MapHTMLProps<HTMLMapElement>
       mark: dom.HTMLProps<HTMLElement>
@@ -391,7 +401,9 @@ declare global {
       extends IntrinsicSVGElements, IntrinsicMathMLElements, IntrinsicHTMLElements {}
 
     export type IntrinsicElements = {
-      [key in keyof IntrinsicElementProps]: EventedElementProps<IntrinsicElementProps[key]>
+      [key in keyof IntrinsicElementProps]: key extends 'list'
+        ? EventedListElementProps<IntrinsicElementProps[key]>
+        : EventedElementProps<IntrinsicElementProps[key]>
     }
   }
 }

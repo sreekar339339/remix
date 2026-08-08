@@ -57,7 +57,9 @@ export type {
   EventSourceProtocol,
   EventSourceSubscriber,
 } from './runtime/event-source.ts'
-export type { HostProps, LayoutAnimationConfig } from './runtime/dom.ts'
+export { EVENT_ROUTES, getEventRoutes } from './runtime/event-route.ts'
+export type { EventRouteOp, EventRoutes, ListAction } from './runtime/event-route.ts'
+export type { HostProps, LayoutAnimationConfig, ListProps } from './runtime/dom.ts'
 export { createMixin } from './runtime/mixins/mixin.ts'
 export type {
   MixinDescriptor,

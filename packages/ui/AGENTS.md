@@ -1380,6 +1380,28 @@ Rules:
 
 Event sources are any objects exposing the `EVENT_SOURCE` protocol brand with `{ read?, subscribe(subscriber, signal) }`, so event models plug in without the renderer knowing their internals. Use `getEventSourceProtocol()` and the `EventSource`/`EventSourceProtocol`/`EventSourceSubscriber` types when authoring an event model.
 
+### Keyed List Element (`list`)
+
+The virtual `list` element renders one template per collection item from a single event source. It has no DOM node of its own; items render into its parent's markup. The list only makes sense with a state source that retains a Map, Set, or array:
+
+```tsx
+<list eventSource={events.circles}>
+  {(circle, id) => <evented.circle key={id} cx={circle.x} />}
+</list>
+```
+
+Rules:
+
+- `eventSource` accepts exactly one source; the source must retain a value whose `detail` is a Map, Set, or array.
+- `children` is a per-item template `(item, key) => RemixNode`; it is never a callback of the event input. The template must render a node for every item.
+- Items are keyed: a Map's keys, a Set's values, an array's indexes.
+- On every matched event the list reads the source's current value. When the matched event carries structural routes (the `EVENT_ROUTES` brand symbol), changes are applied minimally: adds insert, removals drop, and Map value replaces rebuild the one item, preserving every other item's DOM identity. Arrays additionally decode a replace-then-remove chain (e.g. deleting a middle item) as a single removal.
+- Whole-key changes, unrecognized route shapes, reorders, and events without routes fall back to re-resolving every item through the keyed vdom diff.
+- The element keeps the event's value across parent re-renders; unsubscribing happens automatically when the element is removed.
+- Server rendering resolves the initial input only; subscriptions are client-side.
+
+Event models that emit structural routes attach them to dispatched events with the `EVENT_ROUTES` symbol (`Symbol.for('rmx:event-routes')`) as `{ addresses, ops }`: index-aligned arrays where each `address` locates one changed value (a single key segment for Map/Set/array items, `[]` for whole-key changes) and each `op` is `'add' | 'remove' | 'replace'`. Use `getEventRoutes(event)` and the `EventRouteOp`/`EventRoutes`/`ListAction` types when authoring an event model with routes.
+
 ### Composition Through props.children
 
 Components can compose other components via `children`:

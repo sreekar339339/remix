@@ -6,6 +6,7 @@ import { createRangeRoot } from './vdom.ts'
 import type {
   CommittedFragmentNode,
   CommittedFrameNode,
+  CommittedListNode,
   CommittedNonRenderNode,
   ComponentNode,
   CommittedComponentNode,
@@ -16,6 +17,7 @@ import type {
   DirectEventState,
   FrameNode,
   HostNode,
+  ListNode,
   MountingComponentNode,
   ReconcileContext,
   RuntimeHostProps,
@@ -30,6 +32,7 @@ import {
   isCommittedTextNode,
   isFragmentNode,
   isHostNode,
+  isListNode,
   findContextFromAncestry,
 } from './vnode.ts'
 import { invariant } from './invariant.ts'
@@ -38,15 +41,20 @@ import type { StyleManager } from '../style/index.ts'
 import type { ElementFunction } from './element-function.ts'
 import {
   createEventedHostState,
+  createEventedListState,
   resolveEventedProps,
   resolveEventSourceProtocols,
   subscribeEventedHostNode,
+  subscribeEventedListNode,
   type EventedHostState,
+  type EventedListState,
 } from './event-source.ts'
+import { decodeListRoutes, getEventRoutes, type ListAction } from './event-route.ts'
 import type { Key } from './key.ts'
 import { skipComments, logHydrationMismatch } from './client-entries.ts'
 import type { Scheduler } from './scheduler.ts'
-import { resolveEventedChildInputs, toVNode } from './to-vnode.ts'
+import { resolveEventedChildInputs, resolveEventedListItemInputs, toVNode } from './to-vnode.ts'
+import type { RemixNode } from './jsx.ts'
 import {
   bindMixinRuntime,
   cancelPendingMixinRemoval,
@@ -543,6 +551,9 @@ export function diffVNodes(
         cursor,
       )
     }
+    case 'list': {
+      return diffList(curr as CommittedListNode, next as ListNode, domParent, vParent, context)
+    }
   }
 }
 
@@ -660,6 +671,56 @@ function diffHost(
   return committed
 }
 
+function diffList(
+  curr: CommittedListNode,
+  next: ListNode,
+  domParent: ParentNode,
+  vParent: VNodeParent,
+  context: ReconcileContext,
+): CommittedListNode {
+  let eventedState = curr._evented
+  let subscribeEvented = false
+  if (next.props.eventSource != null) {
+    if (eventedState) {
+      // Adopt the fresh raw props and template but keep the current event
+      // input; the list's items follow the event stream, not the parent
+      // re-render.
+      eventedState.rawProps = next.props
+      eventedState.rawTemplate = next.props.children
+    } else {
+      let sources = resolveEventSourceProtocols(next.props.eventSource)
+      invariant(sources.length === 1, '<list> accepts exactly one event source.')
+      eventedState = createEventedListState(sources, next.props, next.props.initial, context)
+      subscribeEvented = true
+    }
+  } else if (eventedState) {
+    teardownEventedListNode(curr)
+    eventedState = undefined
+  }
+  let committed = beginListNode(next, vParent, getSvgContext(vParent, next), domParent)
+  attachEventedListState(committed, eventedState)
+  if (subscribeEvented && eventedState) {
+    subscribeEventedListNode(eventedState, () => scheduleEventedListUpdate(eventedState!))
+  }
+  if (eventedState) {
+    let resolved = resolveEventedListItemInputs(eventedState.rawTemplate, eventedState.input)
+    committed._items = resolved.items
+    committed._keys = resolved.keys
+    committed._children = diffChildren(
+      curr._children,
+      resolved.vnodes,
+      domParent,
+      committed,
+      context,
+    )
+  } else {
+    committed._items = curr._items
+    committed._keys = curr._keys
+    committed._children = curr._children
+  }
+  return committed
+}
+
 function setupHostNode(node: CommittedHostNode, scheduler: Scheduler): void {
   let props = getHostProps(node)
 
@@ -720,6 +781,194 @@ function attachEventedState(node: CommittedHostNode, state: EventedHostState | u
   if (!state) return
   node._evented = state
   state.node = node
+}
+
+type EventedListPreparation = {
+  childInputs: VNodeInput[]
+  items: unknown[]
+  keys: unknown[]
+  state?: EventedListState
+}
+
+// Prepares a mounting list element with an `eventSource` prop: creates the
+// evented state and resolves the per-item template over the initial event
+// input so the standard mount flow works with plain vnodes.
+function prepareEventedListNode(node: ListNode, context: ReconcileContext): EventedListPreparation {
+  let sources = resolveEventSourceProtocols(node.props.eventSource)
+  invariant(sources.length === 1, '<list> accepts exactly one event source.')
+  let state = createEventedListState(sources, node.props, node.props.initial, context)
+  let resolved = resolveEventedListItemInputs(state.rawTemplate, state.input)
+  return { childInputs: resolved.vnodes, items: resolved.items, keys: resolved.keys, state }
+}
+
+function beginListNode(
+  node: ListNode,
+  parent: VNodeParent,
+  svg: boolean,
+  domParent: ParentNode,
+): CommittedListNode {
+  let committed = node as unknown as CommittedListNode
+  committed._parent = parent
+  committed._svg = svg
+  committed._children = EMPTY_COMMITTED_CHILDREN
+  committed._items = []
+  committed._keys = []
+  committed._domParent = domParent
+  return committed
+}
+
+// Carries evented state onto a freshly committed list node.
+function attachEventedListState(
+  node: CommittedListNode,
+  state: EventedListState | undefined,
+): void {
+  if (!state) return
+  node._evented = state
+  state.node = node
+}
+
+function teardownEventedListNode(node: CommittedListNode): void {
+  let state = node._evented
+  if (!state) return
+  node._evented = undefined
+  state.controller.abort(new DOMException('', 'AbortError'))
+  let waiters = state.waiters
+  state.waiters = []
+  for (let resolve of waiters) resolve()
+}
+
+function insertList(
+  node: ListNode,
+  domParent: ParentNode,
+  vParent: VNodeParent,
+  context: ReconcileContext,
+  svg: boolean,
+  anchor?: Node,
+  cursor?: HydrationCursor,
+): CommittedListNode {
+  let prepared = prepareEventedListNode(node, context)
+  let committed = beginListNode(node, vParent, svg, domParent)
+  attachEventedListState(committed, prepared.state)
+  committed._children = diffChildren(
+    null,
+    prepared.childInputs,
+    domParent,
+    committed,
+    context,
+    cursor,
+    anchor,
+  )
+  committed._items = prepared.items
+  committed._keys = prepared.keys
+  if (prepared.state) {
+    subscribeEventedListNode(prepared.state, () => scheduleEventedListUpdate(prepared.state!))
+  }
+  return committed
+}
+
+function scheduleEventedListUpdate(state: EventedListState): Promise<void> {
+  return new Promise((resolve) => {
+    state.waiters.push(resolve)
+    if (state.pending) return
+    state.pending = true
+    state.context.scheduler.enqueueWork([() => runEventedListUpdate(state)])
+  })
+}
+
+// Resolves list items with the current event input and applies them through
+// the standard reconciliation flow. When the matched event carried structural
+// routes, the changes are applied minimally through the fine-grained decoder;
+// otherwise every item re-resolves and the keyed diff does the work.
+function runEventedListUpdate(state: EventedListState): void {
+  state.pending = false
+  let waiters = state.waiters
+  state.waiters = []
+  try {
+    if (state.controller.signal.aborted) return
+    let node = state.node!
+    node.props = state.rawProps
+    let actions = decodeListRoutes(
+      (state.input as { detail?: unknown } | null)?.detail,
+      node._items,
+      node._keys,
+      getEventRoutes(state.lastEvent),
+    )
+    if (actions.some((action) => action.op === 'fallback')) {
+      let resolved = resolveEventedListItemInputs(state.rawTemplate, state.input)
+      node._items = resolved.items
+      node._keys = resolved.keys
+      node._children = diffChildren(
+        node._children,
+        resolved.vnodes,
+        node._domParent,
+        node,
+        state.context,
+      )
+    } else {
+      applyListActions(node, actions, state.rawTemplate, state.context)
+    }
+  } finally {
+    for (let resolve of waiters) resolve()
+  }
+}
+
+function applyListActions(
+  node: CommittedListNode,
+  actions: ListAction[],
+  template: unknown,
+  context: ReconcileContext,
+): void {
+  let render = template as (item: unknown, key: unknown) => RemixNode
+  let children = node._children.slice()
+  let items = node._items.slice()
+  let keys = node._keys.slice()
+  for (let action of actions) {
+    switch (action.op) {
+      case 'insert': {
+        let rendered = render(action.item, action.key)
+        invariant(
+          rendered !== null && rendered !== undefined,
+          '<list> item templates must render a node for every item',
+        )
+        let anchor: Node | undefined
+        let next = children[action.index]
+        if (next) anchor = findFirstDomAnchor(next) ?? undefined
+        let committed = insert(toVNode(rendered), node._domParent, node, context, anchor)
+        children.splice(action.index, 0, committed)
+        items.splice(action.index, 0, action.item)
+        keys.splice(action.index, 0, action.key)
+        break
+      }
+      case 'remove': {
+        let child = children[action.index]
+        if (child) remove(child, node._domParent, context)
+        children.splice(action.index, 1)
+        items.splice(action.index, 1)
+        keys.splice(action.index, 1)
+        break
+      }
+      case 'rebuild': {
+        let rendered = render(action.item, action.key)
+        invariant(
+          rendered !== null && rendered !== undefined,
+          '<list> item templates must render a node for every item',
+        )
+        children[action.index] = diffVNodes(
+          children[action.index],
+          toVNode(rendered),
+          node._domParent,
+          node,
+          context,
+        )
+        items[action.index] = action.item
+        keys[action.index] = action.key
+        break
+      }
+    }
+  }
+  node._children = children
+  node._items = items
+  node._keys = keys
 }
 
 // Resolves reactive props and children with the current event input and
@@ -1118,6 +1367,10 @@ function insert(
     }
     doInsert(dom)
     return committed
+  }
+
+  if (node.kind === 'list') {
+    return insertList(node, domParent, vParent, context, svg, anchor, cursor)
   }
 
   if (node.kind === 'fragment') {
@@ -1597,6 +1850,15 @@ function cleanupDescendants(node: CommittedVNode, context: ReconcileContext): vo
     return
   }
 
+  if (node.kind === 'list') {
+    let children = node._children
+    for (let i = 0; i < children.length; i++) {
+      cleanupDescendants(children[i], context)
+    }
+    teardownEventedListNode(node)
+    return
+  }
+
   if (isCommittedComponentNode(node)) {
     cleanupDescendants(node._content, context)
     let tasks = node._handle.remove()
@@ -1660,6 +1922,15 @@ export function remove(
   if (node.kind === 'frame') {
     disposeFrameResources(node)
     removeFrameDomRange(node, domParent)
+    return
+  }
+
+  if (node.kind === 'list') {
+    let children = node._children
+    for (let i = 0; i < children.length; i++) {
+      remove(children[i], node._domParent, context)
+    }
+    teardownEventedListNode(node)
     return
   }
 }
@@ -1770,6 +2041,10 @@ function canBulkClearNode(node: CommittedVNode): boolean {
   }
 
   if (isFragmentNode(node)) {
+    return canBulkClearChildren(node._children)
+  }
+
+  if (isListNode(node)) {
     return canBulkClearChildren(node._children)
   }
 
@@ -2121,6 +2396,13 @@ export function findFirstDomAnchor(node: CommittedVNode | null | undefined): Nod
   if (isCommittedHostNode(node)) return node._dom
   if (isCommittedComponentNode(node)) return findFirstDomAnchor(node._content)
   if (node.kind === 'frame') return node._rangeStart
+  if (isListNode(node)) {
+    let children = node._children
+    for (let i = 0; i < children.length; i++) {
+      let dom = findFirstDomAnchor(children[i])
+      if (dom) return dom
+    }
+  }
   if (isFragmentNode(node)) {
     let children = node._children
     for (let i = 0; i < children.length; i++) {
@@ -2137,6 +2419,12 @@ export function findLastDomAnchor(node: CommittedVNode | null | undefined): Node
   if (isCommittedHostNode(node)) return node._dom
   if (isCommittedComponentNode(node)) return findLastDomAnchor(node._content)
   if (node.kind === 'frame') return node._rangeEnd
+  if (isListNode(node)) {
+    for (let i = node._children.length - 1; i >= 0; i--) {
+      let dom = findLastDomAnchor(node._children[i])
+      if (dom) return dom
+    }
+  }
   if (isFragmentNode(node)) {
     for (let i = node._children.length - 1; i >= 0; i--) {
       let dom = findLastDomAnchor(node._children[i])

@@ -1,6 +1,6 @@
 import type { ComponentHandle, Fragment, Frame, FrameHandle, FrameProps } from './component.ts'
 import { isRemixElement } from './core/vnode.ts'
-import type { EventedHostState } from './event-source.ts'
+import type { EventedHostState, EventedListState } from './event-source.ts'
 import type { Frame as FrameInstance } from './frame.ts'
 import type { RemixNode } from './jsx.ts'
 import type { ElementFunction } from './element-function.ts'
@@ -15,8 +15,17 @@ export { isRemixElement }
 export const TEXT_NODE = Symbol('TEXT_NODE')
 export const NON_RENDER_NODE = Symbol('NON_RENDER_NODE')
 export const ROOT_VNODE = Symbol('ROOT_VNODE')
+export const LIST_TAG = 'list'
 
-export type VNodeKind = 'root' | 'empty' | 'text' | 'fragment' | 'host' | 'component' | 'frame'
+export type VNodeKind =
+  | 'root'
+  | 'empty'
+  | 'text'
+  | 'fragment'
+  | 'host'
+  | 'component'
+  | 'frame'
+  | 'list'
 
 export type RuntimeElementProps = {
   [name: string]: unknown
@@ -65,6 +74,7 @@ export type VNodeInput =
   | HostNode
   | ComponentNode
   | FrameNode
+  | ListNode
 
 type MountedNodeBase = {
   _parent: VNodeParent
@@ -132,6 +142,22 @@ export type CommittedFragmentNode = CommittedNodeBase<'fragment', typeof Fragmen
   _children: CommittedVNode[]
 }
 
+export type ListNode = InputNodeBase<'list', typeof LIST_TAG> & {
+  props: RuntimeHostProps
+}
+
+export type CommittedListNode = CommittedNodeBase<'list', typeof LIST_TAG> & {
+  props: RuntimeHostProps
+  _children: CommittedVNode[]
+  /** Item references parallel to `_children`, used for fine-grained updates. */
+  _items: unknown[]
+  /** Item keys parallel to `_children`, used for fine-grained updates. */
+  _keys: unknown[]
+  /** DOM parent the list's children render into; the list itself has none. */
+  _domParent: ParentNode
+  _evented?: EventedListState
+}
+
 export type MountingComponentNode = CommittedNodeBase<'component', ElementFunction> & {
   props: RuntimeElementProps
   _handle: ComponentHandle
@@ -169,6 +195,7 @@ export type CommittedVNode =
   | CommittedHostNode
   | CommittedComponentNode
   | CommittedFrameNode
+  | CommittedListNode
 
 export type RootVNode = {
   kind: 'root'
@@ -193,6 +220,7 @@ export type VNodeParent =
   | CommittedHostNode
   | MountingComponentNode
   | CommittedComponentNode
+  | CommittedListNode
 
 export type VNode = VNodeInput | CommittedVNode | RootVNode | MountingComponentNode
 
@@ -236,6 +264,14 @@ export function isFrameNode(node: VNode): node is FrameNode | CommittedFrameNode
 
 export function isCommittedFrameNode(node: CommittedVNode): node is CommittedFrameNode {
   return node.kind === 'frame'
+}
+
+export function isListNode(node: VNode): node is ListNode | CommittedListNode {
+  return node.kind === 'list'
+}
+
+export function isCommittedListNode(node: CommittedVNode): node is CommittedListNode {
+  return node.kind === 'list'
 }
 
 export function findContextFromAncestry(node: VNodeParent, type: ElementFunction): unknown {

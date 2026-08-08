@@ -6,6 +6,7 @@ import type { RemixNode } from './jsx.ts'
 import type { ElementFunction } from './element-function.ts'
 import type { FrameProps } from './component.ts'
 import { isMixinDescriptor } from './mixins/mixin.ts'
+import { LIST_TAG } from './vnode.ts'
 import {
   isRemixElement,
   NON_RENDER_NODE,
@@ -47,6 +48,67 @@ function flattenChildrenToVNodes(nodes: RemixNode[], out: VNodeInput[]): void {
   }
 }
 
+/**
+ * Resolves the children of a keyed list element: the per-item template is
+ * called with each collection item and its key. Used when the element
+ * (re-)renders from an event rather than a parent render.
+ *
+ * @param template The per-item template child.
+ * @param input The callback input; its `detail` must be a Map, Set, or array.
+ * @returns The resolved child vnodes plus parallel item/key references.
+ */
+export function resolveEventedListItemInputs(
+  template: unknown,
+  input: unknown,
+): { vnodes: VNodeInput[]; items: unknown[]; keys: unknown[] } {
+  let detail = (input as { detail?: unknown } | null)?.detail
+  if (detail === undefined || detail === null) {
+    return { vnodes: [], items: [], keys: [] }
+  }
+  let render = template as (item: unknown, key: unknown) => RemixNode
+  let vnodes: VNodeInput[] = []
+  let items: unknown[] = []
+  let keys: unknown[] = []
+  if (detail instanceof Map) {
+    for (let [key, item] of detail) {
+      vnodes.push(toVNode(renderItem(render, item, key)))
+      items.push(item)
+      keys.push(key)
+    }
+    return { vnodes, items, keys }
+  }
+  if (detail instanceof Set) {
+    for (let item of detail) {
+      vnodes.push(toVNode(renderItem(render, item, item)))
+      items.push(item)
+      keys.push(item)
+    }
+    return { vnodes, items, keys }
+  }
+  if (Array.isArray(detail)) {
+    for (let index = 0; index < detail.length; index++) {
+      vnodes.push(toVNode(renderItem(render, detail[index], index)))
+      items.push(detail[index])
+      keys.push(index)
+    }
+    return { vnodes, items, keys }
+  }
+  invariant(false, '<list> requires an event detail that is a Map, Set, or array.')
+}
+
+function renderItem(
+  render: (item: unknown, key: unknown) => RemixNode,
+  item: unknown,
+  key: unknown,
+): RemixNode {
+  let rendered = render(item, key)
+  invariant(
+    rendered !== null && rendered !== undefined,
+    '<list> item templates must render a node for every item',
+  )
+  return rendered
+}
+
 export function toVNode(node: RemixNode): VNodeInput {
   if (isEmptyChild(node)) {
     return { kind: 'empty', type: NON_RENDER_NODE }
@@ -73,6 +135,14 @@ export function toVNode(node: RemixNode): VNodeInput {
     }
 
     if (typeof node.type === 'string') {
+      if (node.type === LIST_TAG) {
+        let props = node.props
+        invariant(
+          props.eventSource != null && typeof props.children === 'function',
+          '<list> requires an eventSource prop and a function child that renders each item',
+        )
+        return { kind: 'list', type: LIST_TAG, key: node.key, props }
+      }
       let props = parseHostProps(node.props)
       // Event-aware elements resolve their children from the event input at
       // commit time instead of converting them here.
