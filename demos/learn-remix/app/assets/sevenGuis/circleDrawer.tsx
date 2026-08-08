@@ -116,8 +116,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             Redo
           </evented.button>
         </div>
-        <evented.svg
-          eventSource={events.circles}
+        <svg
           viewBox="0 0 420 220"
           aria-label="Circle canvas"
           mix={[
@@ -144,14 +143,10 @@ export const SevenGuisCircleDrawer = clientEntry(
             }),
           ]}
         >
-          {({ detail: circles }) =>
-            [...circles.values()].map((circle) => (
+          <evented.list eventSource={events.circles}>
+            {(circle, id) => (
               <evented.circle
-                eventSource={[
-                  events.circles.get(circle.id).diameter,
-                  events.editingCircleById.as(circle.id),
-                ]}
-                key={circle.id}
+                eventSource={[events.circles.get(id).diameter, events.editingCircleById.as(id)]}
                 cx={circle.x}
                 cy={circle.y}
                 r={({ detail: [diameter] }) => (diameter ?? circle.diameter) / 2}
@@ -168,14 +163,14 @@ export const SevenGuisCircleDrawer = clientEntry(
                     event.preventDefault()
                     state.update((draft) => {
                       if (draft.editingCircleById !== null) return
-                      draft.editingCircleById = circle.id
+                      draft.editingCircleById = id
                     })
                   }),
                 ]}
               />
-            ))
-          }
-        </evented.svg>
+            )}
+          </evented.list>
+        </svg>
         <evented.form
           eventSource={events.editingCircleById}
           hidden={({ detail }) => detail === null}

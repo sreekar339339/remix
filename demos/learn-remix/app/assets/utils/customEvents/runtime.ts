@@ -1,3 +1,5 @@
+import { EVENT_ROUTES } from 'remix/ui'
+
 export const ALL_EVENTS = '*'
 
 export type SubscriptionPhase = 'view' | 'effect'
@@ -8,7 +10,7 @@ type DispatchTargetRegistration = {
 }
 
 type ElementSubscription = {
-  element: Element
+  element: Element | undefined
   eventTypes: ReadonlySet<string> | null
   addresses?: ReadonlyMap<string, EventAddress>
   notify(event: CustomEvent): unknown
@@ -271,9 +273,11 @@ function subscribe(
     routes.push([selector, route, address])
   }
 
-  let unregisterTarget = registerDispatchTarget(runtime, subscription.element)
+  let unregisterTarget = subscription.element
+    ? registerDispatchTarget(runtime, subscription.element)
+    : undefined
   return ownCleanup(() => {
-    unregisterTarget()
+    unregisterTarget?.()
     for (let [selector, route, address] of routes) {
       removeFromRoute(route, subscription, address)
       if (!route.subscriptions.size && !route.children.size) {
@@ -360,11 +364,22 @@ function notifyEntries(
   originTarget: EventTarget,
   carrier: CustomEvent,
 ) {
-  let events: TransactionEvent[] = entries.map((entry) => ({
-    event: createEventSnapshot(entry, originTarget, carrier),
-    ...(entry.addresses === undefined ? {} : { addresses: entry.addresses }),
-    ...(entry.ops === undefined ? {} : { ops: entry.ops }),
-  }))
+  let events: TransactionEvent[] = entries.map((entry) => {
+    let event = createEventSnapshot(entry, originTarget, carrier)
+    let addresses = entry.addresses
+    let ops = entry.ops
+    if (addresses !== undefined && ops !== undefined) {
+      setEventProperty(event, EVENT_ROUTES, {
+        addresses,
+        ops: ops.map((op) => (op === 'mapReplace' ? 'replace' : op)),
+      })
+    }
+    return {
+      event,
+      ...(addresses === undefined ? {} : { addresses }),
+      ...(ops === undefined ? {} : { ops }),
+    }
+  })
 
   let matches = new Map<ElementSubscription, TransactionEvent>()
   for (let transactionEvent of events) {

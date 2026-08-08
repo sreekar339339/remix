@@ -432,6 +432,80 @@ describe('customEvents', () => {
     assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '3')
   })
 
+  it('applies store updates to keyed list children fine-grained', async (t) => {
+    let store = customEvents<{
+      circles: Map<number, { id: number; x: number; r: number }>
+    }>().store({
+      circles: new Map([
+        [1, { id: 1, x: 10, r: 5 }],
+        [2, { id: 2, x: 20, r: 5 }],
+      ]),
+    })
+    let templateCalls = 0
+
+    function Canvas() {
+      return () => (
+        <svg>
+          <evented.list eventSource={store.events.circles}>
+            {(circle, id) => {
+              templateCalls++
+              return (
+                <evented.circle
+                  key={id}
+                  eventSource={store.events.circles.get(id).r}
+                  cx={circle.x}
+                  r={({ detail: radius }) => radius ?? circle.r}
+                />
+              )
+            }}
+          </evented.list>
+        </svg>
+      )
+    }
+
+    let result = render(<Canvas />)
+    t.after(() => result.cleanup())
+
+    let circles = () => result.$('svg')!.querySelectorAll('circle')
+    assert.equal(circles().length, 2)
+    assert.equal(templateCalls, 2)
+    let first = circles()[0]
+
+    await result.act(async () => {
+      store.state.update((draft) => {
+        draft.circles.get(1)!.r = 9
+      })
+      await settleEffects()
+    })
+    // Map item replaces skip whole-key subscribers: the list does not
+    // re-resolve while the item element follows its own keyed route.
+    assert.equal(templateCalls, 2)
+    assert.equal(circles().length, 2)
+    assert.equal(circles()[0], first)
+    assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '9')
+
+    await result.act(async () => {
+      store.state.update((draft) => {
+        draft.circles.set(3, { id: 3, x: 30, r: 7 })
+      })
+      await settleEffects()
+    })
+    assert.equal(templateCalls, 3)
+    assert.equal(circles().length, 3)
+    assert.equal(circles()[0], first)
+    assert.equal((circles()[2] as SVGCircleElement).getAttribute('r'), '7')
+
+    await result.act(async () => {
+      store.state.update((draft) => {
+        draft.circles.delete(2)
+      })
+      await settleEffects()
+    })
+    assert.equal(templateCalls, 3)
+    assert.equal(circles().length, 2)
+    assert.equal(circles()[0], first)
+  })
+
   it('routes deep patches through every nested identity boundary', async (t) => {
     let store = customEvents().store({
       columns: new Map([
