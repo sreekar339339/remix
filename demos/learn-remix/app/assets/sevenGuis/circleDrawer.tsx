@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents } from '../utils/customEvents/index.tsx'
+import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 type Circle = {
@@ -54,7 +54,7 @@ function getCanvasPoint(canvas: SVGSVGElement, clientX: number, clientY: number)
 export const SevenGuisCircleDrawer = clientEntry(
   import.meta.url,
   function SevenGuisCircleDrawer(handle) {
-    let { view, events, state } = customEvents<DrawingModel>().store({
+    let { events, state } = customEvents<DrawingModel>().store({
       circles: new Map(),
       editingCircleById: null,
       history: { snapshots: [new Map()], index: 0 },
@@ -83,15 +83,14 @@ export const SevenGuisCircleDrawer = clientEntry(
         draft.editingCircleById = null
         draft.history.index = index
       })
-      void handle.update()
     }
 
     return () => (
       <section mix={taskCss}>
         <h2>Circle Drawer</h2>
         <div mix={rowCss}>
-          <view.button
-            on={events.history}
+          <evented.button
+            eventSource={events.history}
             type="button"
             disabled={({ detail }) => detail.index === 0}
             mix={[
@@ -102,9 +101,9 @@ export const SevenGuisCircleDrawer = clientEntry(
             ]}
           >
             Undo
-          </view.button>
-          <view.button
-            on={events.history}
+          </evented.button>
+          <evented.button
+            eventSource={events.history}
             type="button"
             disabled={({ detail }) => detail.index === detail.snapshots.length - 1}
             mix={[
@@ -115,9 +114,10 @@ export const SevenGuisCircleDrawer = clientEntry(
             ]}
           >
             Redo
-          </view.button>
+          </evented.button>
         </div>
-        <svg
+        <evented.svg
+          eventSource={events.circles}
           viewBox="0 0 420 220"
           aria-label="Circle canvas"
           mix={[
@@ -141,39 +141,43 @@ export const SevenGuisCircleDrawer = clientEntry(
                 draft.circles.set(circle.id, circle)
                 recordDrawingSnapshot(draft.circles, draft.history)
               })
-              void handle.update()
             }),
           ]}
         >
-          {[...state.value.circles.values()].map((circle) => (
-            <view.circle
-              on={[events.circles.get(circle.id).diameter, events.editingCircleById.as(circle.id)]}
-              key={circle.id}
-              cx={circle.x}
-              cy={circle.y}
-              r={({ detail: [diameter] }) => (diameter ?? circle.diameter) / 2}
-              fill={({ detail: [, isEditing] }) => (isEditing ? '#d4d4d8' : 'none')}
-              mix={[
-                css({
-                  pointerEvents: 'all',
-                  '&:hover': {
-                    fill: '#d4d4d8',
-                  },
-                  stroke: '#18181b',
-                }),
-                on('contextmenu', (event) => {
-                  event.preventDefault()
-                  state.update((draft) => {
-                    if (draft.editingCircleById !== null) return
-                    draft.editingCircleById = circle.id
-                  })
-                }),
-              ]}
-            />
-          ))}
-        </svg>
-        <view.form
-          on={events.editingCircleById}
+          {({ detail: circles }) =>
+            [...circles.values()].map((circle) => (
+              <evented.circle
+                eventSource={[
+                  events.circles.get(circle.id).diameter,
+                  events.editingCircleById.as(circle.id),
+                ]}
+                key={circle.id}
+                cx={circle.x}
+                cy={circle.y}
+                r={({ detail: [diameter] }) => (diameter ?? circle.diameter) / 2}
+                fill={({ detail: [, isEditing] }) => (isEditing ? '#d4d4d8' : 'none')}
+                mix={[
+                  css({
+                    pointerEvents: 'all',
+                    '&:hover': {
+                      fill: '#d4d4d8',
+                    },
+                    stroke: '#18181b',
+                  }),
+                  on('contextmenu', (event) => {
+                    event.preventDefault()
+                    state.update((draft) => {
+                      if (draft.editingCircleById !== null) return
+                      draft.editingCircleById = circle.id
+                    })
+                  }),
+                ]}
+              />
+            ))
+          }
+        </evented.svg>
+        <evented.form
+          eventSource={events.editingCircleById}
           hidden={({ detail }) => detail === null}
           mix={[
             rowCss,
@@ -185,8 +189,8 @@ export const SevenGuisCircleDrawer = clientEntry(
         >
           <label>
             Diameter{' '}
-            <view.input
-              on={[events.editingCircleById, events.circles]}
+            <evented.input
+              eventSource={[events.editingCircleById, events.circles]}
               type="range"
               min={10}
               max={120}
@@ -211,7 +215,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           <button type="submit" mix={buttonCss}>
             Close
           </button>
-        </view.form>
+        </evented.form>
       </section>
     )
   },

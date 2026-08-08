@@ -10,11 +10,12 @@ import {
   produceWithPatches,
 } from 'immer'
 import type { TypedEventTarget } from 'remix/ui'
-import { createCustomEventsDescriptor } from './descriptor.tsx'
-import { canonicalAddressSegment } from './runtime.ts'
+import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
+import { canonicalAddressSegment, type CustomEventsEntryOp } from './runtime.ts'
 import type {
   CustomEventsDescriptor,
   CustomEventsDefinition,
+  CustomEventsEventedViews,
   CustomEventsFactoryArgs,
   CustomEventsEventMap,
   CustomEventsOptions,
@@ -28,6 +29,16 @@ export type { CustomEventsEventMap } from './types.ts'
 
 enablePatches()
 enableMapSet()
+
+/**
+ * Event-aware intrinsic elements for any descriptor: `evented.<tag>` resolves
+ * to the tag string itself at runtime, while the source props infer the event
+ * map from the descriptor or store passed as `eventSource`.
+ */
+export const evented = customEventsEvented as unknown as CustomEventsEventedViews<
+  EventDetails,
+  never
+>
 
 type DescriptorWithStore<Events extends EventDetails> = CustomEventsDescriptor<Events> & {
   /**
@@ -102,7 +113,6 @@ type StoreEvents<Events, State> = Omit<Events, keyof State> & Immutable<State>
  */
 type Store<Events extends EventDetails, State extends EventDetails> = {
   readonly events: CustomEventsDescriptor<StoreEvents<Events, State>, Immutable<State>>
-  readonly view: CustomEventsDescriptor<StoreEvents<Events, State>, Immutable<State>>['view']
   readonly state: {
     /** The current immutable state snapshot. */
     readonly value: Immutable<State>
@@ -152,43 +162,49 @@ function resolvePatchPath(
 function normalizePatches(previousState: EventDetails, nextState: EventDetails, patches: Patch[]) {
   let rootKey = patches[0]?.path[0]
   if (typeof rootKey !== 'string') {
-    return []
+    return { addresses: [], ops: [] }
   }
   let previous = previousState[rootKey]
   let next = nextState[rootKey]
   let addresses: Array<readonly unknown[]> = []
+  let ops: CustomEventsEntryOp[] = []
+  let mapContainer = previous instanceof Map || next instanceof Map
 
-  let addAddress = (address: readonly unknown[] | undefined) => {
+  let addAddress = (address: readonly unknown[] | undefined, op: string) => {
     if (!address) return
     let duplicate = addresses.some(
       (candidate) =>
         candidate.length === address.length &&
         candidate.every((segment, index) => Object.is(segment, address[index])),
     )
-    if (!duplicate) addresses.push(address)
+    if (!duplicate) {
+      addresses.push(address)
+      ops.push(mapContainer && op === 'replace' ? 'mapReplace' : (op as CustomEventsEntryOp))
+    }
   }
 
   for (let patch of patches) {
     let addressCount = addresses.length
     let segments = (patch.path as unknown[]).slice(1)
+    let op = patch.op
 
     if (previous instanceof Set || next instanceof Set) {
       if (!Object.hasOwn(patch, 'value')) {
-        addAddress([])
+        addAddress([], op)
         continue
       }
-      addAddress([canonicalAddressSegment(patch.value)])
+      addAddress([canonicalAddressSegment(patch.value)], op)
       continue
     }
 
     let previousPath = resolvePatchPath(previousState, rootKey, segments)
     let nextPath = resolvePatchPath(nextState, rootKey, segments)
 
-    addAddress(previousPath)
-    addAddress(nextPath)
-    if (addresses.length === addressCount) addAddress([])
+    addAddress(previousPath, op)
+    addAddress(nextPath, op)
+    if (addresses.length === addressCount) addAddress([], op)
   }
-  return addresses
+  return { addresses, ops }
 }
 
 function isPrimitive(value: unknown) {
@@ -235,7 +251,7 @@ function createStore(initialState: EventDetails) {
 
       let entries: Array<Record<string, unknown>> = []
       for (let [key, keyPatches] of patchesByKey) {
-        let addresses = normalizePatches(snapshot, nextSnapshot, keyPatches)
+        let { addresses, ops } = normalizePatches(snapshot, nextSnapshot, keyPatches)
         let nextValue = nextSnapshot[key]
         let previousOwner = snapshot[key]
 
@@ -261,7 +277,7 @@ function createStore(initialState: EventDetails) {
         entries.push({
           [key]: {
             detail: nextValue,
-            options: { addresses },
+            options: { addresses, ops },
           },
         })
       }
@@ -272,7 +288,6 @@ function createStore(initialState: EventDetails) {
   }
   return {
     events,
-    view: events.view,
     state,
     host: target,
   }

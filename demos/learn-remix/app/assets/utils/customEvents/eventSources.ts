@@ -8,6 +8,22 @@ import {
 import { canonicalAddressSegment } from './runtime.ts'
 
 const eventSourceMetadata: unique symbol = Symbol('eventSource')
+export const stateEventSourceMarker: unique symbol = Symbol('stateEventSource')
+const storeOccurrenceSourceMarker: unique symbol = Symbol('storeOccurrenceSource')
+
+/**
+ * True when a source (or any member of a source array) belongs to a store:
+ * store-held state sources and store occurrences both read value semantics.
+ */
+export type IsStateEventSource<Source> = Source extends readonly (infer Item)[]
+  ? [true] extends [IsStateEventSource<Item>]
+    ? true
+    : false
+  : Source extends
+        | { readonly [stateEventSourceMarker]: true }
+        | { readonly [storeOccurrenceSourceMarker]: true }
+    ? true
+    : false
 
 export type EventSourceMetadata<Value = unknown, Type extends string = string> = {
   owner: object
@@ -39,8 +55,10 @@ export type StateEventSource<Value, Type extends string, Detail = Value> = Event
   Value,
   Type,
   Detail
-> &
-  (Defined<Value> extends ReadonlyMap<infer Key, infer Item>
+> & { readonly [stateEventSourceMarker]: true } & (Defined<Value> extends ReadonlyMap<
+    infer Key,
+    infer Item
+  >
     ? { get(key: Key): StateEventSource<Item | undefined, Type> }
     : Defined<Value> extends ReadonlySet<infer Item>
       ? { has(value: Item): StateEventSource<boolean, Type> }
@@ -55,6 +73,11 @@ export type StateEventSource<Value, Type extends string, Detail = Value> = Event
             }
           : { as(value: Value): StateEventSource<boolean, Type, Value | null> })
 
+/** An occurrence of a store: value semantics, like held state sources. */
+type StoreOccurrenceSource<Value, Type extends string> = EventSource<Value, Type> & {
+  readonly [storeOccurrenceSourceMarker]: true
+}
+
 export type EventSources<
   Events extends Record<string, unknown>,
   State extends Record<string, unknown> | never = never,
@@ -65,7 +88,7 @@ export type EventSources<
   : {
       readonly [Type in keyof Events & string]: Type extends keyof State & string
         ? StateEventSource<State[Type], Type>
-        : EventSource<Events[Type], Type>
+        : StoreOccurrenceSource<Events[Type], Type>
     }
 
 export function getEventSourceMetadata(value: unknown) {

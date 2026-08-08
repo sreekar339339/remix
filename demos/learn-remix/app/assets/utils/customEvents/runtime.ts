@@ -21,10 +21,18 @@ type AddressNode = {
 
 type SubscriptionIndex = Record<SubscriptionPhase, Map<string, AddressNode>>
 
+/**
+ * Patch operation classification per event entry address. `mapReplace` marks a
+ * keyed patch on a Map container: whole-key subscribers skip such events
+ * because per-item elements already follow their own keyed routes.
+ */
+export type CustomEventsEntryOp = 'add' | 'remove' | 'replace' | 'mapReplace'
+
 export type CustomEventsBatchRuntimeEntry = {
   type: string
   detail: unknown
   addresses?: readonly EventAddress[]
+  ops?: readonly CustomEventsEntryOp[]
 }
 
 type ProductEventMetadata = {
@@ -37,6 +45,7 @@ type ProductEventMetadata = {
 type TransactionEvent = {
   event: CustomEvent
   addresses?: readonly EventAddress[]
+  ops?: readonly CustomEventsEntryOp[]
 }
 
 export type EventAddress = readonly unknown[]
@@ -104,16 +113,28 @@ function collectBranch(selected: Set<ElementSubscription>, node: AddressNode) {
   for (let child of node.children.values()) collectBranch(selected, child)
 }
 
-function selectRoute(root: AddressNode, addresses: readonly EventAddress[] | undefined) {
+function selectRoute(
+  root: AddressNode,
+  addresses: readonly EventAddress[] | undefined,
+  ops?: readonly CustomEventsEntryOp[],
+) {
   let selected = new Set<ElementSubscription>()
   if (addresses === undefined) {
     collectBranch(selected, root)
     return selected
   }
+  // Whole-key changes (the root key itself was patched) notify every
+  // subscriber; keyed changes notify their addressed branch only. Map item
+  // replaces skip the root so whole-key subscribers do not re-resolve while
+  // per-item elements follow their own keyed routes.
+  let includeRoot =
+    addresses.some((address) => address.length === 0) ||
+    ops === undefined ||
+    ops.some((op) => op !== 'mapReplace')
   for (let address of addresses) {
     let nodes = walkAddress(root, address)
-    for (let node of nodes) {
-      for (let subscription of node.subscriptions) {
+    for (let index = includeRoot ? 0 : 1; index < nodes.length; index++) {
+      for (let subscription of nodes[index].subscriptions) {
         selected.add(subscription)
       }
     }
@@ -327,9 +348,9 @@ function* matchingSubscriptions(
 ) {
   let index = runtime.subscriptions[phase]
   let wildcard = index.get(ALL_EVENTS)
-  if (wildcard) yield* selectRoute(wildcard, transactionEvent.addresses)
+  if (wildcard) yield* selectRoute(wildcard, transactionEvent.addresses, transactionEvent.ops)
   let typed = index.get(transactionEvent.event.type)
-  if (typed) yield* selectRoute(typed, transactionEvent.addresses)
+  if (typed) yield* selectRoute(typed, transactionEvent.addresses, transactionEvent.ops)
 }
 
 function notifyEntries(
@@ -342,6 +363,7 @@ function notifyEntries(
   let events: TransactionEvent[] = entries.map((entry) => ({
     event: createEventSnapshot(entry, originTarget, carrier),
     ...(entry.addresses === undefined ? {} : { addresses: entry.addresses }),
+    ...(entry.ops === undefined ? {} : { ops: entry.ops }),
   }))
 
   let matches = new Map<ElementSubscription, TransactionEvent>()

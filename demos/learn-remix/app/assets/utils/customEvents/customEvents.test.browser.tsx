@@ -2,7 +2,7 @@ import * as assert from 'remix/assert'
 import { describe, it } from 'remix/test'
 import { on, ref } from 'remix/ui'
 import { render } from 'remix/ui/test'
-import { customEvents } from './index.tsx'
+import { customEvents, evented } from './index.tsx'
 import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
 import type { CustomEventsOptions } from './types.ts'
 
@@ -23,6 +23,44 @@ async function settleEffects() {
 }
 
 describe('customEvents', () => {
+  it('resolves evented.<tag> to the intrinsic tag string with typed callback inputs', async (t) => {
+    let events = customEvents<TestEvents>()
+    assert.equal(evented.output, 'output')
+    assert.equal(evented.button, 'button')
+    assert.equal(typeof evented.div, 'string')
+
+    function AliasView() {
+      return () => (
+        <section mix={events.asHost}>
+          <evented.output
+            eventSource={events.submitted}
+            aria-label="typed"
+            data-id={(event) => event?.detail?.id}
+          >
+            {(event) => event?.detail?.id ?? ''}
+          </evented.output>
+          <evented.output eventSource={events} aria-label="wildcard">
+            {(event) => (event ? event.type : '')}
+          </evented.output>
+        </section>
+      )
+    }
+
+    let result = render(<AliasView />)
+    t.after(() => result.cleanup())
+    let typed = result.$('[aria-label="typed"]') as HTMLOutputElement
+    let wildcard = result.$('[aria-label="wildcard"]') as HTMLOutputElement
+
+    assert.equal(typed.textContent, '')
+    await result.act(async () => {
+      typed.dispatchEvent(events.create('submitted', { id: 'order-1' }))
+      await settleEffects()
+    })
+    assert.equal(typed.dataset.id, 'order-1')
+    assert.equal(typed.textContent, 'order-1')
+    assert.equal(wildcard.textContent, 'submitted')
+  })
+
   it('publishes store properties as typed events', () => {
     let store = customEvents().store({
       count: 0,
@@ -86,7 +124,7 @@ describe('customEvents', () => {
       // @ts-expect-error - state property events cannot use native DOM names.
       customEvents().store({ click: false })
       // @ts-expect-error - store() state keys cannot overwrite its API.
-      customEvents<{ count: number }>().store({ count: 0, view: true })
+      customEvents<{ count: number }>().store({ count: 0, store: true })
       // @ts-expect-error - store is reserved as a descriptor method name.
       customEvents<{ store: string }>()
     }
@@ -110,7 +148,7 @@ describe('customEvents', () => {
   })
 
   it('keeps a destructured state live through updates', () => {
-    let { state, view, events } = customEvents().store({
+    let { state, events } = customEvents().store({
       count: 0,
       label: 'idle',
     })
@@ -194,9 +232,9 @@ describe('customEvents', () => {
 
     function Profile() {
       return () => (
-        <store.view.output
+        <evented.output
           aria-label="name"
-          on={store.events.profile.name}
+          eventSource={store.events.profile.name}
           class={({ detail }) => detail.toLowerCase()}
         >
           {({ detail }) => {
@@ -208,7 +246,7 @@ describe('customEvents', () => {
             renders++
             return detail
           }}
-        </store.view.output>
+        </evented.output>
       )
     }
 
@@ -269,21 +307,21 @@ describe('customEvents', () => {
     function Collections() {
       return () => (
         <section>
-          <store.view.output on={store.events.position.get('a')}>
+          <evented.output eventSource={store.events.position.get('a')}>
             {({ detail }) => `${++calls.mapA}:${detail ?? ''}`}
-          </store.view.output>
-          <store.view.output on={store.events.position.get('b')}>
+          </evented.output>
+          <evented.output eventSource={store.events.position.get('b')}>
             {({ detail }) => `${++calls.mapB}:${detail ?? ''}`}
-          </store.view.output>
-          <store.view.output on={store.events.position}>
+          </evented.output>
+          <evented.output eventSource={store.events.position}>
             {({ detail }) => `${++calls.mapAll}:${detail.size}`}
-          </store.view.output>
-          <store.view.output on={store.events.selected.has('red')}>
+          </evented.output>
+          <evented.output eventSource={store.events.selected.has('red')}>
             {({ detail }) => `${++calls.red}:${detail}`}
-          </store.view.output>
-          <store.view.output on={store.events.selected.has('blue')}>
+          </evented.output>
+          <evented.output eventSource={store.events.selected.has('blue')}>
             {({ detail }) => `${++calls.blue}:${detail}`}
-          </store.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -297,10 +335,12 @@ describe('customEvents', () => {
       })
       await settleEffects()
     })
+    // Map item replaces skip whole-key subscribers: only the item's own
+    // keyed route is notified.
     assert.deepEqual(calls, {
       mapA: 2,
       mapB: 1,
-      mapAll: 2,
+      mapAll: 1,
       red: 1,
       blue: 1,
     })
@@ -317,11 +357,79 @@ describe('customEvents', () => {
     assert.deepEqual(calls, {
       mapA: 3,
       mapB: 2,
-      mapAll: 3,
+      mapAll: 1,
       red: 1,
       blue: 2,
     })
     assert.equal(positionEvents, 2)
+  })
+
+  it('renders keyed children from a store without component updates', async (t) => {
+    let store = customEvents<{
+      circles: Map<number, { id: number; x: number; r: number }>
+    }>().store({
+      circles: new Map([
+        [1, { id: 1, x: 10, r: 5 }],
+        [2, { id: 2, x: 20, r: 5 }],
+      ]),
+    })
+
+    function Canvas() {
+      return () => (
+        <evented.svg eventSource={store.events.circles}>
+          {({ detail: circles }) =>
+            [...circles.values()].map((circle) => (
+              <evented.circle
+                key={circle.id}
+                eventSource={store.events.circles.get(circle.id).r}
+                cx={circle.x}
+                r={({ detail: radius }) => radius ?? circle.r}
+              />
+            ))
+          }
+        </evented.svg>
+      )
+    }
+
+    let result = render(<Canvas />)
+    t.after(() => result.cleanup())
+
+    let circles = () => result.$('svg')!.querySelectorAll('circle')
+    assert.equal(circles().length, 2)
+    let first = circles()[0]
+
+    await result.act(async () => {
+      store.state.update((draft) => {
+        draft.circles.get(1)!.r = 9
+      })
+      await settleEffects()
+    })
+    // A Map item replace updates the item element in place and preserves the
+    // DOM identity of every circle.
+    assert.equal(circles().length, 2)
+    assert.equal(circles()[0], first)
+    assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '9')
+
+    await result.act(async () => {
+      store.state.update((draft) => {
+        draft.circles.set(3, { id: 3, x: 30, r: 7 })
+      })
+      await settleEffects()
+    })
+    assert.equal(circles().length, 3)
+    assert.equal(circles()[0], first)
+
+    await result.act(async () => {
+      store.state.update((draft) => {
+        draft.circles = new Map([[1, { id: 1, x: 10, r: 3 }]])
+      })
+      await settleEffects()
+    })
+    // Whole-key replaces reconcile the keyed diff: removed circles unmount,
+    // retained circles keep their DOM node.
+    assert.equal(circles().length, 1)
+    assert.equal(circles()[0], first)
+    assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '3')
   })
 
   it('routes deep patches through every nested identity boundary', async (t) => {
@@ -349,21 +457,27 @@ describe('customEvents', () => {
     function Board() {
       return () => (
         <section>
-          <store.view.output on={store.events.columns.get('column:todo')}>
+          <evented.output eventSource={store.events.columns.get('column:todo')}>
             {() => String(++calls.todo)}
-          </store.view.output>
-          <store.view.output on={store.events.columns.get('column:done')}>
+          </evented.output>
+          <evented.output eventSource={store.events.columns.get('column:done')}>
             {() => String(++calls.done)}
-          </store.view.output>
-          <store.view.output on={store.events.columns.get('column:todo').cards.get('card:one')}>
+          </evented.output>
+          <evented.output
+            eventSource={store.events.columns.get('column:todo').cards.get('card:one')}
+          >
             {() => String(++calls.one)}
-          </store.view.output>
-          <store.view.output on={store.events.columns.get('column:todo').cards.get('card:two')}>
+          </evented.output>
+          <evented.output
+            eventSource={store.events.columns.get('column:todo').cards.get('card:two')}
+          >
             {() => String(++calls.two)}
-          </store.view.output>
-          <store.view.output on={store.events.columns.get('column:done').cards.get('card:three')}>
+          </evented.output>
+          <evented.output
+            eventSource={store.events.columns.get('column:done').cards.get('card:three')}
+          >
             {() => String(++calls.three)}
-          </store.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -398,9 +512,9 @@ describe('customEvents', () => {
 
     function RecordValue() {
       return () => (
-        <store.view.output on={store.events.records.get(recordKey).value}>
+        <evented.output eventSource={store.events.records.get(recordKey).value}>
           {({ detail }) => `${++renders}:${detail}`}
-        </store.view.output>
+        </evented.output>
       )
     }
 
@@ -427,13 +541,15 @@ describe('customEvents', () => {
     function Items() {
       return () => (
         <section>
-          <store.view.output on={store.events.items[0]}>
+          <evented.output eventSource={store.events.items[0]}>
             {() => String(++calls.first)}
-          </store.view.output>
-          <store.view.output on={store.events.items[1]} aria-label="1">
+          </evented.output>
+          <evented.output eventSource={store.events.items[1]} aria-label="1">
             {() => String(++calls.second)}
-          </store.view.output>
-          <store.view.output on={store.events.items}>{() => String(++calls.all)}</store.view.output>
+          </evented.output>
+          <evented.output eventSource={store.events.items}>
+            {() => String(++calls.all)}
+          </evented.output>
         </section>
       )
     }
@@ -480,18 +596,18 @@ describe('customEvents', () => {
     function Collections() {
       return () => (
         <section>
-          <store.view.output on={store.events.circles[0]}>
+          <evented.output eventSource={store.events.circles[0]}>
             {() => String(++calls.circle0)}
-          </store.view.output>
-          <store.view.output on={store.events.circles[1]} aria-label="1">
+          </evented.output>
+          <evented.output eventSource={store.events.circles[1]} aria-label="1">
             {() => String(++calls.circle1)}
-          </store.view.output>
-          <store.view.output on={store.events.values.A0}>
+          </evented.output>
+          <evented.output eventSource={store.events.values.A0}>
             {() => String(++calls.A0)}
-          </store.view.output>
-          <store.view.output on={store.events.values.B0}>
+          </evented.output>
+          <evented.output eventSource={store.events.values.B0}>
             {() => String(++calls.B0)}
-          </store.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -541,8 +657,8 @@ describe('customEvents', () => {
     function Selection() {
       return () => (
         <section>
-          <store.view.button
-            on={store.events.selected.as('1')}
+          <evented.button
+            eventSource={store.events.selected.as('1')}
             aria-label="1"
             type="button"
             aria-pressed={({ detail }) => detail}
@@ -554,9 +670,9 @@ describe('customEvents', () => {
             })}
           >
             {() => String(++calls.first)}
-          </store.view.button>
-          <store.view.button
-            on={store.events.selected.as('2')}
+          </evented.button>
+          <evented.button
+            eventSource={store.events.selected.as('2')}
             aria-label="2"
             type="button"
             aria-pressed={({ detail }) => detail}
@@ -568,10 +684,10 @@ describe('customEvents', () => {
             })}
           >
             {() => String(++calls.second)}
-          </store.view.button>
-          <store.view.output on={store.events.selected}>
+          </evented.button>
+          <evented.output eventSource={store.events.selected}>
             {() => String(++calls.all)}
-          </store.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -675,9 +791,9 @@ describe('customEvents', () => {
 
     function Count() {
       return () => (
-        <store.view.output on={[store.events.count, store.events.countDrafted]}>
+        <evented.output eventSource={[store.events.count, store.events.countDrafted]}>
           {({ detail: [count, draft] }) => `${draft ?? count}:${++renders}`}
-        </store.view.output>
+        </evented.output>
       )
     }
 
@@ -714,9 +830,9 @@ describe('customEvents', () => {
               }),
             ]}
           />
-          <store.view.output aria-label="listener" on={store.events.countDrafted}>
+          <evented.output aria-label="listener" eventSource={store.events.countDrafted}>
             {({ detail }) => (detail === undefined ? 'idle' : `${detail}:${++listenerRenders}`)}
-          </store.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -739,7 +855,7 @@ describe('customEvents', () => {
     assert.equal(listener.textContent, '2:1')
   })
 
-  it('renders the whole state snapshot when on is omitted', async (t) => {
+  it('renders the whole state snapshot through the wildcard source', async (t) => {
     let store = customEvents<{
       count: number
       countDrafted: number
@@ -748,7 +864,7 @@ describe('customEvents', () => {
 
     function Snapshot() {
       return () => (
-        <store.view.output aria-label="snapshot">
+        <evented.output eventSource={store.events} aria-label="snapshot">
           {({ detail }) => {
             seen.push(detail)
             if (false) {
@@ -758,7 +874,7 @@ describe('customEvents', () => {
               ? `count:${detail.count}`
               : `raw:${detail}`
           }}
-        </store.view.output>
+        </evented.output>
       )
     }
 
@@ -908,18 +1024,18 @@ describe('customEvents', () => {
     function CollidingEventNames() {
       return () => (
         <section mix={events.asHost}>
-          <events.view.output on={events.name} aria-label="name">
+          <evented.output eventSource={events.name} aria-label="name">
             {(event) => event?.type}
-          </events.view.output>
-          <events.view.output on={events.length} aria-label="length">
+          </evented.output>
+          <evented.output eventSource={events.length} aria-label="length">
             {(event) => event?.type}
-          </events.view.output>
-          <events.view.output on={events.bind} aria-label="bind">
+          </evented.output>
+          <evented.output eventSource={events.bind} aria-label="bind">
             {(event) => event?.type}
-          </events.view.output>
-          <events.view.output on={events.toString} aria-label="toString">
+          </evented.output>
+          <evented.output eventSource={events.toString} aria-label="toString">
             {(event) => event?.type}
-          </events.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -951,8 +1067,8 @@ describe('customEvents', () => {
           >
             Submit
           </button>
-          <events.view.form
-            on={events.submitted}
+          <evented.form
+            eventSource={events.submitted}
             initial={events.create('submitted', { id: 'idle' })}
             aria-label="form"
             class={(event) => (event.detail.id === 'idle' ? '' : 'pending')}
@@ -962,7 +1078,7 @@ describe('customEvents', () => {
             })}
           >
             {(event) => <output>{event.detail.id}</output>}
-          </events.view.form>
+          </evented.form>
         </section>
       )
     }
@@ -990,21 +1106,21 @@ describe('customEvents', () => {
     function Confirmation() {
       return () => (
         <section mix={events.asHost} aria-label="confirmation-host">
-          <events.view.output
-            on={events.submitted}
+          <evented.output
+            eventSource={events.submitted}
             hidden={(event) => event === undefined}
             aria-label="confirmation"
           >
             {(event) => event?.detail.id ?? null}
-          </events.view.output>
-          <events.view.output
-            on={events.submitted}
+          </evented.output>
+          <evented.output
+            eventSource={events.submitted}
             initial={events.create('submitted', { id: 'initial' })}
             hidden={(event) => event.detail.id === 'hidden'}
             aria-label="initial-confirmation"
           >
             {(event) => event.detail.id}
-          </events.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -1033,7 +1149,8 @@ describe('customEvents', () => {
 
     function Form() {
       return () => (
-        <events.view.form
+        <evented.form
+          eventSource={events}
           aria-label="source"
           data-action={(event) => event?.type}
           mix={[
@@ -1043,8 +1160,12 @@ describe('customEvents', () => {
             }),
           ]}
         >
-          <events.view.input aria-label="input" disabled={(event) => event?.type === 'submitted'} />
-        </events.view.form>
+          <evented.input
+            eventSource={events}
+            aria-label="input"
+            disabled={(event) => event?.type === 'submitted'}
+          />
+        </evented.form>
       )
     }
 
@@ -1078,8 +1199,8 @@ describe('customEvents', () => {
             })}
           />
           {['first', 'second'].map((id) => (
-            <events.view.output
-              on={[events.submitted, events.paid]}
+            <evented.output
+              eventSource={[events.submitted, events.paid]}
               initial={initialOutcome}
               aria-label={id}
               mix={events.on(({ currentTarget, type }) => {
@@ -1087,11 +1208,11 @@ describe('customEvents', () => {
               })}
             >
               {(event) => (event.type === 'submitted' ? event.detail.id : 'idle')}
-            </events.view.output>
+            </evented.output>
           ))}
-          <events.view.output initial={initialOutcome} aria-label="all">
+          <evented.output eventSource={events} initial={initialOutcome} aria-label="all">
             {(event) => (event.type === 'paid' ? 'idle' : event.type)}
-          </events.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -1275,7 +1396,8 @@ describe('customEvents', () => {
               dispatchTarget = button
             })}
           />
-          <events.view.output
+          <evented.output
+            eventSource={events}
             aria-label="view"
             mix={events.on(async ({ type, currentTarget }) => {
               await Promise.resolve()
@@ -1283,7 +1405,7 @@ describe('customEvents', () => {
             })}
           >
             {(event) => event && `${event.type}:${++viewUpdates}`}
-          </events.view.output>
+          </evented.output>
         </section>
       )
     }
@@ -1424,6 +1546,72 @@ describe('customEvents', () => {
     calls = []
     await customEventsRuntime.dispatch(runtime, origin, event('first'))
     assertCalls('wildcard:updated', 'effect:updated')
+
+    for (let cleanup of cleanups) cleanup()
+    unregisterHost()
+  })
+
+  it('skips whole-key subscribers only for Map item replace events', async () => {
+    let runtime = createCustomEventsRuntimeState()
+    let host = document.createElement('section')
+    let origin = document.createElement('button')
+    host.append(origin)
+    let unregisterHost = customEventsRuntime.registerHost(runtime, host)
+    let calls: string[] = []
+    let cleanups: Array<() => void> = []
+    let init = { bubbles: true, cancelable: false }
+
+    function subscribe(name: string, address: readonly string[]) {
+      let element = document.createElement('output')
+      host.append(element)
+      let subscription = {
+        element,
+        eventTypes: new Set(['updated']),
+        addresses: new Map([['updated', address]]),
+        notify() {
+          calls.push(name)
+        },
+      }
+      let cleanup = customEventsRuntime.subscribe(runtime, 'view', subscription)
+      cleanups.push(cleanup)
+    }
+
+    subscribe('whole', [])
+    subscribe('key', ['circle:1'])
+
+    function event(
+      addresses: readonly (readonly string[])[],
+      ops?: readonly ('add' | 'remove' | 'replace' | 'mapReplace')[],
+    ) {
+      return customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
+        {
+          type: 'updated',
+          detail: null,
+          addresses,
+          ...(ops === undefined ? {} : { ops }),
+        },
+      ])
+    }
+
+    await customEventsRuntime.dispatch(runtime, origin, event([['circle:1']], ['mapReplace']))
+    assert.deepEqual(calls, ['key'])
+
+    calls = []
+    await customEventsRuntime.dispatch(runtime, origin, event([['circle:2']], ['add']))
+    assert.deepEqual(calls, ['whole'])
+
+    calls = []
+    await customEventsRuntime.dispatch(runtime, origin, event([['circle:1']], ['remove']))
+    assert.deepEqual(calls, ['whole', 'key'])
+
+    calls = []
+    await customEventsRuntime.dispatch(runtime, origin, event([[]], ['replace']))
+    assert.deepEqual(calls, ['whole', 'key'])
+
+    // Entries without op classification keep the previous behavior.
+    calls = []
+    await customEventsRuntime.dispatch(runtime, origin, event([['circle:1']]))
+    assert.deepEqual(calls, ['whole', 'key'])
 
     for (let cleanup of cleanups) cleanup()
     unregisterHost()

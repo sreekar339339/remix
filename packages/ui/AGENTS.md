@@ -1376,7 +1376,7 @@ Rules:
 - `initial` supplies the input rendered before an occurrence first matches; sources that retain a value ignore it.
 - The element keeps the event's value across parent re-renders; unsubscribing happens automatically when the element is removed.
 - Server rendering resolves the initial input only; subscriptions are client-side.
-- Structural changes (creating, deleting, reordering elements) still belong to the owning component render; `eventSource` updates the attributes and children of an existing element.
+- Structural changes (creating, deleting, reordering elements) can flow through a children function: the callback re-resolves from the event input and the vdom diffs the result by `key`, so keyed children mount, unmount, and reorder in place while unkeyed updates patch an existing element.
 
 Event sources are any objects exposing the `EVENT_SOURCE` protocol brand with `{ read?, subscribe(subscriber, signal) }`, so event models plug in without the renderer knowing their internals. Use `getEventSourceProtocol()` and the `EventSource`/`EventSourceProtocol`/`EventSourceSubscriber` types when authoring an event model.
 

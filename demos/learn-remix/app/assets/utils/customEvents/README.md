@@ -11,8 +11,9 @@ The library is organized around five concepts:
 - **Store** — an `EventTarget` retaining immutable state mutated through Immer
   recipes; `state.value` reads the current snapshot.
 - **Event source** — a typed, addressable subscription handle for one event.
-- **Evented-view** — an intrinsic element (`view.<tag>`) that subscribes
-  to sources and re-renders from matched events.
+- **Evented-view** — an intrinsic element (`evented.<tag>`) that subscribes
+  to sources through the `eventSource` host prop and re-renders from matched
+  events.
 - **Effect** — an element-owned listener run after views update.
 - **Subscription** — the runtime registration that routes events to an
   evented-view or effect.
@@ -20,9 +21,10 @@ The library is organized around five concepts:
 The vocabulary reuses standard web/CS terms: _subscribe_, _subscription_,
 _render_, _effect_, _source_, _host_, _routing_, and _transaction_.
 
-`events` is only an event-source graph. `view` is only an intrinsic-element
-factory. Keeping these namespaces separate means domain events may safely be
-named `output`, `form`, `name`, `length`, or any other intrinsic/function name.
+`events` is only an event-source graph. `evented` is only an intrinsic-element
+namespace, shared by every descriptor. Keeping these namespaces separate means
+domain events may safely be named `output`, `form`, `name`, `length`, or any
+other intrinsic/function name.
 
 ## Public API
 
@@ -42,8 +44,9 @@ Options:
 { host?: EventTarget }  // registers a domain EventTarget as the default host
 ```
 
-The descriptor is itself the source graph. The reserved names `create`,
-`dispatch`, `on`, `asHost`, `view`, and `store` cannot be event names. Native
+The descriptor is itself the source graph and doubles as the wildcard event
+source (see [Evented-views](#evented-views--eventedtag)). The reserved names
+`create`, `dispatch`, `on`, `asHost`, and `store` cannot be event names. Native
 DOM event names are likewise rejected. Store state keys live under
 `state.value`, so they only need to avoid those event-name collisions.
 
@@ -92,16 +95,28 @@ A source also carries an element-owned effect listener:
 source.on(listener) // MixinDescriptor; active only while mounted
 ```
 
-### Evented-views — `view.<tag>`
+### Evented-views — `evented.<tag>`
 
-`view.<tag>` creates an intrinsic element that subscribes to sources and
-re-renders from matched events. The `detail` delivered to the render function
-is the **value the `on` source selects**: the current value at that source's
-path for one source, a tuple index-aligned with `on` for several, and the whole
-state snapshot when `on` is omitted (the implicit root path).
+`evented.<tag>` is a type-only alias over the intrinsic tag: `evented.button` is
+the string `'button'` at runtime, so JSX creates a host element directly — there
+is no wrapper component between you and the host. Import it once from the
+library root; it is shared by every descriptor and store:
+
+```ts
+import { customEvents, evented } from '.../customEvents'
+```
+
+The typed overloads preserve source-specific callback inference on top of the
+raw `eventSource` host prop. The `detail` delivered to the render function is
+the **value the `eventSource` selects**: the current value at that source's path
+for one source, a tuple index-aligned with `eventSource` for several, and the
+whole state snapshot for the descriptor's wildcard source (below). Passing the
+descriptor or store descriptor itself as `eventSource` infers the event map, so
+wildcard and store views stay fully typed without binding `evented` per
+descriptor.
 
 ```tsx
-<view.output on={events.startDate}>{({ detail }) => detail}</view.output>
+<evented.output eventSource={events.startDate}>{({ detail }) => detail}</evented.output>
 ```
 
 Occurrence events (declared but not retained by a store) fill their tuple
@@ -110,13 +125,20 @@ slot with the occurrence payload when that occurrence triggered the render and
 
 Evented-view props:
 
-| Prop             | Meaning                                                                                                                                            |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `on`             | A source, or an array of sources, this view subscribes to. The `detail` is the selected value (one source) or a tuple aligned with `on` (several). |
-| `initial`        | A defined event to render before an occurrence first matches. Store views need no `initial`.                                                       |
-| `children`       | Static children, or a render function of the matched event.                                                                                        |
-| _reactive props_ | Any native prop may be a function of the matched event.                                                                                            |
-| `mix`            | Mixins; use `source.on(...)` for element-owned effects.                                                                                            |
+| Prop             | Meaning                                                                                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `eventSource`    | A source, an array of sources, or the descriptor itself. The `detail` is the selected value (one source), a tuple aligned with `eventSource` (several), or the whole snapshot/event union for the wildcard descriptor. |
+| `initial`        | A defined event to render before an occurrence first matches. Store views need no `initial`.                                                                                                                           |
+| `children`       | Static children, or a render function of the matched event.                                                                                                                                                            |
+| _reactive props_ | Any native prop may be a function of the matched event.                                                                                                                                                                |
+| `mix`            | Mixins; use `source.on(...)` for element-owned effects.                                                                                                                                                                |
+
+The descriptor itself is a wildcard event source: passing it as `eventSource`
+subscribes the view to every descriptor event. On a store the snapshot is read
+for held events and occurrence payloads pass through raw. Because `evented.<tag>`
+is a string at runtime, an omitted `eventSource` does not imply a wildcard —
+state the wildcard explicitly with `eventSource={events}` (or
+`eventSource={store.events}`).
 
 ### Descriptor methods
 
@@ -126,7 +148,6 @@ Evented-view props:
 | `dispatch` | `dispatch(target, ...)`        | Dispatches and resolves after view updates and effects settle. |
 | `on`       | `on(listener)`                 | Element-owned wildcard effect for every descriptor event.      |
 | `asHost`   | `asHost`                       | Makes an element act as a host for this descriptor.            |
-| `view`     | `view.<tag>`                   | Evented-view factory.                                          |
 | `store`    | `store(value)`                 | Creates a store (see below).                                   |
 
 ### Store
@@ -142,11 +163,11 @@ Every store creates an independent `EventTarget` and retains the initial
 properties as immutable state. The instance exposes **no state properties**;
 state lives under a `state` namespace that owns the snapshot and its updates.
 
-Destructure the store in the setup scope — `view`, `events`, `state`, and
-`host` are all stable references, so destructuring snapshots none of them:
+Destructure the store in the setup scope — `events`, `state`, and `host` are
+all stable references, so destructuring snapshots none of them:
 
 ```ts
-let { view, events, state, host } = customEvents<FlightEvents>().store({
+let { events, state, host } = customEvents<FlightEvents>().store({
   kind: 'one-way flight',
   startDate: '2026-08-02',
   returnDate: '2026-08-02',
@@ -170,13 +191,13 @@ snapshot (a `value` accessor forwards to the latest `state` on every access), an
 `state.update(recipe)` mutates it. A destructured `state` reflects later
 updates — read `state.value` inside the render closure for live values.
 
-| Member                 | Purpose                                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| `state.value`          | The current immutable snapshot (`Immutable<State>`); a live read.                                       |
-| `state.update(recipe)` | Mutates state through an Immer draft and dispatches change events. Read current state from the `draft`. |
-| `events`               | The descriptor: sources and descriptor methods.                                                         |
-| `view`                 | The evented-view factory.                                                                               |
-| `host`                 | The store's `EventTarget`: ordinary `addEventListener` / `dispatchEvent` consumption of state events.   |
+| Member                 | Purpose                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `state.value`          | The current immutable snapshot (`Immutable<State>`); a live read.                                                                    |
+| `state.update(recipe)` | Mutates state through an Immer draft and dispatches change events. Read current state from the `draft`.                              |
+| `events`               | The descriptor: sources and descriptor methods.                                                                                      |
+| `host`                 | The store's `EventTarget`: ordinary `addEventListener` / `dispatchEvent` consumption of state events.                                |
+| `evented`              | The shared intrinsic-element namespace; pair it with `eventSource={store.events}` (see [Evented-views](#evented-views--eventedtag)). |
 
 ## Event maps
 
@@ -264,18 +285,18 @@ The same descriptor can create each provider's independent store.
 
 ### Narrow evented-views
 
-Use `view.<intrinsic>` and pass a source to `on`. Children and native
+Use `evented.<intrinsic>` and pass a source to `eventSource`. Children and native
 properties may be functions of the matched event; on a store the event's
 `detail` is the value that source's path selects:
 
 ```tsx
-<view.button
-  on={events.selected.as(item.id)}
+<evented.button
+  eventSource={events.selected.as(item.id)}
   aria-pressed={({ detail }) => detail}
   class={({ detail }) => (detail ? 'selected' : '')}
 >
   {item.label}
-</view.button>
+</evented.button>
 ```
 
 This is especially useful inside lists. The component remains one readable,
@@ -283,36 +304,67 @@ HTML-shaped tree while each existing row, card, circle, or cell updates only
 its affected native attributes and children.
 
 Listen to several explicit sources with an array; `detail` becomes a tuple
-index-aligned with `on`. Destructure it with names in the callback for
+index-aligned with `eventSource`. Destructure it with names in the callback for
 readable multi-source views:
 
 ```tsx
-<view.button
-  on={[events.position.get(index), events.result]}
+<evented.button
+  eventSource={[events.position.get(index), events.result]}
   disabled={({ detail: [, result] }) => result !== null}
 >
   {({ detail: [pos] }) => pos}
-</view.button>
+</evented.button>
 ```
 
 Elide tuple positions the callback does not read (`[, result]`). An evented-view
 accepts one source per event type; passing two sources that share a type
 throws.
 
-### Whole-model default source
+### Dynamic lists
 
-On a store, omitting `on` subscribes the view to every event. It
-re-reads the whole state snapshot on mount and re-renders whenever any state
-property changes. Occurrence events still arrive raw. The render function's
-`detail` is the state snapshot on state events and the occurrence payload
-otherwise:
+A container with a children function is a live keyed list: the children
+callback re-resolves from the event input, and the vdom diff reconciles
+additions, removals, and reorders against `key`. Existing rows keep their DOM
+nodes and evented state — only the changed rows mount or unmount. No component
+update is needed for structural changes:
 
 ```tsx
-<view.output>
+<evented.svg eventSource={events.circles}>
+  {({ detail: circles }) =>
+    [...circles.values()].map((circle) => (
+      <evented.circle
+        key={circle.id}
+        eventSource={[
+          events.circles.get(circle.id).diameter,
+          events.editingCircleById.as(circle.id),
+        ]}
+        r={({ detail: [diameter] }) => (diameter ?? circle.diameter) / 2}
+      />
+    ))
+  }
+</evented.svg>
+```
+
+Map item replaces route to the item's own keyed subscription only — the
+container's children function does not re-run, so editing one circle never
+re-resolves the whole list. Structural changes (item `set`/`delete`) and
+whole-key replaces still re-resolve the container, which keyed-diffs the
+result.
+
+### Whole-model wildcard view
+
+Pass the descriptor itself to `eventSource` to subscribe the view to every
+event. On a store it re-reads the whole state snapshot on mount and re-renders
+whenever any state property changes. Occurrence events still arrive raw. The
+render function's `detail` is the state snapshot on state events and the
+occurrence payload otherwise:
+
+```tsx
+<evented.output eventSource={events}>
   {({ detail }) =>
     typeof detail === 'object' ? `${detail.kind} from ${detail.startDate}` : detail
   }
-</view.output>
+</evented.output>
 ```
 
 The snapshot read needs no `initial` because a snapshot always exists. This
@@ -322,11 +374,11 @@ bar ratio.
 
 ### Occurrence vocabulary
 
-A descriptor with no state broadcasts occurrences. Omitting `on` subscribes the
-view to every descriptor event:
+A descriptor with no state broadcasts occurrences. Pass the descriptor to
+`eventSource` to subscribe the view to every descriptor event:
 
 ```tsx
-<searchEvents.view.div initial={initialEvent}>
+<evented.div eventSource={searchEvents} initial={initialEvent}>
   {(event) => {
     switch (event.type) {
       case 'queryEmpty':
@@ -337,7 +389,7 @@ view to every descriptor event:
         return `${event.detail.length} books`
     }
   }}
-</searchEvents.view.div>
+</evented.div>
 ```
 
 Before an occurrence first matches, its callback input is `undefined`. Supply
@@ -490,6 +542,14 @@ subscribes at the root. A change with no address at all — a top-level
 property — matches the root and re-renders every subscription, so occurrences
 broadcast to every listener.
 
+Patch operations refine the routing. Each entry carries an op per address:
+`add`, `remove`, `replace`, or `mapReplace`. A whole-key (`[]`) event always
+broadcasts, and any `add`/`remove` (structural) or object/array `replace`
+still reaches the root. A `mapReplace` — a keyed patch whose container is a
+`Map` — delivers to the keyed route only: the item's own view updates while
+collection (root) views skip it. This is what lets a dynamic list container
+skip re-resolving its children when one item's value changes.
+
 ### Scalar identity routing
 
 Identity-valued state (which row is selected, which cell is focused) is a
@@ -502,9 +562,9 @@ state.update((draft) => {
 ```
 
 ```tsx
-<view.button on={events.selected.as(item.id)} aria-pressed={({ detail }) => detail}>
+<evented.button eventSource={events.selected.as(item.id)} aria-pressed={({ detail }) => detail}>
   {item.label}
-</view.button>
+</evented.button>
 ```
 
 A write to a top-level scalar is addressed to the losing and gaining owners by
@@ -548,8 +608,9 @@ other elements must observe them.
   DOM view owns that address.
 - Prefer one wildcard mounted effect when the component genuinely renders as a
   cohesive unit.
-- Structural creation, deletion, and reordering still belong to the owning
-  component render; fine-grained evented-views update existing DOM.
-- Reaching for a default-source whole-model view is a signal the component
+- Give a dynamic list a container children function over `Map` state: keyed
+  children diff by `key`, item edits stay on item views, and no component
+  update is needed for structural changes.
+- Reaching for a whole-model wildcard view is a signal the component
   renders as a unit; narrow evented-views earn their keep when only a few
   addresses change per event.

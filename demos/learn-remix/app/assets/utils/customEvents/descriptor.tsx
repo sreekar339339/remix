@@ -1,13 +1,14 @@
-import { ref } from 'remix/ui'
+import { EVENT_SOURCE, ref, type EventSource, type EventSourceEvent } from 'remix/ui'
 import {
   ALL_EVENTS,
   createCustomEventsRuntimeState,
   customEventsRuntime,
   type CustomEventsBatchRuntimeEntry,
   type CustomEventsRuntimeState,
+  type CustomEventsEntryOp,
   type EventAddress,
 } from './runtime.ts'
-import { createEventedViewFactory, customEventsOnMixin } from './remix.tsx'
+import { customEventsOnMixin } from './remix.tsx'
 import { createEventSource } from './eventSources.ts'
 import {
   type CustomEventsOptions,
@@ -23,8 +24,19 @@ import {
 const CUSTOM_EVENTS_TRANSACTION = '$transaction'
 const customEventsInitKeys = new Set(['bubbles', 'composed', 'signal'])
 
+// Evented-view namespace: `evented.<tag>` resolves to the tag string itself, so
+// JSX creates a host element directly with no component runtime layer. The
+// proxy is stateless and shared by every descriptor.
+export const customEventsEvented = new Proxy(Object.create(null), {
+  get(_, property) {
+    if (typeof property !== 'string') return undefined
+    return property
+  },
+})
+
 type InternalEntryOptions = CustomEventsInit & {
   addresses?: readonly (readonly unknown[])[]
+  ops?: readonly CustomEventsEntryOp[]
 }
 
 type StateEventContext = {
@@ -85,10 +97,12 @@ export function createCustomEventsDescriptor<
       }
     }
     let addresses = options?.addresses
+    let ops = options?.ops
     return {
       type,
       detail,
       ...(addresses === undefined ? {} : { addresses }),
+      ...(ops === undefined ? {} : { ops }),
     }
   }
 
@@ -162,19 +176,36 @@ export function createCustomEventsDescriptor<
     throw new TypeError('customEvents expects an event name or event array.')
   }) as CustomEventsFactory<Events>
 
-  let eventedViews: ReturnType<typeof createEventedViewFactory<Events, State>> | undefined
-  let getEventedViews = () =>
-    (eventedViews ??= createEventedViewFactory<Events, State>(
-      getRuntime(),
-      sourceOwner,
-      state?.getState,
-    ))
-  let view = new Proxy(Object.create(null), {
-    get(_, property) {
-      if (typeof property !== 'string') return undefined
-      return getEventedViews()(property as keyof JSX.IntrinsicElements)
+  // The descriptor doubles as the wildcard event source: subscribing to it
+  // matches every descriptor event. On a store the snapshot is read for held
+  // events and occurrence payloads pass through raw.
+  let wildcardSource: EventSource = {
+    [EVENT_SOURCE]: {
+      type: ALL_EVENTS,
+      ...(state
+        ? {
+            read: (trigger?: EventSourceEvent) =>
+              trigger && !Object.hasOwn(state.getState(), trigger.type)
+                ? trigger.detail
+                : state.getState(),
+          }
+        : {}),
+      subscribe(subscriber, signal) {
+        customEventsRuntime.subscribe(
+          getRuntime(),
+          'view',
+          {
+            element: subscriber.element,
+            eventTypes: null,
+            notify(event) {
+              return subscriber.notify(event)
+            },
+          },
+          signal,
+        )
+      },
     },
-  })
+  }
   let dispatch = ((target: EventTarget, ...args: unknown[]) => {
     let createEvent = create as (...args: unknown[]) => Event
     let event = createEvent(...args)
@@ -188,7 +219,6 @@ export function createCustomEventsDescriptor<
     dispatch,
     on,
     asHost,
-    view,
   })
   if (options?.host) {
     customEventsRuntime.registerHost(getRuntime(), options.host)
@@ -197,6 +227,9 @@ export function createCustomEventsDescriptor<
   let sources = new Map<string, object>()
   return new Proxy(descriptorTarget, {
     get(target, property, receiver) {
+      if (property === EVENT_SOURCE) {
+        return wildcardSource[EVENT_SOURCE]
+      }
       if (Reflect.has(target, property)) {
         return Reflect.get(target, property, receiver)
       }
