@@ -21,4 +21,6 @@ autoresearch-results/
 
 .env
 
+/packages/ui/src/**/*.js
+
 /reference
