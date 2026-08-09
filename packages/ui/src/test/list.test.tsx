@@ -216,6 +216,56 @@ describe('list eventSource', () => {
     expect(items()[1].textContent).toBe('c')
   })
 
+  it('applies coalesced bursts of structural changes against the final value', (t) => {
+    let source = createFakeListSource(
+      new Map([
+        ['a', 'Alpha'],
+        ['b', 'Beta'],
+      ]),
+    )
+    let container = document.createElement('div')
+    let root = createRoot(container)
+    t.after(() => root.dispose())
+    root.render(
+      <ul>
+        <list eventSource={source}>{(item, key) => <li key={key}>{item as string}</li>}</list>
+      </ul>,
+    )
+    root.flush()
+    expect(listItems(container).length).toBe(2)
+
+    // Three adds coalesce before the scheduler runs: only the last event's
+    // routes survive, so the list re-resolves against the final value.
+    let withC = new Map([
+      ['a', 'Alpha'],
+      ['b', 'Beta'],
+      ['c', 'Gamma'],
+    ])
+    source.fire(withC, { addresses: [['c']], ops: ['add'] })
+    let withD = new Map(withC)
+    withD.set('d', 'Delta')
+    source.fire(withD, { addresses: [['d']], ops: ['add'] })
+    let withE = new Map(withD)
+    withE.set('e', 'Epsilon')
+    source.fire(withE, { addresses: [['e']], ops: ['add'] })
+    root.flush()
+
+    let items = listItems(container)
+    expect(items.length).toBe(5)
+    expect(items.map((item) => item.textContent).join(',')).toBe('Alpha,Beta,Gamma,Delta,Epsilon')
+
+    // A burst of removals lands on the final state too.
+    let minusC = new Map(withE)
+    minusC.delete('c')
+    let minusA = new Map(minusC)
+    minusA.delete('a')
+    source.fire(minusA, { addresses: [['a']], ops: ['remove'] })
+    root.flush()
+
+    let remaining = listItems(container)
+    expect(remaining.map((item) => item.textContent).join(',')).toBe('Beta,Delta,Epsilon')
+  })
+
   it('tears down its subscription when removed', (t) => {
     let source = createFakeListSource(
       new Map([

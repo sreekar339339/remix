@@ -49,7 +49,12 @@ import {
   type EventedHostState,
   type EventedListState,
 } from './event-source.ts'
-import { decodeListRoutes, getEventRoutes, type ListAction } from './event-route.ts'
+import {
+  decodeListRoutes,
+  getEventRoutes,
+  listRoutesMatchDetail,
+  type ListAction,
+} from './event-route.ts'
 import type { Key } from './key.ts'
 import { skipComments, logHydrationMismatch } from './client-entries.ts'
 import type { Scheduler } from './scheduler.ts'
@@ -887,13 +892,11 @@ function runEventedListUpdate(state: EventedListState): void {
     if (state.controller.signal.aborted) return
     let node = state.node!
     node.props = state.rawProps
-    let actions = decodeListRoutes(
-      (state.input as { detail?: unknown } | null)?.detail,
-      node._items,
-      node._keys,
-      getEventRoutes(state.lastEvent),
-    )
-    if (actions.some((action) => action.op === 'fallback')) {
+    let detail = (state.input as { detail?: unknown } | null)?.detail
+    let actions = decodeListRoutes(detail, node._items, node._keys, getEventRoutes(state.lastEvent))
+    if (listRoutesMatchDetail(detail, node._items, node._keys, actions)) {
+      applyListActions(node, actions, state.rawTemplate, state.context)
+    } else {
       let resolved = resolveEventedListItemInputs(state.rawTemplate, state.input)
       node._items = resolved.items
       node._keys = resolved.keys
@@ -904,8 +907,6 @@ function runEventedListUpdate(state: EventedListState): void {
         node,
         state.context,
       )
-    } else {
-      applyListActions(node, actions, state.rawTemplate, state.context)
     }
   } finally {
     for (let resolve of waiters) resolve()

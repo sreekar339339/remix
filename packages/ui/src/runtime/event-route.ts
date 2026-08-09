@@ -181,3 +181,78 @@ function samePropertyKey(left: unknown, right: unknown): boolean {
       String(left) === String(right))
   )
 }
+
+function detailKeys(
+  detail: Map<unknown, unknown> | Set<unknown> | readonly unknown[],
+): readonly unknown[] {
+  if (detail instanceof Map) return Array.from(detail.keys())
+  if (detail instanceof Set) return Array.from(detail)
+  return detail.map((_, index) => index)
+}
+
+function detailItems(
+  detail: Map<unknown, unknown> | Set<unknown> | readonly unknown[],
+): readonly unknown[] {
+  if (detail instanceof Map) return Array.from(detail.values())
+  if (detail instanceof Set) return Array.from(detail)
+  return detail
+}
+
+/**
+ * Verifies that decoded list actions fully reproduce the current collection.
+ * Decoded routes describe one event's delta; when several updates coalesce
+ * before the element applies them, only the last event's routes survive and
+ * the actions miss intermediate changes. The element then discards the
+ * actions and re-resolves every item against the collection's current value.
+ *
+ * Keyed collections compare by key alignment: item references may
+ * legitimately diverge when a nested keyed subscription refreshed an item
+ * element directly (whole-key subscribers skip Map item replaces). Arrays
+ * additionally compare item identity at every position, since array
+ * replacements always reach the list.
+ *
+ * @param detail The current collection value (Map, Set, or array).
+ * @param items The committed item references, index-aligned with keys.
+ * @param keys The committed item keys, index-aligned with items.
+ * @param actions The decoded list actions.
+ * @returns Whether the actions reproduce the collection exactly.
+ */
+export function listRoutesMatchDetail(
+  detail: unknown,
+  items: readonly unknown[],
+  keys: readonly unknown[],
+  actions: readonly ListAction[],
+): boolean {
+  if (!(detail instanceof Map || detail instanceof Set || Array.isArray(detail))) return false
+  if (actions.some((action) => action.op === 'fallback')) return false
+
+  let expectedKeys = detailKeys(detail)
+  let expectedItems = detailItems(detail)
+  let currentItems = items.slice()
+  let currentKeys = keys.slice()
+  for (let action of actions) {
+    switch (action.op) {
+      case 'insert':
+        currentItems.splice(action.index, 0, action.item)
+        currentKeys.splice(action.index, 0, action.key)
+        break
+      case 'remove':
+        currentItems.splice(action.index, 1)
+        currentKeys.splice(action.index, 1)
+        break
+      case 'rebuild':
+        currentItems[action.index] = action.item
+        break
+    }
+  }
+
+  if (currentItems.length !== expectedItems.length) return false
+  for (let index = 0; index < currentItems.length; index++) {
+    if (Array.isArray(detail)) {
+      if (!Object.is(currentItems[index], expectedItems[index])) return false
+    } else if (!samePropertyKey(currentKeys[index], expectedKeys[index])) {
+      return false
+    }
+  }
+  return true
+}

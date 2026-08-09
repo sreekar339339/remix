@@ -1,7 +1,7 @@
 import * as assert from '@remix-run/assert'
 import { describe, it } from '@remix-run/test'
 
-import { decodeListRoutes, type EventRoutes } from './event-route.ts'
+import { decodeListRoutes, listRoutesMatchDetail, type EventRoutes } from './event-route.ts'
 
 function routes(addresses: readonly (readonly unknown[])[], ops: EventRoutes['ops']): EventRoutes {
   return { addresses, ops }
@@ -214,6 +214,83 @@ describe('decodeListRoutes', () => {
         decodeListRoutes(['a', 'b', 'c'], items, [0, 1, 2], routes([['9']], ['add'])),
         [{ op: 'fallback' }],
       )
+    })
+  })
+
+  describe('listRoutesMatchDetail', () => {
+    let items = ['a', 'b', 'c']
+    let mapDetail = new Map([
+      ['a', 1],
+      ['b', 2],
+    ])
+    let mapItems = [1, 2]
+    let mapKeys = ['a', 'b']
+
+    it('accepts actions that reproduce the collection exactly', () => {
+      assert.ok(
+        listRoutesMatchDetail(['a', 'c'], ['a', 'b', 'c'], [0, 1, 2], [{ op: 'remove', index: 1 }]),
+      )
+      assert.ok(
+        listRoutesMatchDetail(
+          new Map([
+            ['a', 1],
+            ['b', 2],
+            ['d', 3],
+          ]),
+          mapItems,
+          mapKeys,
+          [{ op: 'insert', index: 2, item: 3, key: 'd' }],
+        ),
+      )
+    })
+
+    it('rejects actions that miss coalesced changes', () => {
+      // A burst of two adds coalesced: the last event's routes cover one.
+      assert.ok(
+        !listRoutesMatchDetail(
+          new Map([
+            ['a', 1],
+            ['b', 2],
+            ['c', 3],
+            ['d', 4],
+          ]),
+          mapItems,
+          mapKeys,
+          [{ op: 'insert', index: 2, item: 3, key: 'c' }],
+        ),
+      )
+      // A coalesced Map value replace may diverge from the committed item:
+      // whole-key subscribers skip Map item replaces, so a nested keyed
+      // subscription refreshed the item element directly. Key alignment
+      // still guarantees the structural delta is exact.
+      assert.ok(
+        listRoutesMatchDetail(
+          new Map([
+            ['a', 9],
+            ['b', 5],
+          ]),
+          mapItems,
+          mapKeys,
+          [{ op: 'rebuild', index: 0, item: 9, key: 'a' }],
+        ),
+      )
+      // Arrays never skip replaces: a coalesced array value replace
+      // diverges from the committed item and must fail the check.
+      assert.ok(
+        !listRoutesMatchDetail(
+          [9, 2, 3],
+          items,
+          [0, 1, 2],
+          [{ op: 'rebuild', index: 0, item: 9, key: 0 }],
+        ),
+      )
+      // A coalesced removal leaves the keys misaligned.
+      assert.ok(!listRoutesMatchDetail(['b'], items, [0, 1, 2], [{ op: 'remove', index: 0 }]))
+    })
+
+    it('rejects fallbacks and non-collection details', () => {
+      assert.ok(!listRoutesMatchDetail(['a', 'b'], items, [0, 1, 2], [{ op: 'fallback' }]))
+      assert.ok(!listRoutesMatchDetail({ a: 1 }, [], [], []))
     })
   })
 })
