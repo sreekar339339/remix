@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "benchmark:custom-events": "NODE_ENV=test remix test --glob.test app/assets/utils/customEvents/subscriptionMatching.bench.browser.tsx --glob.browser app/assets/utils/customEvents/subscriptionMatching.bench.browser.tsx --browser.echo",
+    "benchmark:list-updates": "NODE_ENV=test remix test --glob.test app/assets/utils/customEvents/listUpdates.bench.browser.tsx --glob.browser app/assets/utils/customEvents/listUpdates.bench.browser.tsx --browser.echo",
     "dev": "NODE_ENV=development node --watch --import remix/node-tsx server.ts",
     "start": "NODE_ENV=production node --import remix/node-tsx server.ts",
     "test": "NODE_ENV=test remix test",

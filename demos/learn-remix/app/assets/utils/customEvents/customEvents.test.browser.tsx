@@ -506,6 +506,75 @@ describe('customEvents', () => {
     assert.equal(circles()[0], first)
   })
 
+  it('settles coalesced bursts of list updates on the final store value', async (t) => {
+    let store = customEvents<{
+      items: Map<number, { id: number; label: string }>
+    }>().store({
+      items: new Map([
+        [1, { id: 1, label: 'one' }],
+        [2, { id: 2, label: 'two' }],
+      ]),
+    })
+    let templateCalls = 0
+
+    function Items() {
+      return () => (
+        <section>
+          <evented.list eventSource={store.events.items}>
+            {(item, id) => {
+              templateCalls++
+              return (
+                <div key={id} className="item">
+                  {item.label}
+                </div>
+              )
+            }}
+          </evented.list>
+        </section>
+      )
+    }
+
+    let result = render(<Items />)
+    t.after(() => result.cleanup())
+    let items = () => result.$('section')!.querySelectorAll('.item')
+    assert.equal(items().length, 2)
+
+    // A synchronous burst coalesces into one list update; every add lands.
+    await result.act(async () => {
+      store.state.update((draft) => {
+        draft.items.set(3, { id: 3, label: 'three' })
+      })
+      store.state.update((draft) => {
+        draft.items.set(4, { id: 4, label: 'four' })
+      })
+      store.state.update((draft) => {
+        draft.items.set(5, { id: 5, label: 'five' })
+      })
+      await settleEffects()
+    })
+    // The coalesced update falls back to re-resolving every item.
+    assert.equal(templateCalls, 7)
+    assert.equal(items().length, 5)
+    assert.equal(items()[4].textContent, 'five')
+
+    // A mixed burst of adds and removals settles on the final state.
+    await result.act(async () => {
+      store.state.update((draft) => {
+        draft.items.delete(2)
+      })
+      store.state.update((draft) => {
+        draft.items.set(6, { id: 6, label: 'six' })
+      })
+      store.state.update((draft) => {
+        draft.items.delete(4)
+      })
+      await settleEffects()
+    })
+    assert.equal(templateCalls, 11)
+    assert.equal(items().length, 4)
+    assert.equal([...items()].map((item) => item.textContent).join(','), 'one,three,five,six')
+  })
+
   it('routes deep patches through every nested identity boundary', async (t) => {
     let store = customEvents().store({
       columns: new Map([
