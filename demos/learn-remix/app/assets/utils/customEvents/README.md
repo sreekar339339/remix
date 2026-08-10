@@ -379,14 +379,14 @@ A descriptor with no state broadcasts occurrences. Pass the descriptor to
 
 ```tsx
 <evented.div eventSource={searchEvents} initial={initialEvent}>
-  {(payload, event) => {
+  {(_, event) => {
     switch (event.type) {
       case 'queryEmpty':
         return 'Enter a title'
       case 'querySubmitted':
-        return `Searching for ${payload.query}`
+        return `Searching for ${event.detail.query}`
       case 'booksFound':
-        return `${payload.length} books`
+        return `${event.detail.length} books`
     }
   }}
 </evented.div>
@@ -395,7 +395,10 @@ A descriptor with no state broadcasts occurrences. Pass the descriptor to
 Before an occurrence first matches, the value argument is `undefined` and the
 event argument is `undefined`. Supply `initial={events.create(...)}` when a
 defined initial occurrence is part of the UI model; the initial event's detail
-fills the slot of the source it matches, as if it had just fired.
+fills the slot of the source it matches, as if it had just fired. When the
+render switches on `event.type`, prefer the event's typed `event.detail` over
+the first argument; the first argument is the value of the source, not the
+matched occurrence.
 
 ### Element-owned effects
 

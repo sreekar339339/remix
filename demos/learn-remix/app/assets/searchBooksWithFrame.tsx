@@ -47,7 +47,7 @@ export const SearchBooksWithFrame = clientEntry(
           </label>
         </form>
         <evented.div eventSource={events} initial={initialEvent}>
-          {(result, event) => {
+          {(_, event) => {
             switch (event.type) {
               case 'queryEmpty':
                 return <p>Enter the title of any book.</p>
