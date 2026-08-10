@@ -21,6 +21,18 @@ function button(root: HTMLElement, section: string, label: string) {
   return match as HTMLButtonElement
 }
 
+async function waitForBenchmark(root: HTMLElement, section: string, label: string) {
+  let deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    await delay(50)
+    let match = [...root.querySelectorAll(`${section} button`)].find((node) =>
+      node.textContent?.includes(label),
+    )
+    if (match) return
+  }
+  assert.fail(`benchmark on ${section} did not finish`)
+}
+
 it('filters fine-grained and keeps rows across mode toggles', async (t) => {
   let result = render(<ListUpdatesFilterBoard />)
   t.after(() => result.cleanup())
@@ -39,6 +51,25 @@ it('filters fine-grained and keeps rows across mode toggles', async (t) => {
     'timing meter accumulates evented ticks',
   )
   assert.ok(result.$('.filter-board')!.textContent?.includes('300 shown'))
+
+  button(result.container, '.filter-board', 'Benchmark 30 ticks/mode').click()
+  await result.act(() => {})
+  await waitForBenchmark(result.container, '.filter-board', 'Benchmark 30 ticks/mode')
+  assert.equal(
+    button(result.container, '.filter-board', 'Benchmark 30 ticks/mode').textContent,
+    'Benchmark 30 ticks/mode',
+  )
+  assert.match(
+    result.$('.filter-board')!.textContent!,
+    /plain [\d.]+ ms\/tick \(30\)/,
+    'benchmark records plain ticks',
+  )
+  assert.match(
+    result.$('.filter-board')!.textContent!,
+    /evented [\d.]+ ms\/tick \(30\)/,
+    'benchmark records evented ticks',
+  )
+  assert.equal(rows().length, 3000)
 
   input.value = 'crimson-widget-500'
   await result.act(() => input.dispatchEvent(new InputEvent('input')))

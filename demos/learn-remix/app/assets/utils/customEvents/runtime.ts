@@ -119,6 +119,7 @@ function selectRoute(
   root: AddressNode,
   addresses: readonly EventAddress[] | undefined,
   ops?: readonly CustomEventsEntryOp[],
+  warnRootSkip?: () => void,
 ) {
   let selected = new Set<ElementSubscription>()
   if (addresses === undefined) {
@@ -133,6 +134,7 @@ function selectRoute(
     addresses.some((address) => address.length === 0) ||
     ops === undefined ||
     ops.some((op) => op !== 'mapReplace')
+  if (!includeRoot && root.subscriptions.size > 0) warnRootSkip?.()
   for (let address of addresses) {
     let nodes = walkAddress(root, address)
     for (let index = includeRoot ? 0 : 1; index < nodes.length; index++) {
@@ -203,6 +205,7 @@ export type CustomEventsRuntimeState = {
   subscriptions: SubscriptionIndex
   dispatchTargets: WeakMap<EventTarget, DispatchTargetRegistration>
   hosts: WeakMap<Element, number>
+  rootSkipWarnings: Set<string>
   defaultHost?: EventTarget
 }
 
@@ -218,6 +221,7 @@ export function createCustomEventsRuntimeState(): CustomEventsRuntimeState {
     },
     dispatchTargets: new WeakMap(),
     hosts: new WeakMap(),
+    rootSkipWarnings: new Set(),
   }
 }
 
@@ -345,16 +349,31 @@ function matchesScope(
   )
 }
 
+function warnRootSkipOnce(runtime: CustomEventsRuntimeState, type: string) {
+  if (runtime.rootSkipWarnings.has(type)) return
+  runtime.rootSkipWarnings.add(type)
+  console.warn(
+    `Map value replaces in "${type}" skip whole-key subscribers, so a whole-key <list> or ` +
+      `<output> does not re-render for in-place item changes. Subscribe per item (for example ` +
+      `store.events.${type}.get(id)) when an element renders fields that change per item.`,
+  )
+}
+
 function* matchingSubscriptions(
   runtime: CustomEventsRuntimeState,
   phase: SubscriptionPhase,
   transactionEvent: TransactionEvent,
 ) {
   let index = runtime.subscriptions[phase]
+  let warnRootSkip = () => warnRootSkipOnce(runtime, transactionEvent.event.type)
   let wildcard = index.get(ALL_EVENTS)
-  if (wildcard) yield* selectRoute(wildcard, transactionEvent.addresses, transactionEvent.ops)
+  if (wildcard) {
+    yield* selectRoute(wildcard, transactionEvent.addresses, transactionEvent.ops, warnRootSkip)
+  }
   let typed = index.get(transactionEvent.event.type)
-  if (typed) yield* selectRoute(typed, transactionEvent.addresses, transactionEvent.ops)
+  if (typed) {
+    yield* selectRoute(typed, transactionEvent.addresses, transactionEvent.ops, warnRootSkip)
+  }
 }
 
 function notifyEntries(

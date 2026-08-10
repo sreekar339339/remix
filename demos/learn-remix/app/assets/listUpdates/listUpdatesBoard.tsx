@@ -230,7 +230,7 @@ function timingLabel(timing: Timing | null | undefined): string {
 }
 
 function recordTiming<State extends { timing: Timing }>(
-  store: { state: { update(recipe: (draft: Draft<State>) => undefined): void } },
+  store: { state: { update(recipe: (draft: Draft<State>) => void): void } },
   mode: 'evented' | 'plain',
   ms: number,
 ) {
@@ -265,6 +265,101 @@ function makeSettler() {
   }
 }
 
+// Shared commit/measure machinery: `commit` applies a store recipe and, in
+// plain mode, also schedules the board re-render; `measure` times one tick
+// from commit until the DOM has settled; `resetTiming` clears the per-mode
+// accumulators so a benchmark reads cleanly.
+function makeWorkflow<State extends { timing: Timing }>(
+  store: { state: { update(recipe: (draft: Draft<State>) => void): void } },
+  handle: Handle,
+  getMode: () => 'evented' | 'plain',
+) {
+  let settler = makeSettler()
+  function commit(recipe: (draft: Draft<State>) => void) {
+    store.state.update(recipe)
+    if (getMode() === 'plain') return handle.update()
+  }
+  async function measure(recipe: (draft: Draft<State>) => void, record = true) {
+    let t0 = performance.now()
+    let pending = commit(recipe)
+    if (pending) {
+      await pending
+    } else if (!(await settler.settleTick())) {
+      return
+    }
+    if (record) recordTiming(store, getMode(), performance.now() - t0)
+  }
+  function record(ms: number) {
+    recordTiming(store, getMode(), ms)
+  }
+  function resetTiming() {
+    store.state.update((draft) => {
+      draft.timing = emptyTiming()
+    })
+  }
+  return { commit, measure, resetTiming, record }
+}
+
+const benchmarkTicksPerMode = 30
+
+// Benchmark ticks flush through the scheduler's microtask queue in a single
+// turn; yielding to the event loop between ticks keeps the cascading-update
+// guard (50 updates per turn) from tripping on a legitimate workload.
+let yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+// Runs `tick` benchmarkTicksPerMode times in evented mode, then the same in
+// plain mode, restoring the previous mode and any suspended activity
+// afterwards. Timing accumulators are cleared first and one timing entry is
+// recorded per tick (tick recipes pass record=false to the workflow measure)
+// so the meters show the benchmark numbers only.
+function makeBenchmarker<State extends { timing: Timing }>(options: {
+  workflow: ReturnType<typeof makeWorkflow<State>>
+  handle: Handle
+  getMode: () => 'evented' | 'plain'
+  setMode: (mode: 'evented' | 'plain') => void
+  tick: () => Promise<void>
+  suspend?: () => void
+  restore?: () => void
+}) {
+  let { workflow, handle } = options
+  let active = false
+  return {
+    get active() {
+      return active
+    },
+    async run() {
+      if (active) return
+      active = true
+      let previous = options.getMode()
+      options.suspend?.()
+      try {
+        workflow.resetTiming()
+        options.setMode('evented')
+        await handle.update()
+        for (let index = 0; index < benchmarkTicksPerMode; index++) {
+          let t0 = performance.now()
+          await options.tick()
+          workflow.record(performance.now() - t0)
+          await yieldToEventLoop()
+        }
+        options.setMode('plain')
+        await handle.update()
+        for (let index = 0; index < benchmarkTicksPerMode; index++) {
+          let t0 = performance.now()
+          await options.tick()
+          workflow.record(performance.now() - t0)
+          await yieldToEventLoop()
+        }
+      } finally {
+        active = false
+        options.restore?.()
+        options.setMode(previous)
+        await handle.update()
+      }
+    },
+  }
+}
+
 export const ListUpdatesFilterBoard = clientEntry(
   import.meta.url,
   function ListUpdatesFilterBoard(handle: Handle) {
@@ -278,22 +373,37 @@ export const ListUpdatesFilterBoard = clientEntry(
     let query = ''
     let sort: SortKey = 'id'
     let meter = installMeter(store, handle.signal)
-    let settler = makeSettler()
+    let workflow = makeWorkflow(store, handle, () => mode)
+    let benchmarker = makeBenchmarker({
+      workflow,
+      handle,
+      getMode: () => mode,
+      setMode: (next) => {
+        mode = next
+      },
+      tick: async () => {
+        let wide = orderedVisible(store.state.value.catalog, 'crimson', 'id')
+        await workflow.measure((draft) => {
+          draft.visible = new Map(
+            wide.map((id) => [id, store.state.value.catalog.get(id)!] as const),
+          )
+        }, false)
+        let keep = new Set(orderedVisible(store.state.value.catalog, 'crimson-widget-500', 'id'))
+        await workflow.measure((draft) => {
+          for (let id of [...draft.visible.keys()]) {
+            if (!keep.has(id)) draft.visible.delete(id)
+          }
+        }, false)
+      },
+    })
 
-    function commit(recipe: (draft: Draft<FilterBoardState>) => undefined) {
-      store.state.update(recipe)
-      if (mode === 'plain') return handle.update()
-    }
-
-    async function measureTick(recipe: (draft: Draft<FilterBoardState>) => undefined) {
-      let t0 = performance.now()
-      let pending = commit(recipe)
-      if (pending) {
-        await pending
-      } else if (!(await settler.settleTick())) {
-        return
-      }
-      recordTiming(store, mode, performance.now() - t0)
+    async function benchmark() {
+      await benchmarker.run()
+      query = ''
+      store.state.update((draft) => {
+        draft.visible = new Map(store.state.value.catalog)
+      })
+      await handle.update()
     }
 
     async function applyView(nextQuery: string, nextSort: SortKey) {
@@ -313,11 +423,11 @@ export const ListUpdatesFilterBoard = clientEntry(
       if (additions.length > 0 || removals.length === 0) {
         // New rows appeared (or a pure reorder): rebuild the whole map so sorted
         // positions land correctly; the list reconciles by key.
-        await measureTick((draft) => {
+        await workflow.measure((draft) => {
           draft.visible = new Map(order.map((id) => [id, draft.catalog.get(id)!] as const))
         })
       } else {
-        await measureTick((draft) => {
+        await workflow.measure((draft) => {
           for (let id of removals) draft.visible.delete(id)
         })
       }
@@ -341,7 +451,8 @@ export const ListUpdatesFilterBoard = clientEntry(
             fine-grained (one DOM op per dropped row); widening the query or switching the sort
             rebuilds the visible map, and the keyed diff reorders the DOM without recreating rows.
             The plain re-render re-runs every row template on each keystroke. Average apply time per
-            keystroke is tracked next to the DOM mutation meter.
+            keystroke is tracked next to the DOM mutation meter; the benchmark button runs 30 ticks
+            per mode automatically.
           </p>
         </header>
         <div mix={controlsCss}>
@@ -371,6 +482,13 @@ export const ListUpdatesFilterBoard = clientEntry(
             ]}
           >
             {mode === 'evented' ? 'Switch to plain re-render' : 'Switch to evented'}
+          </button>
+          <button
+            type="button"
+            mix={[buttonCss, on('click', () => void benchmark())]}
+            disabled={benchmarker.active}
+          >
+            {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
           <evented.output eventSource={store.events.visible} mix={meterCss}>
             {({ detail }) => (detail ? `${detail.size} shown` : '')}
@@ -409,40 +527,46 @@ export const ListUpdatesFeedBoard = clientEntry(
     let nextId = 50
     let ringStart = 0
     let meter = installMeter(store, handle.signal)
-    let settler = makeSettler()
+    let workflow = makeWorkflow(store, handle, () => mode)
 
-    function commit(recipe: (draft: Draft<FeedBoardState>) => undefined) {
-      store.state.update(recipe)
-      if (mode === 'plain') return handle.update()
-    }
-
-    async function measureTick(recipe: (draft: Draft<FeedBoardState>) => undefined) {
-      let t0 = performance.now()
-      let pending = commit(recipe)
-      if (pending) {
-        await pending
-      } else if (!(await settler.settleTick())) {
-        return
+    function feedRecipe(draft: Draft<FeedBoardState>) {
+      for (let index = 0; index < batch; index++) {
+        let id = nextId++
+        draft.items.set(id, {
+          id,
+          label: `${feedNouns[id % feedNouns.length]}-${id}`,
+          value: (id * 7919) % 10_000,
+        })
       }
-      recordTiming(store, mode, performance.now() - t0)
+      let excess = draft.items.size - feedCap
+      for (let index = 0; index < excess; index++) {
+        draft.items.delete(ringStart + index)
+      }
+      ringStart += excess
     }
 
-    async function feed() {
-      await measureTick((draft) => {
-        for (let index = 0; index < batch; index++) {
-          let id = nextId++
-          draft.items.set(id, {
-            id,
-            label: `${feedNouns[id % feedNouns.length]}-${id}`,
-            value: (id * 7919) % 10_000,
-          })
-        }
-        let excess = draft.items.size - feedCap
-        for (let index = 0; index < excess; index++) {
-          draft.items.delete(ringStart + index)
-        }
-        ringStart += excess
-      })
+    let wasRunning: boolean | undefined
+    let benchmarker = makeBenchmarker({
+      workflow,
+      handle,
+      getMode: () => mode,
+      setMode: (next) => {
+        mode = next
+      },
+      suspend: () => {
+        wasRunning = running
+        running = false
+      },
+      restore: () => {
+        if (wasRunning !== undefined) running = wasRunning
+      },
+      tick: async () => {
+        await workflow.measure(feedRecipe, false)
+      },
+    })
+
+    function feed() {
+      void workflow.measure(feedRecipe)
     }
 
     let interval = setInterval(() => {
@@ -467,7 +591,8 @@ export const ListUpdatesFeedBoard = clientEntry(
             A burst of {batch} adds (plus the oldest drops to stay under {feedCap}) arrives every{' '}
             {feedIntervalMs} ms as one coalesced update. The evented list applies the burst as a
             handful of fine-grained DOM ops; the plain re-render rebuilds every row. Average apply
-            time per burst is tracked next to the DOM mutation meter.
+            time per burst is tracked next to the DOM mutation meter; the benchmark button runs 30
+            bursts per mode automatically.
           </p>
         </header>
         <div mix={controlsCss}>
@@ -511,6 +636,13 @@ export const ListUpdatesFeedBoard = clientEntry(
           >
             {mode === 'evented' ? 'Switch to plain re-render' : 'Switch to evented'}
           </button>
+          <button
+            type="button"
+            mix={[buttonCss, on('click', () => void benchmarker.run())]}
+            disabled={benchmarker.active}
+          >
+            {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
+          </button>
           <evented.output eventSource={store.events.items} mix={meterCss}>
             {({ detail }) => (detail ? `${detail.size}/${feedCap}` : '')}
           </evented.output>
@@ -550,42 +682,52 @@ export const ListUpdatesHeavyBoard = clientEntry(
     let churning = false
     let churnPerTick = 20
     let meter = installMeter(store, handle.signal)
-    let settler = makeSettler()
+    let workflow = makeWorkflow(store, handle, () => mode)
 
-    function commit(recipe: (draft: Draft<HeavyBoardState>) => undefined) {
-      store.state.update(recipe)
-      if (mode === 'plain') return handle.update()
-    }
-
-    async function measureTick(recipe: (draft: Draft<HeavyBoardState>) => undefined) {
-      let t0 = performance.now()
-      let pending = commit(recipe)
-      if (pending) {
-        await pending
-      } else if (!(await settler.settleTick())) {
-        return
+    function churnRecipe(draft: Draft<HeavyBoardState>, picked: ReadonlySet<number>) {
+      for (let id of picked) {
+        let item = draft.items.get(id)
+        if (item) item.priority = ((item.priority + 1) % 5) + 1
       }
-      recordTiming(store, mode, performance.now() - t0)
     }
 
-    async function churn() {
+    function pickChurn() {
       let picked = new Set<number>()
       while (picked.size < churnPerTick) picked.add(Math.floor(Math.random() * heavyCount))
-      await measureTick((draft) => {
-        for (let id of picked) {
-          let item = draft.items.get(id)
-          if (item) item.priority = ((item.priority + 1) % 5) + 1
-        }
-      })
+      return picked
+    }
+
+    let wasChurning: boolean | undefined
+    let benchmarker = makeBenchmarker({
+      workflow,
+      handle,
+      getMode: () => mode,
+      setMode: (next) => {
+        mode = next
+      },
+      suspend: () => {
+        wasChurning = churning
+        churning = false
+      },
+      restore: () => {
+        if (wasChurning !== undefined) churning = wasChurning
+      },
+      tick: async () => {
+        await workflow.measure((draft) => churnRecipe(draft, pickChurn()), false)
+      },
+    })
+
+    function churn() {
+      void workflow.measure((draft) => churnRecipe(draft, pickChurn()))
     }
 
     let interval = setInterval(() => {
-      if (churning) void churn()
+      if (churning) churn()
     }, churnIntervalMs)
     handle.signal.addEventListener('abort', () => clearInterval(interval))
 
-    async function bumpAll() {
-      await measureTick((draft) => {
+    function bumpAll() {
+      void workflow.measure((draft) => {
         for (let item of draft.items.values()) {
           item.priority = ((item.priority + 1) % 5) + 1
         }
@@ -593,7 +735,7 @@ export const ListUpdatesHeavyBoard = clientEntry(
     }
 
     function reset() {
-      void measureTick((draft) => {
+      void workflow.measure((draft) => {
         draft.items = seedHeavy()
       })
     }
@@ -606,7 +748,7 @@ export const ListUpdatesHeavyBoard = clientEntry(
             checked={item.done}
             aria-label={`toggle ${item.title}`}
             mix={on('change', () => {
-              commit((draft) => {
+              workflow.commit((draft) => {
                 let row = draft.items.get(item.id)
                 if (row) {
                   row.done = !row.done
@@ -623,7 +765,7 @@ export const ListUpdatesHeavyBoard = clientEntry(
           <button
             type="button"
             mix={on('click', () => {
-              commit((draft) => {
+              workflow.commit((draft) => {
                 let row = draft.items.get(item.id)
                 if (row) row.edits += 1
               })
@@ -644,7 +786,8 @@ export const ListUpdatesHeavyBoard = clientEntry(
             random {churnPerTick}-row slice every {churnIntervalMs} ms: evented rows subscribe
             per-item, so only touched rows re-render, while the plain re-render re-runs and
             repatches all {heavyCount}. Toggle a checkbox to see a single row update fine-grained.
-            Average apply time per tick is tracked next to the DOM mutation meter.
+            Average apply time per tick is tracked next to the DOM mutation meter; the benchmark
+            button runs 30 ticks per mode automatically.
           </p>
         </header>
         <div mix={controlsCss}>
@@ -690,6 +833,13 @@ export const ListUpdatesHeavyBoard = clientEntry(
             ]}
           >
             {mode === 'evented' ? 'Switch to plain re-render' : 'Switch to evented'}
+          </button>
+          <button
+            type="button"
+            mix={[buttonCss, on('click', () => void benchmarker.run())]}
+            disabled={benchmarker.active}
+          >
+            {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
           <evented.output eventSource={store.events.meter} mix={meterCss}>
             {({ detail }) => `DOM mutations/s: ${detail ?? 0}`}

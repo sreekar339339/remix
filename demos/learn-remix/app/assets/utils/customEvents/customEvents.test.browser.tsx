@@ -1760,6 +1760,46 @@ describe('customEvents', () => {
     unregisterHost()
   })
 
+  it('warns once when Map item replaces skip a whole-key subscriber', async () => {
+    let runtime = createCustomEventsRuntimeState()
+    let host = document.createElement('section')
+    let origin = document.createElement('button')
+    host.append(origin)
+    let unregisterHost = customEventsRuntime.registerHost(runtime, host)
+    let warnings: string[] = []
+    let originalWarn = console.warn
+    console.warn = (message) => warnings.push(String(message))
+    try {
+      let cleanup = customEventsRuntime.subscribe(runtime, 'view', {
+        element: host,
+        eventTypes: new Set(['updated']),
+        notify() {},
+      })
+      let init = { bubbles: true, cancelable: false }
+      let event = (ops: readonly ('add' | 'remove' | 'replace' | 'mapReplace')[]) =>
+        customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
+          {
+            type: 'updated',
+            detail: null,
+            addresses: [['circle:1']],
+            ops,
+          },
+        ])
+
+      await customEventsRuntime.dispatch(runtime, origin, event(['mapReplace']))
+      assert.equal(warnings.length, 1)
+      assert.match(warnings[0]!, /subscribe per item/i)
+
+      await customEventsRuntime.dispatch(runtime, origin, event(['mapReplace']))
+      assert.equal(warnings.length, 1)
+
+      cleanup()
+    } finally {
+      console.warn = originalWarn
+    }
+    unregisterHost()
+  })
+
   it('derives host containment independently of registration order', () => {
     let runtime = createCustomEventsRuntimeState()
     let parent = document.createElement('main')
