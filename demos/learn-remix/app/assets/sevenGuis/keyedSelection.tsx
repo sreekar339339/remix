@@ -29,7 +29,7 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
             key={item.id}
             aria-label={item.label}
             type="button"
-            aria-pressed={(detail) => detail}
+            aria-pressed={(selected) => selected}
             data-renders={() => {
               let count = (renderCounts.get(item.id) ?? 0) + 1
               renderCounts.set(item.id, count)
@@ -56,7 +56,9 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
       </div>
       <p>
         Selected:{' '}
-        <evented.output eventSource={events.selectedId}>{(detail) => detail ?? ''}</evented.output>
+        <evented.output eventSource={events.selectedId}>
+          {(selectedId) => selectedId ?? ''}
+        </evented.output>
       </p>
     </section>
   )

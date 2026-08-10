@@ -92,7 +92,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           <evented.button
             eventSource={events.history}
             type="button"
-            disabled={(detail) => detail.index === 0}
+            disabled={(history) => history.index === 0}
             mix={[
               buttonCss,
               on('click', () => {
@@ -105,7 +105,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           <evented.button
             eventSource={events.history}
             type="button"
-            disabled={(detail) => detail.index === detail.snapshots.length - 1}
+            disabled={(history) => history.index === history.snapshots.length - 1}
             mix={[
               buttonCss,
               on('click', () => {
@@ -173,7 +173,7 @@ export const SevenGuisCircleDrawer = clientEntry(
         </svg>
         <evented.form
           eventSource={events.editingCircleById}
-          hidden={(detail) => detail === null}
+          hidden={(circleId) => circleId === null}
           mix={[
             rowCss,
             on('submit', (event) => {

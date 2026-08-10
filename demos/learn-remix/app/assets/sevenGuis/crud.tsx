@@ -64,7 +64,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
           eventSource={[events.people, events.prefix, events.selectedId]}
           size={7}
           aria-label="People"
-          value={(detail) => (detail as [unknown, unknown, number | null])[2] ?? ''}
+          value={(values) => (values as [unknown, unknown, number | null])[2] ?? ''}
           mix={[
             inputCss,
             on('change', ({ currentTarget }) => {
@@ -80,8 +80,8 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
             }),
           ]}
         >
-          {(detail) => {
-            let [people, prefix] = detail as [readonly Person[], string]
+          {(values) => {
+            let [people, prefix] = values as [readonly Person[], string]
             return visiblePeople(people, prefix).map((person) => (
               <option value={person.id}>
                 {person.surname}, {person.name}
@@ -90,8 +90,8 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
           }}
         </select>
         <div eventSource={[events.draft, events.selectedId]} mix={css({ display: 'grid', gap: 8 })}>
-          {(detail) => {
-            let [draft, selectedId] = detail as [CrudModel['draft'], number | null]
+          {(values) => {
+            let [draft, selectedId] = values as [CrudModel['draft'], number | null]
             return (
               <>
                 <label>

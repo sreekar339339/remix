@@ -134,9 +134,9 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                   eventSource={events.columns.get(columnId)}
                   aria-label={`${column.title} view`}
                 >
-                  {(detail) => {
-                    if (!detail) return null
-                    let urgent = detail.cards
+                  {(column) => {
+                    if (!column) return null
+                    let urgent = column.cards
                       .values()
                       .reduce((count, card) => count + Number(card.urgent), 0)
                     return `${urgent} urgent · rendered ${nextRenderCount(columnId)}`
@@ -150,22 +150,22 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                     eventSource={events.columns.get(columnId).cards.get(cardId)}
                     key={cardId}
                     aria-label={initialCard.title}
-                    data-urgent={(detail) => detail?.urgent}
+                    data-urgent={(card) => card?.urgent}
                     mix={cardCss}
                   >
-                    {(detail) => {
-                      if (!detail) return null
+                    {(card) => {
+                      if (!card) return null
                       return (
                         <>
-                          <strong>{detail.title}</strong>
+                          <strong>{card.title}</strong>
                           <span>
-                            {`${detail.urgent ? 'Urgent' : 'Normal'} · rendered ${nextRenderCount(
+                            {`${card.urgent ? 'Urgent' : 'Normal'} · rendered ${nextRenderCount(
                               cardId,
                             )}×`}
                           </span>
                           <button
                             type="button"
-                            aria-label={`Toggle ${detail.title} urgency`}
+                            aria-label={`Toggle ${card.title} urgency`}
                             mix={[
                               buttonCss,
                               on('click', () => {

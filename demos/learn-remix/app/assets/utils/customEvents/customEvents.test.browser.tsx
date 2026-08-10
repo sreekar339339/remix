@@ -35,12 +35,12 @@ describe('customEvents', () => {
           <evented.output
             eventSource={events.submitted}
             aria-label="typed"
-            data-id={(detail) => detail?.id}
+            data-id={(order) => order?.id}
           >
-            {(detail) => detail?.id ?? ''}
+            {(order) => order?.id ?? ''}
           </evented.output>
           <evented.output eventSource={events} aria-label="wildcard">
-            {(detail, event) => (event ? event.type : '')}
+            {(value, event) => (event ? event.type : '')}
           </evented.output>
         </section>
       )
@@ -235,16 +235,16 @@ describe('customEvents', () => {
         <evented.output
           aria-label="name"
           eventSource={store.events.profile.name}
-          class={(detail) => detail.toLowerCase()}
+          class={(name) => name.toLowerCase()}
         >
-          {(detail) => {
-            detail satisfies string
+          {(name) => {
+            name satisfies string
             if (false) {
-              // @ts-expect-error - detail is the selected value, not the snapshot.
-              detail.toFixed()
+              // @ts-expect-error - the first argument is the selected value, not the snapshot.
+              name.toFixed()
             }
             renders++
-            return detail
+            return name
           }}
         </evented.output>
       )
@@ -308,19 +308,19 @@ describe('customEvents', () => {
       return () => (
         <section>
           <evented.output eventSource={store.events.position.get('a')}>
-            {(detail) => `${++calls.mapA}:${detail ?? ''}`}
+            {(mark) => `${++calls.mapA}:${mark ?? ''}`}
           </evented.output>
           <evented.output eventSource={store.events.position.get('b')}>
-            {(detail) => `${++calls.mapB}:${detail ?? ''}`}
+            {(mark) => `${++calls.mapB}:${mark ?? ''}`}
           </evented.output>
           <evented.output eventSource={store.events.position}>
-            {(detail) => `${++calls.mapAll}:${detail.size}`}
+            {(positions) => `${++calls.mapAll}:${positions.size}`}
           </evented.output>
           <evented.output eventSource={store.events.selected.has('red')}>
-            {(detail) => `${++calls.red}:${detail}`}
+            {(selected) => `${++calls.red}:${selected}`}
           </evented.output>
           <evented.output eventSource={store.events.selected.has('blue')}>
-            {(detail) => `${++calls.blue}:${detail}`}
+            {(selected) => `${++calls.blue}:${selected}`}
           </evented.output>
         </section>
       )
@@ -656,7 +656,7 @@ describe('customEvents', () => {
     function RecordValue() {
       return () => (
         <evented.output eventSource={store.events.records.get(recordKey).value}>
-          {(detail) => `${++renders}:${detail}`}
+          {(value) => `${++renders}:${value}`}
         </evented.output>
       )
     }
@@ -804,7 +804,7 @@ describe('customEvents', () => {
             eventSource={store.events.selected.as('1')}
             aria-label="1"
             type="button"
-            aria-pressed={(detail) => detail}
+            aria-pressed={(selected) => selected}
             mix={store.events.selected.as('1').on(({ currentTarget, detail }) => {
               effectOrder.push(currentTarget.getAttribute('aria-label') ?? '')
               if (detail === '1') {
@@ -818,7 +818,7 @@ describe('customEvents', () => {
             eventSource={store.events.selected.as('2')}
             aria-label="2"
             type="button"
-            aria-pressed={(detail) => detail}
+            aria-pressed={(selected) => selected}
             mix={store.events.selected.as('2').on(({ currentTarget, detail }) => {
               effectOrder.push(currentTarget.getAttribute('aria-label') ?? '')
               if (detail === '2') {
@@ -974,7 +974,7 @@ describe('customEvents', () => {
             ]}
           />
           <evented.output aria-label="listener" eventSource={store.events.countDrafted}>
-            {(detail) => (detail === undefined ? 'idle' : `${detail}:${++listenerRenders}`)}
+            {(count) => (count === undefined ? 'idle' : `${count}:${++listenerRenders}`)}
           </evented.output>
         </section>
       )
@@ -1008,14 +1008,14 @@ describe('customEvents', () => {
     function Snapshot() {
       return () => (
         <evented.output eventSource={store.events} aria-label="snapshot">
-          {(detail) => {
-            seen.push(detail)
+          {(value) => {
+            seen.push(value)
             if (false) {
-              detail satisfies number | { readonly count: number }
+              value satisfies number | { readonly count: number }
             }
-            return typeof detail === 'object' && detail !== null
-              ? `count:${detail.count}`
-              : `raw:${detail}`
+            return typeof value === 'object' && value !== null
+              ? `count:${value.count}`
+              : `raw:${value}`
           }}
         </evented.output>
       )
@@ -1168,16 +1168,16 @@ describe('customEvents', () => {
       return () => (
         <section mix={events.asHost}>
           <evented.output eventSource={events.name} aria-label="name">
-            {(detail, event) => event?.type}
+            {(value, event) => event?.type}
           </evented.output>
           <evented.output eventSource={events.length} aria-label="length">
-            {(detail, event) => event?.type}
+            {(value, event) => event?.type}
           </evented.output>
           <evented.output eventSource={events.bind} aria-label="bind">
-            {(detail, event) => event?.type}
+            {(value, event) => event?.type}
           </evented.output>
           <evented.output eventSource={events.toString} aria-label="toString">
-            {(detail, event) => event?.type}
+            {(value, event) => event?.type}
           </evented.output>
         </section>
       )
@@ -1214,13 +1214,13 @@ describe('customEvents', () => {
             eventSource={events.submitted}
             initial={events.create('submitted', { id: 'idle' })}
             aria-label="form"
-            class={(detail, event) => (detail.id === 'idle' ? '' : 'pending')}
-            aria-busy={(detail, event) => detail.id !== 'idle'}
+            class={(order, event) => (order.id === 'idle' ? '' : 'pending')}
+            aria-busy={(order, event) => order.id !== 'idle'}
             mix={events.submitted.on(({ currentTarget }) => {
               currentTarget.dataset.committed = String(currentTarget.classList.contains('pending'))
             })}
           >
-            {(detail, event) => <output>{detail.id}</output>}
+            {(order, event) => <output>{order.id}</output>}
           </evented.form>
         </section>
       )
@@ -1251,18 +1251,18 @@ describe('customEvents', () => {
         <section mix={events.asHost} aria-label="confirmation-host">
           <evented.output
             eventSource={events.submitted}
-            hidden={(detail, event) => detail === undefined}
+            hidden={(order, event) => order === undefined}
             aria-label="confirmation"
           >
-            {(detail, event) => detail?.id ?? null}
+            {(order, event) => order?.id ?? null}
           </evented.output>
           <evented.output
             eventSource={events.submitted}
             initial={events.create('submitted', { id: 'initial' })}
-            hidden={(detail, event) => detail.id === 'hidden'}
+            hidden={(order, event) => order.id === 'hidden'}
             aria-label="initial-confirmation"
           >
-            {(detail, event) => detail.id}
+            {(order, event) => order.id}
           </evented.output>
         </section>
       )
@@ -1295,7 +1295,7 @@ describe('customEvents', () => {
         <evented.form
           eventSource={events}
           aria-label="source"
-          data-action={(detail, event) => event?.type}
+          data-action={(value, event) => event?.type}
           mix={[
             events.asHost,
             on('focusout', ({ currentTarget }) => {
@@ -1306,7 +1306,7 @@ describe('customEvents', () => {
           <evented.input
             eventSource={events}
             aria-label="input"
-            disabled={(detail, event) => event?.type === 'submitted'}
+            disabled={(value, event) => event?.type === 'submitted'}
           />
         </evented.form>
       )
@@ -1350,11 +1350,11 @@ describe('customEvents', () => {
                 currentTarget.dataset.effect = type
               })}
             >
-              {([detail], event) => (event.type === 'submitted' ? detail.id : 'idle')}
+              {([order], event) => (event.type === 'submitted' ? order.id : 'idle')}
             </evented.output>
           ))}
           <evented.output eventSource={events} initial={initialOutcome} aria-label="all">
-            {(detail, event) => (event.type === 'paid' ? 'idle' : event.type)}
+            {(value, event) => (event.type === 'paid' ? 'idle' : event.type)}
           </evented.output>
         </section>
       )
@@ -1547,7 +1547,7 @@ describe('customEvents', () => {
               effects.push(`${type}:${currentTarget.textContent}`)
             })}
           >
-            {(detail, event) => event && `${event.type}:${++viewUpdates}`}
+            {(value, event) => event && `${event.type}:${++viewUpdates}`}
           </evented.output>
         </section>
       )

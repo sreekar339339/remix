@@ -165,10 +165,10 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
         ]}
       >
         <evented.span eventSource={events.result}>
-          {(detail) => {
-            if (!detail) return 'Game in progress'
-            if (detail === 'Draw') return 'Game is drawn.'
-            return `${detail} has won!`
+          {(result) => {
+            if (!result) return 'Game in progress'
+            if (result === 'Draw') return 'Game is drawn.'
+            return `${result} has won!`
           }}
         </evented.span>
       </p>

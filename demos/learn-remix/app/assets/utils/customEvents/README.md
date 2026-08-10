@@ -361,8 +361,8 @@ occurrence payload otherwise:
 
 ```tsx
 <evented.output eventSource={events}>
-  {(detail) =>
-    typeof detail === 'object' ? `${detail.kind} from ${detail.startDate}` : detail
+  {(value) =>
+    typeof value === 'object' ? `${value.kind} from ${value.startDate}` : value
   }
 </evented.output>
 ```
@@ -379,14 +379,14 @@ A descriptor with no state broadcasts occurrences. Pass the descriptor to
 
 ```tsx
 <evented.div eventSource={searchEvents} initial={initialEvent}>
-  {(detail, event) => {
+  {(payload, event) => {
     switch (event.type) {
       case 'queryEmpty':
         return 'Enter a title'
       case 'querySubmitted':
-        return `Searching for ${detail.query}`
+        return `Searching for ${payload.query}`
       case 'booksFound':
-        return `${detail.length} books`
+        return `${payload.length} books`
     }
   }}
 </evented.div>

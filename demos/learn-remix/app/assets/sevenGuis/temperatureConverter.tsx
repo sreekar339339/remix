@@ -26,7 +26,7 @@ export const SevenGuisTemperatureConverter = clientEntry(
           <evented.input
             eventSource={events.celsius}
             aria-label="Celsius"
-            value={(detail) => detail}
+            value={(temperature) => temperature}
             mix={[
               inputCss,
               on('input', ({ currentTarget }) => {
@@ -44,7 +44,7 @@ export const SevenGuisTemperatureConverter = clientEntry(
           <evented.input
             eventSource={events.fahrenheit}
             aria-label="Fahrenheit"
-            value={(detail) => detail}
+            value={(temperature) => temperature}
             mix={[
               inputCss,
               on('input', ({ currentTarget }) => {

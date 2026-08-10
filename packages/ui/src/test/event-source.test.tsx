@@ -74,8 +74,8 @@ describe('eventSource host prop', () => {
     let container = document.createElement('div')
     let root = createRoot(container)
     root.render(
-      <button eventSource={count} disabled={(detail) => (detail as number) >= 2}>
-        {(detail) => `count: ${detail}`}
+      <button eventSource={count} disabled={(count) => (count as number) >= 2}>
+        {(count) => `count: ${count}`}
       </button>,
     )
     root.flush()
@@ -104,8 +104,8 @@ describe('eventSource host prop', () => {
     let root = createRoot(container)
     root.render(
       <output eventSource={[first, last]}>
-        {(detail) => {
-          let [firstName, lastName] = detail as [string, string]
+        {(value) => {
+          let [firstName, lastName] = value as [string, string]
           return `${firstName} ${lastName}`
         }}
       </output>,
@@ -128,8 +128,8 @@ describe('eventSource host prop', () => {
     let root = createRoot(container)
     root.render(
       <output eventSource={submitted} initial={{ type: 'submitted', detail: 'waiting' }}>
-        {(detail: unknown, event?: EventSourceEvent) =>
-          `${(event as EventSourceEvent).type}: ${(detail as string) ?? 'no detail'}`
+        {(value: unknown, event?: EventSourceEvent) =>
+          `${(event as EventSourceEvent).type}: ${(value as string) ?? 'no detail'}`
         }
       </output>,
     )
@@ -163,10 +163,10 @@ describe('eventSource host prop', () => {
       <output
         eventSource={wildcard}
         initial={{ type: 'idle', detail: 'waiting' }}
-        data-type={(detail: unknown, event?: EventSourceEvent) => (event as EventSourceEvent).type}
+        data-type={(value: unknown, event?: EventSourceEvent) => (event as EventSourceEvent).type}
       >
-        {(detail: unknown, event?: EventSourceEvent) =>
-          `${(event as EventSourceEvent).type}: ${detail as string}`
+        {(value: unknown, event?: EventSourceEvent) =>
+          `${(event as EventSourceEvent).type}: ${value as string}`
         }
       </output>,
     )
@@ -190,8 +190,8 @@ describe('eventSource host prop', () => {
       return () => (
         <div>
           <span>{handle.props.label}</span>
-          <button eventSource={selected} aria-pressed={(detail) => detail as boolean}>
-            {(detail) => (detail ? 'selected' : 'not selected')}
+          <button eventSource={selected} aria-pressed={(selected) => selected as boolean}>
+            {(selected) => (selected ? 'selected' : 'not selected')}
           </button>
         </div>
       )
@@ -221,7 +221,7 @@ describe('eventSource host prop', () => {
 
     let container = document.createElement('div')
     let root = createRoot(container)
-    root.render(<output eventSource={source}>{(detail) => detail as string}</output>)
+    root.render(<output eventSource={source}>{(value) => value as string}</output>)
     root.flush()
     expect(source.subscriberCount()).toBe(1)
 
@@ -275,8 +275,8 @@ describe('eventSource host prop', () => {
     let name = createFakeSource('name', { value: 'Ada' })
 
     let html = await renderToString(
-      <output eventSource={name} data-name={(detail: unknown) => detail as string}>
-        {(detail: unknown) => detail as string}
+      <output eventSource={name} data-name={(name: unknown) => name as string}>
+        {(name: unknown) => name as string}
       </output>,
     )
 

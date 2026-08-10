@@ -50,9 +50,7 @@ export function EventUserDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div eventSource={events.user.name}>
-        {(detail) => detail ?? 'Not logged in'}
-      </evented.div>
+      <evented.div eventSource={events.user.name}>{(user) => user ?? 'Not logged in'}</evented.div>
     </div>
   )
 }
@@ -80,7 +78,7 @@ export function EventSettingsDisplay(handle: Handle) {
 
   return () => (
     <evented.pre eventSource={events.settings}>
-      {(detail) => `Layout: ${detail.layout}, Theme: ${detail.theme}`}
+      {(context) => `Layout: ${context.layout}, Theme: ${context.theme}`}
     </evented.pre>
   )
 }
