@@ -49,8 +49,8 @@ export function AddTodo(handle: Handle<Props<'form'>>) {
         Enter a todo{' '}
         <evented.input
           eventSource={events}
-          disabled={(event) => event?.type === 'actionSubmitted'}
-          class={(event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
+          disabled={(detail, event) => event?.type === 'actionSubmitted'}
+          class={(detail, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
           mix={[
             inputCss,
             events.on(({ currentTarget, type }) => {

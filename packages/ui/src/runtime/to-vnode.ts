@@ -2,6 +2,7 @@ import { Fragment } from './component.ts'
 import { Frame } from './component.ts'
 import { invariant } from './invariant.ts'
 import { isEmptyChild, isPrimitiveChild, isRemixNode, normalizeChildren } from './core/children.ts'
+import type { EventSourceEvent } from './event-source.ts'
 import type { RemixNode } from './jsx.ts'
 import type { ElementFunction } from './element-function.ts'
 import type { FrameProps } from './component.ts'
@@ -27,15 +28,21 @@ function flatMapChildrenToVNodes(props: RuntimeHostProps): VNodeInput[] {
 
 /**
  * Resolves the children of an event-aware host element: a function child is
- * called with the event input, static children pass through. Used when the
- * element (re-)renders from an event rather than a parent render.
+ * called with the callback input and the matched event, static children pass
+ * through. Used when the element (re-)renders from an event rather than a
+ * parent render.
  *
  * @param children Raw children value from the element props.
  * @param input The callback input.
+ * @param event The matched event, when the element is occurrence-driven.
  * @returns The resolved child vnodes.
  */
-export function resolveEventedChildInputs(children: unknown, input: unknown): VNodeInput[] {
-  let resolved = typeof children === 'function' ? children(input) : children
+export function resolveEventedChildInputs(
+  children: unknown,
+  input: unknown,
+  event?: EventSourceEvent,
+): VNodeInput[] {
+  let resolved = typeof children === 'function' ? children(input, event) : children
   if (resolved === undefined || resolved === null) return []
   invariant(isRemixNode(resolved), 'Invalid host children')
   return flatMapChildrenToVNodes({ children: resolved })
@@ -54,14 +61,14 @@ function flattenChildrenToVNodes(nodes: RemixNode[], out: VNodeInput[]): void {
  * (re-)renders from an event rather than a parent render.
  *
  * @param template The per-item template child.
- * @param input The callback input; its `detail` must be a Map, Set, or array.
+ * @param input The callback input; must be a Map, Set, or array.
  * @returns The resolved child vnodes plus parallel item/key references.
  */
 export function resolveEventedListItemInputs(
   template: unknown,
   input: unknown,
 ): { vnodes: VNodeInput[]; items: unknown[]; keys: unknown[] } {
-  let detail = (input as { detail?: unknown } | null)?.detail
+  let detail = input
   if (detail === undefined || detail === null) {
     return { vnodes: [], items: [], keys: [] }
   }

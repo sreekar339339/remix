@@ -92,7 +92,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           <evented.button
             eventSource={events.history}
             type="button"
-            disabled={({ detail }) => detail.index === 0}
+            disabled={(detail) => detail.index === 0}
             mix={[
               buttonCss,
               on('click', () => {
@@ -105,7 +105,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           <evented.button
             eventSource={events.history}
             type="button"
-            disabled={({ detail }) => detail.index === detail.snapshots.length - 1}
+            disabled={(detail) => detail.index === detail.snapshots.length - 1}
             mix={[
               buttonCss,
               on('click', () => {
@@ -149,8 +149,8 @@ export const SevenGuisCircleDrawer = clientEntry(
                 eventSource={[events.circles.get(id).diameter, events.editingCircleById.as(id)]}
                 cx={circle.x}
                 cy={circle.y}
-                r={({ detail: [diameter] }) => (diameter ?? circle.diameter) / 2}
-                fill={({ detail: [, isEditing] }) => (isEditing ? '#d4d4d8' : 'none')}
+                r={([diameter]) => (diameter ?? circle.diameter) / 2}
+                fill={([, isEditing]) => (isEditing ? '#d4d4d8' : 'none')}
                 mix={[
                   css({
                     pointerEvents: 'all',
@@ -173,7 +173,7 @@ export const SevenGuisCircleDrawer = clientEntry(
         </svg>
         <evented.form
           eventSource={events.editingCircleById}
-          hidden={({ detail }) => detail === null}
+          hidden={(detail) => detail === null}
           mix={[
             rowCss,
             on('submit', (event) => {
@@ -189,7 +189,7 @@ export const SevenGuisCircleDrawer = clientEntry(
               type="range"
               min={10}
               max={120}
-              defaultValue={({ detail: [editingId, circles] }) => {
+              defaultValue={([editingId, circles]) => {
                 return editingId === null ? 10 : (circles.get(editingId)?.diameter ?? 10)
               }}
               mix={[

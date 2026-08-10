@@ -125,8 +125,8 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                         return String(count)
                       }}
                       type="text"
-                      defaultValue={({ detail: [committed, draft] }) => draft ?? committed}
-                      value={({ detail: [committed, draft] }) => draft ?? committed}
+                      defaultValue={([committed, draft]) => draft ?? committed}
+                      value={([committed, draft]) => draft ?? committed}
                       mix={[
                         cellCss,
                         events.focusTarget.as(id).on(({ currentTarget }) => {

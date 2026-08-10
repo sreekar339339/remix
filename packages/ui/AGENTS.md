@@ -1356,9 +1356,9 @@ Any host element can subscribe to event sources directly with the `eventSource` 
 ```tsx
 <select
   eventSource={[events.people, events.prefix, events.selectedId]}
-  value={({ detail: [, , selectedId] }) => selectedId ?? ''}
+  value={([, , selectedId]) => selectedId ?? ''}
 >
-  {({ detail: [people, prefix] }) =>
+  {([people, prefix]) =>
     visiblePeople(people, prefix).map((person) => (
       <option value={person.id}>
         {person.surname}, {person.name}
@@ -1372,8 +1372,8 @@ Rules:
 
 - `eventSource` accepts one source or an array (empty slots allowed); an element accepts one source per event type.
 - Any prop may be a function of the event input (except `children`, `key`, `mix`, `innerHTML`, `eventSource`, `initial`, and `on*` props); `children` may be a function returning `RemixNode`.
-- The input is `{ detail }`: the source's current value for one source, a tuple index-aligned with `eventSource` for several. Its `detail` is typed `unknown` — narrow it in the callback.
-- `initial` supplies the input rendered before an occurrence first matches; sources that retain a value ignore it.
+- A callback's first argument is the input: the source's current value for one source, a tuple index-aligned with `eventSource` for several. It is typed `unknown` — narrow it in the callback. The matched event is passed as a second argument.
+- `initial` is an event rendered before an occurrence first matches: its detail fills the slot of the source it matches, as if it had just fired, and callbacks receive it as the event argument. Sources that retain a value ignore it.
 - The element keeps the event's value across parent re-renders; unsubscribing happens automatically when the element is removed.
 - Server rendering resolves the initial input only; subscriptions are client-side.
 - Structural changes (creating, deleting, reordering elements) can flow through a children function: the callback re-resolves from the event input and the vdom diffs the result by `key`, so keyed children mount, unmount, and reorder in place while unkeyed updates patch an existing element.
@@ -1392,7 +1392,7 @@ The virtual `list` element renders one template per collection item from a singl
 
 Rules:
 
-- `eventSource` accepts exactly one source; the source must retain a value whose `detail` is a Map, Set, or array.
+- `eventSource` accepts exactly one source; the source must retain a value that is a Map, Set, or array.
 - `children` is a per-item template `(item, key) => RemixNode`; it is never a callback of the event input. The template must render a node for every item.
 - Items are keyed: a Map's keys, a Set's values, an array's indexes.
 - On every matched event the list reads the source's current value. When the matched event carries structural routes (the `EVENT_ROUTES` brand symbol), changes are applied minimally: adds insert, removals drop, and Map value replaces rebuild the one item, preserving every other item's DOM identity. Arrays additionally decode a replace-then-remove chain (e.g. deleting a middle item) as a single removal.

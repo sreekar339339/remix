@@ -12,6 +12,7 @@ import {
 } from '../runtime/core/attributes.ts'
 import { appendFlushMarker, type FlushKind, stripFlushMarkers } from '../runtime/stream-protocol.ts'
 import {
+  computeInitialEvent,
   computeInitialEventInput,
   resolveEventedProps,
   resolveEventSourceProtocols,
@@ -520,8 +521,7 @@ function buildListElementSegment(
   frameState: SsrFrameState,
 ): Segment {
   let sources = resolveEventSourceProtocols(props.eventSource)
-  let input = computeInitialEventInput(sources, props.initial)
-  let detail = (input as { detail?: unknown } | null)?.detail
+  let detail = computeInitialEventInput(sources, props.initial)
   if (detail == null) return staticSeg('')
   let template = props.children as (item: unknown, key: unknown) => RemixNode
   let parts: Segment[] = []
@@ -553,9 +553,12 @@ function buildElementSegment(
     // subscriptions only exist on the client.
     let sources = resolveEventSourceProtocols(mixedProps.eventSource)
     let input = computeInitialEventInput(sources, mixedProps.initial)
+    let event = computeInitialEvent(sources, mixedProps.initial)
     let children =
-      typeof mixedProps.children === 'function' ? mixedProps.children(input) : mixedProps.children
-    mixedProps = { ...resolveEventedProps(mixedProps, input), children }
+      typeof mixedProps.children === 'function'
+        ? mixedProps.children(input, event)
+        : mixedProps.children
+    mixedProps = { ...resolveEventedProps(mixedProps, input, event), children }
     // Children are built from the raw props below; hand them the resolved value.
     props = { ...props, children }
   }

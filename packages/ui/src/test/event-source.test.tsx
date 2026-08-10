@@ -7,7 +7,6 @@ import { invariant } from '../runtime/invariant.ts'
 import {
   EVENT_SOURCE,
   getEventSourceProtocol,
-  type EventInput,
   type EventSource,
   type EventSourceEvent,
 } from '../index.ts'
@@ -56,8 +55,8 @@ describe('eventSource host prop', () => {
     let container = document.createElement('div')
     let root = createRoot(container)
     root.render(
-      <output eventSource={name} data-name={({ detail }: EventInput) => detail as string}>
-        {({ detail }) => detail as string}
+      <output eventSource={name} data-name={(detail: unknown) => detail as string}>
+        {(detail: unknown) => detail as string}
       </output>,
     )
     root.flush()
@@ -75,8 +74,8 @@ describe('eventSource host prop', () => {
     let container = document.createElement('div')
     let root = createRoot(container)
     root.render(
-      <button eventSource={count} disabled={({ detail }) => (detail as number) >= 2}>
-        {({ detail }) => `count: ${detail}`}
+      <button eventSource={count} disabled={(detail) => (detail as number) >= 2}>
+        {(detail) => `count: ${detail}`}
       </button>,
     )
     root.flush()
@@ -105,7 +104,7 @@ describe('eventSource host prop', () => {
     let root = createRoot(container)
     root.render(
       <output eventSource={[first, last]}>
-        {({ detail }) => {
+        {(detail) => {
           let [firstName, lastName] = detail as [string, string]
           return `${firstName} ${lastName}`
         }}
@@ -128,19 +127,60 @@ describe('eventSource host prop', () => {
     let container = document.createElement('div')
     let root = createRoot(container)
     root.render(
-      <output eventSource={submitted} initial={{ type: 'idle', detail: 'waiting' }}>
-        {(event) => `${(event as EventSourceEvent).type}: ${(event as EventSourceEvent).detail}`}
+      <output eventSource={submitted} initial={{ type: 'submitted', detail: 'waiting' }}>
+        {(detail: unknown, event?: EventSourceEvent) =>
+          `${(event as EventSourceEvent).type}: ${(detail as string) ?? 'no detail'}`
+        }
       </output>,
     )
     root.flush()
 
     let output = container.querySelector('output')
     invariant(output)
-    expect(output.textContent).toBe('idle: waiting')
+    expect(output.textContent).toBe('submitted: waiting')
 
     submitted.fire('order-1')
     root.flush()
     expect(output.textContent).toBe('submitted: order-1')
+  })
+
+  it('matches any event type against wildcard sources', () => {
+    let target = new EventTarget()
+    let wildcard: EventSource = {
+      [EVENT_SOURCE]: {
+        type: '*',
+        subscribe(subscriber, signal) {
+          let listener = (event: Event) => subscriber.notify(event as EventSourceEvent)
+          target.addEventListener('ready', listener)
+          signal.addEventListener('abort', () => target.removeEventListener('ready', listener))
+        },
+      },
+    }
+
+    let container = document.createElement('div')
+    let root = createRoot(container)
+    root.render(
+      <output
+        eventSource={wildcard}
+        initial={{ type: 'idle', detail: 'waiting' }}
+        data-type={(detail: unknown, event?: EventSourceEvent) => (event as EventSourceEvent).type}
+      >
+        {(detail: unknown, event?: EventSourceEvent) =>
+          `${(event as EventSourceEvent).type}: ${detail as string}`
+        }
+      </output>,
+    )
+    root.flush()
+
+    let output = container.querySelector('output')
+    invariant(output)
+    expect(output.dataset.type).toBe('idle')
+    expect(output.textContent).toBe('idle: waiting')
+
+    target.dispatchEvent(new CustomEvent('ready', { detail: 'done' }))
+    root.flush()
+    expect(output.dataset.type).toBe('ready')
+    expect(output.textContent).toBe('ready: done')
   })
 
   it('keeps the event value across parent re-renders', () => {
@@ -150,8 +190,8 @@ describe('eventSource host prop', () => {
       return () => (
         <div>
           <span>{handle.props.label}</span>
-          <button eventSource={selected} aria-pressed={({ detail }) => detail as boolean}>
-            {({ detail }) => (detail ? 'selected' : 'not selected')}
+          <button eventSource={selected} aria-pressed={(detail) => detail as boolean}>
+            {(detail) => (detail ? 'selected' : 'not selected')}
           </button>
         </div>
       )
@@ -181,7 +221,7 @@ describe('eventSource host prop', () => {
 
     let container = document.createElement('div')
     let root = createRoot(container)
-    root.render(<output eventSource={source}>{({ detail }) => detail as string}</output>)
+    root.render(<output eventSource={source}>{(detail) => detail as string}</output>)
     root.flush()
     expect(source.subscriberCount()).toBe(1)
 
@@ -235,8 +275,8 @@ describe('eventSource host prop', () => {
     let name = createFakeSource('name', { value: 'Ada' })
 
     let html = await renderToString(
-      <output eventSource={name} data-name={({ detail }: EventInput) => detail as string}>
-        {({ detail }) => detail as string}
+      <output eventSource={name} data-name={(detail: unknown) => detail as string}>
+        {(detail: unknown) => detail as string}
       </output>,
     )
 

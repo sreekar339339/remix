@@ -107,16 +107,16 @@ import { customEvents, evented } from '.../customEvents'
 ```
 
 The typed overloads preserve source-specific callback inference on top of the
-raw `eventSource` host prop. The `detail` delivered to the render function is
-the **value the `eventSource` selects**: the current value at that source's path
-for one source, a tuple index-aligned with `eventSource` for several, and the
-whole state snapshot for the descriptor's wildcard source (below). Passing the
-descriptor or store descriptor itself as `eventSource` infers the event map, so
-wildcard and store views stay fully typed without binding `evented` per
-descriptor.
+raw `eventSource` host prop. A render function's first argument is the **value
+the `eventSource` selects**: the current value at that source's path for one
+source, a tuple index-aligned with `eventSource` for several, and the whole
+state snapshot for the descriptor's wildcard source (below). The matched event
+is the second argument. Passing the descriptor or store descriptor itself as
+`eventSource` infers the event map, so wildcard and store views stay fully
+typed without binding `evented` per descriptor.
 
 ```tsx
-<evented.output eventSource={events.startDate}>{({ detail }) => detail}</evented.output>
+<evented.output eventSource={events.startDate}>{(value) => value}</evented.output>
 ```
 
 Occurrence events (declared but not retained by a store) fill their tuple
@@ -125,12 +125,12 @@ slot with the occurrence payload when that occurrence triggered the render and
 
 Evented-view props:
 
-| Prop             | Meaning                                                                                                                                                                                                                |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `eventSource`    | A source, an array of sources, or the descriptor itself. The `detail` is the selected value (one source), a tuple aligned with `eventSource` (several), or the whole snapshot/event union for the wildcard descriptor. |
-| `initial`        | A defined event to render before an occurrence first matches. Store views need no `initial`.                                                                                                                           |
-| `children`       | Static children, or a render function of the matched event.                                                                                                                                                            |
-| _reactive props_ | Any native prop may be a function of the matched event.                                                                                                                                                                |
+| Prop             | Meaning                                                                                                                                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `eventSource`    | A source, an array of sources, or the descriptor itself. The first callback argument is the selected value (one source), a tuple aligned with `eventSource` (several), or the whole snapshot/event union for the wildcard descriptor; the matched event is the second. |
+| `initial`        | A defined event to render before an occurrence first matches; callbacks receive it as the matched event. Store views need no `initial`.                                                                                                      |
+| `children`       | Static children, or a render function of the selected value and matched event.                                                                                                                                                               |
+| _reactive props_ | Any native prop may be a function of the selected value and matched event.                                                                                                                                                                   |
 | `mix`            | Mixins; use `source.on(...)` for element-owned effects.                                                                                                                                                                |
 
 The descriptor itself is a wildcard event source: passing it as `eventSource`
@@ -286,14 +286,14 @@ The same descriptor can create each provider's independent store.
 ### Narrow evented-views
 
 Use `evented.<intrinsic>` and pass a source to `eventSource`. Children and native
-properties may be functions of the matched event; on a store the event's
-`detail` is the value that source's path selects:
+properties may be functions of the selected value and the matched event; on a
+store the selected value is what that source's path reads:
 
 ```tsx
 <evented.button
   eventSource={events.selected.as(item.id)}
-  aria-pressed={({ detail }) => detail}
-  class={({ detail }) => (detail ? 'selected' : '')}
+  aria-pressed={(selected) => selected}
+  class={(selected) => (selected ? 'selected' : '')}
 >
   {item.label}
 </evented.button>
@@ -303,16 +303,16 @@ This is especially useful inside lists. The component remains one readable,
 HTML-shaped tree while each existing row, card, circle, or cell updates only
 its affected native attributes and children.
 
-Listen to several explicit sources with an array; `detail` becomes a tuple
-index-aligned with `eventSource`. Destructure it with names in the callback for
-readable multi-source views:
+Listen to several explicit sources with an array; the selected value becomes a
+tuple index-aligned with `eventSource`. Destructure it with names in the
+callback for readable multi-source views:
 
 ```tsx
 <evented.button
   eventSource={[events.position.get(index), events.result]}
-  disabled={({ detail: [, result] }) => result !== null}
+  disabled={([, result]) => result !== null}
 >
-  {({ detail: [pos] }) => pos}
+  {([pos]) => pos}
 </evented.button>
 ```
 
@@ -330,7 +330,7 @@ update is needed for structural changes:
 
 ```tsx
 <evented.svg eventSource={events.circles}>
-  {({ detail: circles }) =>
+  {(circles) =>
     [...circles.values()].map((circle) => (
       <evented.circle
         key={circle.id}
@@ -338,7 +338,7 @@ update is needed for structural changes:
           events.circles.get(circle.id).diameter,
           events.editingCircleById.as(circle.id),
         ]}
-        r={({ detail: [diameter] }) => (diameter ?? circle.diameter) / 2}
+        r={([diameter]) => (diameter ?? circle.diameter) / 2}
       />
     ))
   }
@@ -356,12 +356,12 @@ result.
 Pass the descriptor itself to `eventSource` to subscribe the view to every
 event. On a store it re-reads the whole state snapshot on mount and re-renders
 whenever any state property changes. Occurrence events still arrive raw. The
-render function's `detail` is the state snapshot on state events and the
+render function's first argument is the state snapshot on state events and the
 occurrence payload otherwise:
 
 ```tsx
 <evented.output eventSource={events}>
-  {({ detail }) =>
+  {(detail) =>
     typeof detail === 'object' ? `${detail.kind} from ${detail.startDate}` : detail
   }
 </evented.output>
@@ -379,22 +379,23 @@ A descriptor with no state broadcasts occurrences. Pass the descriptor to
 
 ```tsx
 <evented.div eventSource={searchEvents} initial={initialEvent}>
-  {(event) => {
+  {(detail, event) => {
     switch (event.type) {
       case 'queryEmpty':
         return 'Enter a title'
       case 'querySubmitted':
-        return `Searching for ${event.detail.query}`
+        return `Searching for ${detail.query}`
       case 'booksFound':
-        return `${event.detail.length} books`
+        return `${detail.length} books`
     }
   }}
 </evented.div>
 ```
 
-Before an occurrence first matches, its callback input is `undefined`. Supply
-`initial={events.create(...)}` when a defined initial occurrence is part of the
-UI model.
+Before an occurrence first matches, the value argument is `undefined` and the
+event argument is `undefined`. Supply `initial={events.create(...)}` when a
+defined initial occurrence is part of the UI model; the initial event's detail
+fills the slot of the source it matches, as if it had just fired.
 
 ### Element-owned effects
 
@@ -562,7 +563,7 @@ state.update((draft) => {
 ```
 
 ```tsx
-<evented.button eventSource={events.selected.as(item.id)} aria-pressed={({ detail }) => detail}>
+<evented.button eventSource={events.selected.as(item.id)} aria-pressed={(selected) => selected}>
   {item.label}
 </evented.button>
 ```

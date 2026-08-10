@@ -110,8 +110,8 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
             key={index}
             data-idx={String(index)}
             aria-label={`Cell ${index}`}
-            disabled={({ detail: [pos, result] }) => pos !== undefined || result !== null}
-            class={({ detail: [pos] }) => pos}
+            disabled={([pos, result]) => pos !== undefined || result !== null}
+            class={([pos]) => pos}
             mix={[
               css({
                 aspectRatio: '1/1',
@@ -129,7 +129,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
               }),
             ]}
           >
-            {({ detail: [pos] }) => pos}
+            {([pos]) => pos}
           </evented.button>
         ))}
       </div>
@@ -165,7 +165,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
         ]}
       >
         <evented.span eventSource={events.result}>
-          {({ detail }) => {
+          {(detail) => {
             if (!detail) return 'Game in progress'
             if (detail === 'Draw') return 'Game is drawn.'
             return `${detail} has won!`

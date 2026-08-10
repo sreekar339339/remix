@@ -141,8 +141,8 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
               mix={[todoActionButtonCss, deleteTodoButtonCss]}
               name="intent"
               value="delete"
-              disabled={(event) => event?.type === 'actionSubmitted'}
-              class={(event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
+              disabled={(detail, event) => event?.type === 'actionSubmitted'}
+              class={(detail, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
             >
               🗑️
             </evented.button>
@@ -150,7 +150,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
           </form>
           <evented.form
             eventSource={events}
-            data-action={(event) => event?.type}
+            data-action={(detail, event) => event?.type}
             mix={[
               events.asHost,
               events.actionErrored.on(({ currentTarget }) => {
@@ -171,8 +171,8 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
               mix={[editTodoInputCss]}
               defaultValue={text}
               name="text"
-              disabled={(event) => event?.type === 'actionSubmitted'}
-              class={(event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
+              disabled={(detail, event) => event?.type === 'actionSubmitted'}
+              class={(detail, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
             />
           </evented.form>
           <form method="POST" action={routes.todolist.todos.action.href()} mix={events.asHost}>
@@ -181,16 +181,16 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
             <evented.button
               eventSource={events}
               initial={events.create('actionSucceeded', { completed })}
-              disabled={(event) => event.type === 'actionSubmitted'}
-              class={(event) => (event.type === 'actionSubmitted' ? 'pending' : '')}
+              disabled={(detail, event) => event.type === 'actionSubmitted'}
+              class={(detail, event) => (event.type === 'actionSubmitted' ? 'pending' : '')}
               mix={[todoActionButtonCss, completeTodoButtonCss]}
               name="intent"
               value="update"
             >
-              {(event) =>
+              {(detail, event) =>
                 (
                   event.type === 'actionSubmitted' || event.type === 'actionSucceeded'
-                    ? (event.detail?.completed ?? completed)
+                    ? ((detail as { completed?: boolean } | null)?.completed ?? completed)
                     : completed
                 )
                   ? '✓'

@@ -110,7 +110,9 @@ function computeEventDetail(
 ): unknown {
   let detail = sources.map((source) => {
     if (source.read) return source.read(trigger)
-    return trigger !== undefined && trigger.type === source.type ? trigger.detail : undefined
+    return trigger !== undefined && (source.type === '*' || trigger.type === source.type)
+      ? trigger.detail
+      : undefined
   })
   return detail.length === 1 ? detail[0] : detail
 }
@@ -120,9 +122,10 @@ function hasRetainedSource(sources: readonly EventSourceProtocol[]): boolean {
 }
 
 /**
- * Computes the input callbacks receive when an event-aware element mounts:
- * the current source values, or the `initial` prop when no source retains a
- * value.
+ * Computes the value callbacks receive when an event-aware element mounts.
+ * Each source fills its slot as if the `initial` event had just matched:
+ * sources that retain a value read it directly, occurrence slots take the
+ * initial event's detail when its type matches, and `undefined` otherwise.
  * @param sources Validated source protocols.
  * @param initial The `initial` prop value.
  * @returns The initial callback input.
@@ -131,11 +134,26 @@ export function computeInitialEventInput(
   sources: readonly EventSourceProtocol[],
   initial: unknown,
 ): unknown {
-  return hasRetainedSource(sources) ? { detail: computeEventDetail(undefined, sources) } : initial
+  return computeEventDetail(initial as EventSourceEvent | undefined, sources)
 }
 
 /**
- * Computes the input callbacks receive after a matched event.
+ * Computes the event delivered to callbacks when an event-aware element
+ * mounts. Only views whose sources all retain nothing receive the initial
+ * event; sources that retain a value have no event to report.
+ * @param sources Validated source protocols.
+ * @param initial The `initial` prop value.
+ * @returns The initial event, when the element is occurrence-driven.
+ */
+export function computeInitialEvent(
+  sources: readonly EventSourceProtocol[],
+  initial: unknown,
+): EventSourceEvent | undefined {
+  return hasRetainedSource(sources) ? undefined : (initial as EventSourceEvent | undefined)
+}
+
+/**
+ * Computes the value callbacks receive after a matched event.
  * @param sources Validated source protocols.
  * @param trigger The matched event.
  * @returns The callback input for the event.
@@ -144,7 +162,7 @@ export function computeNotifyEventInput(
   sources: readonly EventSourceProtocol[],
   trigger: EventSourceEvent,
 ): unknown {
-  return hasRetainedSource(sources) ? { detail: computeEventDetail(trigger, sources) } : trigger
+  return computeEventDetail(trigger, sources)
 }
 
 function isNonReactiveProp(key: string): boolean {
@@ -161,21 +179,24 @@ function isNonReactiveProp(key: string): boolean {
 
 /**
  * Resolves reactive element props: function-valued props are called with the
- * event input, everything else passes through unchanged.
+ * callback input and the matched event, everything else passes through
+ * unchanged.
  * @param props Props to resolve.
  * @param input The callback input.
+ * @param event The matched event, when the element is occurrence-driven.
  * @returns The resolved props.
  */
 export function resolveEventedProps(
   props: Record<string, unknown>,
   input: unknown,
+  event?: EventSourceEvent,
 ): Record<string, unknown> {
   let resolved: Record<string, unknown> | undefined
   for (let key of Object.keys(props)) {
     let value = props[key]
     if (typeof value === 'function' && !isNonReactiveProp(key)) {
       resolved ??= { ...props }
-      resolved[key] = value(input)
+      resolved[key] = value(input, event)
     }
   }
   return resolved ?? props
@@ -189,6 +210,8 @@ export type EventedHostState = {
   sources: EventSourceProtocol[]
   /** Current callback input; re-computed on every matched event. */
   input: unknown
+  /** The matched event; present when an occurrence source matches. */
+  event?: EventSourceEvent
   /** Mixin-resolved props with reactive callbacks still intact. */
   rawProps: Record<string, unknown>
   /** Raw children value: a callback of the event input or static nodes. */
@@ -222,6 +245,7 @@ export function createEventedHostState(
   return {
     sources,
     input: computeInitialEventInput(sources, initial),
+    event: computeInitialEvent(sources, initial),
     rawProps,
     rawChildren: rawProps.children,
     context,
@@ -250,6 +274,7 @@ export function subscribeEventedHostNode(
         element,
         notify(event) {
           state.input = computeNotifyEventInput(state.sources, event)
+          state.event = event
           return update()
         },
       },

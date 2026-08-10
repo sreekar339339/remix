@@ -134,7 +134,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                   eventSource={events.columns.get(columnId)}
                   aria-label={`${column.title} view`}
                 >
-                  {({ detail }) => {
+                  {(detail) => {
                     if (!detail) return null
                     let urgent = detail.cards
                       .values()
@@ -150,10 +150,10 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                     eventSource={events.columns.get(columnId).cards.get(cardId)}
                     key={cardId}
                     aria-label={initialCard.title}
-                    data-urgent={({ detail }) => detail?.urgent}
+                    data-urgent={(detail) => detail?.urgent}
                     mix={cardCss}
                   >
-                    {({ detail }) => {
+                    {(detail) => {
                       if (!detail) return null
                       return (
                         <>

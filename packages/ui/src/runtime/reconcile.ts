@@ -619,12 +619,20 @@ function diffHost(
       )
       subscribeEvented = true
     }
-    nextProps = resolveEventedProps(resolved.props, eventedState.input) as RuntimeHostProps
+    nextProps = resolveEventedProps(
+      resolved.props,
+      eventedState.input,
+      eventedState.event,
+    ) as RuntimeHostProps
     resolved = { ...resolved, props: nextProps }
     childInputs =
       nextProps.innerHTML != null
         ? []
-        : resolveEventedChildInputs(eventedState.rawChildren, eventedState.input)
+        : resolveEventedChildInputs(
+            eventedState.rawChildren,
+            eventedState.input,
+            eventedState.event,
+          )
   } else if (eventedState) {
     teardownEventedHostNode(curr)
     eventedState = undefined
@@ -769,12 +777,12 @@ function prepareEventedHostNode(
   return {
     resolved: {
       ...resolved,
-      props: resolveEventedProps(resolved.props, state.input) as RuntimeHostProps,
+      props: resolveEventedProps(resolved.props, state.input, state.event) as RuntimeHostProps,
     },
     childInputs:
       resolved.props.innerHTML != null
         ? []
-        : resolveEventedChildInputs(state.rawChildren, state.input),
+        : resolveEventedChildInputs(state.rawChildren, state.input, state.event),
     state,
   }
 }
@@ -892,7 +900,7 @@ function runEventedListUpdate(state: EventedListState): void {
     if (state.controller.signal.aborted) return
     let node = state.node!
     node.props = state.rawProps
-    let detail = (state.input as { detail?: unknown } | null)?.detail
+    let detail = state.input
     let actions = decodeListRoutes(detail, node._items, node._keys, getEventRoutes(state.lastEvent))
     if (listRoutesMatchDetail(detail, node._items, node._keys, actions)) {
       applyListActions(node, actions, state.rawTemplate, state.context)
@@ -983,7 +991,11 @@ function runEventedHostUpdate(state: EventedHostState): void {
     if (state.controller.signal.aborted) return
     let node = state.node!
     let currProps = getHostProps(node)
-    let nextProps = resolveEventedProps(state.rawProps, state.input) as RuntimeHostProps
+    let nextProps = resolveEventedProps(
+      state.rawProps,
+      state.input,
+      state.event,
+    ) as RuntimeHostProps
     node._mixedProps = nextProps
 
     if (nextProps.innerHTML != null) {
@@ -994,7 +1006,7 @@ function runEventedHostUpdate(state: EventedHostState): void {
       if (currProps.innerHTML != null) {
         node._dom.innerHTML = ''
       }
-      let childInputs = resolveEventedChildInputs(state.rawChildren, state.input)
+      let childInputs = resolveEventedChildInputs(state.rawChildren, state.input, state.event)
       node._children = diffChildren(node._children, childInputs, node._dom, node, state.context)
     }
     patchHostProps(currProps, nextProps, node._dom)

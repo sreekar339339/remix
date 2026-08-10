@@ -491,13 +491,13 @@ export const ListUpdatesFilterBoard = clientEntry(
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
           <evented.output eventSource={store.events.visible} mix={meterCss}>
-            {({ detail }) => (detail ? `${detail.size} shown` : '')}
+            {(detail) => (detail ? `${detail.size} shown` : '')}
           </evented.output>
           <evented.output eventSource={store.events.meter} mix={meterCss}>
-            {({ detail }) => `DOM mutations/s: ${detail ?? 0}`}
+            {(detail) => `DOM mutations/s: ${detail ?? 0}`}
           </evented.output>
           <evented.output eventSource={store.events.timing} mix={meterCss}>
-            {({ detail }) => timingLabel(detail)}
+            {(detail) => timingLabel(detail)}
           </evented.output>
         </div>
         <div className="filter-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
@@ -644,13 +644,13 @@ export const ListUpdatesFeedBoard = clientEntry(
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
           <evented.output eventSource={store.events.items} mix={meterCss}>
-            {({ detail }) => (detail ? `${detail.size}/${feedCap}` : '')}
+            {(detail) => (detail ? `${detail.size}/${feedCap}` : '')}
           </evented.output>
           <evented.output eventSource={store.events.meter} mix={meterCss}>
-            {({ detail }) => `DOM mutations/s: ${detail ?? 0}`}
+            {(detail) => `DOM mutations/s: ${detail ?? 0}`}
           </evented.output>
           <evented.output eventSource={store.events.timing} mix={meterCss}>
-            {({ detail }) => timingLabel(detail)}
+            {(detail) => timingLabel(detail)}
           </evented.output>
         </div>
         <div className="feed-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
@@ -842,10 +842,10 @@ export const ListUpdatesHeavyBoard = clientEntry(
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
           <evented.output eventSource={store.events.meter} mix={meterCss}>
-            {({ detail }) => `DOM mutations/s: ${detail ?? 0}`}
+            {(detail) => `DOM mutations/s: ${detail ?? 0}`}
           </evented.output>
           <evented.output eventSource={store.events.timing} mix={meterCss}>
-            {({ detail }) => timingLabel(detail)}
+            {(detail) => timingLabel(detail)}
           </evented.output>
         </div>
         <div className="heavy-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
@@ -859,7 +859,7 @@ export const ListUpdatesHeavyBoard = clientEntry(
                     eventSource={store.events.items.get(item.id)}
                     mix={heavyRowCss}
                   >
-                    {({ detail }) => heavyRowContent(detail ?? item)}
+                    {(detail) => heavyRowContent(detail ?? item)}
                   </evented.article>
                 ))
                 .toArray()

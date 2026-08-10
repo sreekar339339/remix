@@ -1,5 +1,6 @@
 import type * as dom from './dom.d.ts'
 import type { Handle, RenderFn } from './component.ts'
+import type { EventSourceEvent } from './event-source.ts'
 import { createRemixElement } from './core/vnode.ts'
 
 /**
@@ -85,19 +86,18 @@ export interface GenericJSXComponent {
 type GenericJSXElementType = GenericJSXComponent & ((...args: any[]) => unknown)
 
 /**
- * Input passed to reactive prop and children callbacks on event-aware
- * elements. When a subscribed source retains a value, the input carries that
- * value as `detail`; otherwise the input is the matched event itself, which
- * also carries a `detail` payload.
+ * Value passed as the first argument to reactive prop and children callbacks
+ * on event-aware elements: the selected value of the `eventSource` sources,
+ * or the matched event's payload. Narrow it in the callback.
  */
-export type EventInput = { detail: unknown }
+export type EventInput = unknown
 
 type NonReactivePropKeys = 'key' | 'mix' | 'innerHTML' | 'eventSource' | 'initial' | `on${string}`
 
 type EventedElementProps<props> = {
   [key in keyof props]: key extends NonReactivePropKeys
     ? props[key]
-    : props[key] | ((input: EventInput) => props[key])
+    : props[key] | ((input: EventInput, event?: EventSourceEvent) => props[key])
 }
 
 /**

@@ -19,7 +19,7 @@ export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisC
           }),
         ]}
       >
-        <evented.span eventSource={events}>{({ detail }) => detail.count}</evented.span>
+        <evented.span eventSource={events}>{(detail) => detail.count}</evented.span>
       </button>
       <label>
         Increment by{' '}

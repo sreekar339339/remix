@@ -67,7 +67,7 @@ export const SearchBooksWithoutFrame = clientEntry(
             initial={initialEvent}
             type="text"
             defaultValue={initialQuery}
-            class={(event) => (event.type === 'querySubmitted' ? 'pending' : '')}
+            class={(detail, event) => (event.type === 'querySubmitted' ? 'pending' : '')}
             mix={[
               inputCss,
               on('input', ({ currentTarget }, signal) => {
@@ -91,32 +91,39 @@ export const SearchBooksWithoutFrame = clientEntry(
           />
         </label>
         <evented.div eventSource={events} initial={initialEvent}>
-          {(event) => {
+          {(detail, event) => {
             switch (event.type) {
               case 'queryEmpty':
                 return <p>Enter the title of any book.</p>
               case 'querySubmitted':
-                return <p>{`fetching books with title containing "${event.detail.query}"...`}</p>
+                return (
+                  <p>{`fetching books with title containing "${(detail as { query: string }).query}"...`}</p>
+                )
               case 'booksFound':
                 return (
                   <ul>
-                    {event.detail.map((book) => (
+                    {(detail as Book[]).map((book) => (
                       <li>{book.title}</li>
                     ))}
                   </ul>
                 )
               case 'booksNotFound':
-                if (event.detail.reason === 'emptyList') {
+                if (
+                  (detail as { reason: 'emptyList' | { other: string } }).reason === 'emptyList'
+                ) {
                   return <p>No books were found for this title at this time.</p>
                 }
                 return (
-                  <p>Could not fetch books for this title. Reason: {event.detail.reason.other}.</p>
+                  <p>
+                    Could not fetch books for this title. Reason:{' '}
+                    {(detail as { reason: { other: string } }).reason.other}.
+                  </p>
                 )
               case 'errorOccurred':
                 return (
                   <p>
-                    Unexpected error occured, try again! {event.detail.message}
-                    Cause: {event.detail.cause as string}.
+                    Unexpected error occured, try again! {(detail as Error).message}
+                    Cause: {(detail as Error).cause as string}.
                   </p>
                 )
             }
