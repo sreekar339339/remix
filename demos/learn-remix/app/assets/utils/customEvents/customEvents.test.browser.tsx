@@ -61,265 +61,44 @@ describe('customEvents', () => {
     assert.equal(wildcard.textContent, 'submitted')
   })
 
-  it('publishes store properties as typed events', () => {
-    let store = customEvents().store({
-      count: 0,
-      label: 'idle',
-    })
-    let received: Array<[string, unknown]> = []
-
-    store.host.addEventListener('count', (event) => {
-      received.push([event.type, event.detail])
-    })
-    store.host.addEventListener('label', (event) => {
-      received.push([event.type, event.detail])
-    })
-
-    store.state.update((draft) => {
-      draft.count = 1
-      draft.label = 'ready'
-    })
-
-    assert.equal(store.state.value.count, 1)
-    assert.equal(store.state.value.label, 'ready')
-    assert.deepEqual(received, [
-      ['count', 1],
-      ['label', 'ready'],
-    ])
-
-    if (false) {
-      let nested = customEvents<{
-        profile: { name: string }
-        tags: string[]
-      }>().store({ profile: { name: 'Ada' }, tags: [] })
-      // @ts-expect-error - state is readable only through the state snapshot.
-      store.count
-      // @ts-expect-error - nested state changes only through update().
-      nested.state.value.profile.name = 'Grace'
-      // @ts-expect-error - collection state changes only through update().
-      nested.state.value.tags.push('compiler')
-      nested.host.addEventListener('profile', (event) => {
-        // @ts-expect-error - published state details are immutable.
-        event.detail.name = 'Grace'
-      })
-      // @ts-expect-error - update recipes must be synchronous.
-      store.state.update(async (draft) => {
-        draft.count = 2
-      })
-      // @ts-expect-error - update recipes return no value.
-      store.state.update((draft) => draft.count++)
-      // State keys live in the state.value envelope, so store API names are
-      // usable as data keys.
-      let relaxed = customEvents().store({
-        events: 'collision',
-        update: 'collision',
-        value: 'collision',
-        state: 'collision',
-        host: 'collision',
-      })
-      relaxed.state.value.update
-      relaxed.events.update
-      // @ts-expect-error - update addresses are scoped to event-element on().
-      store.updates
-      // @ts-expect-error - state property events cannot use native DOM names.
-      customEvents().store({ click: false })
-      // @ts-expect-error - store() state keys cannot overwrite its API.
-      customEvents<{ count: number }>().store({ count: 0, store: true })
-      // @ts-expect-error - store is reserved as a descriptor method name.
-      customEvents<{ store: string }>()
-    }
-  })
-
-  it('freezes retained initial state references', () => {
-    let initial = {
-      profile: { name: 'Ada' },
-      tags: ['compiler'],
-    }
-    let store = customEvents<typeof initial>().store(initial)
-
-    assert.throws(() => {
-      initial.profile.name = 'Grace'
-    })
-    assert.throws(() => {
-      initial.tags.push('navy')
-    })
-    assert.equal(store.state.value.profile.name, 'Ada')
-    assert.deepEqual(store.state.value.tags, ['compiler'])
-  })
-
-  it('keeps a destructured state live through updates', () => {
-    let { state, events } = customEvents().store({
-      count: 0,
-      label: 'idle',
-    })
-
-    assert.equal(state.value.count, 0)
-    assert.equal(state.value.label, 'idle')
-
-    state.update((draft) => {
-      draft.count = 1
-      draft.label = 'ready'
-    })
-
-    assert.equal(state.value.count, 1)
-    assert.equal(state.value.label, 'ready')
-
-    assert.throws(() => {
-      // @ts-expect-error - the snapshot is immutable.
-      state.value.count = 99
-    })
-  })
-
-  it('derives state events from nested Immer updates', () => {
-    let store = customEvents().store({
-      draft: { name: 'Grace', surname: 'Hopper' },
-      people: [{ id: 1, name: 'Grace' }],
-    })
-    let originalDraft = store.state.value.draft
-    let originalPeople = store.state.value.people
-    let received: Array<[string, unknown]> = []
-
-    store.host.addEventListener('draft', (event) => {
-      received.push([event.type, event.detail])
-      assert.equal(store.state.value.people[0]?.name, 'Ada')
-    })
-    store.host.addEventListener('people', (event) => {
-      received.push([event.type, event.detail])
-      assert.equal(store.state.value.draft.name, 'Ada')
-    })
-
-    store.state.update((draft) => {
-      draft.draft.name = 'Ada'
-      draft.people[0]!.name = 'Ada'
-    })
-
-    assert.equal(originalDraft.name, 'Grace')
-    assert.equal(originalPeople[0]?.name, 'Grace')
-    assert.equal(store.state.value.draft.name, 'Ada')
-    assert.equal(store.state.value.people[0]?.name, 'Ada')
-    assert.equal(received.length, 2)
-    assert.equal(received.find(([type]) => type === 'draft')?.[1], store.state.value.draft)
-    assert.equal(received.find(([type]) => type === 'people')?.[1], store.state.value.people)
-
-    store.state.update((draft) => {
-      draft.draft.name = 'Ada'
-    })
-    assert.equal(received.length, 2)
-
-    assert.throws(() => {
-      store.state.update((draft) => {
-        draft.draft.name = 'discarded'
-        throw new Error('stop')
-      })
-    }, /stop/)
-    assert.equal(store.state.value.draft.name, 'Ada')
-    assert.equal(received.length, 2)
-
-    if (false) {
-      store.state.update((draft) => {
-        // @ts-expect-error - occurrences and undeclared properties are absent.
-        draft.missing = true
-      })
-    }
-  })
-
-  it('infers nested update details and ignores unrelated paths', async (t) => {
-    let store = customEvents().store({
-      profile: { name: 'Ada', address: { city: 'London' } },
-      status: 'idle',
-    })
-    let renders = 0
-
-    function Profile() {
-      return () => (
-        <evented.output
-          aria-label="name"
-          eventSource={store.events.profile.name}
-          class={(name) => name.toLowerCase()}
-        >
-          {(name) => {
-            name satisfies string
-            if (false) {
-              // @ts-expect-error - the first argument is the selected value, not the snapshot.
-              name.toFixed()
-            }
-            renders++
-            return name
-          }}
-        </evented.output>
-      )
-    }
-
-    let result = render(<Profile />)
-    t.after(() => result.cleanup())
-    assert.equal(renders, 1)
-
-    await result.act(async () => {
-      store.state.update((draft) => {
-        draft.status = 'ready'
-      })
-      await settleEffects()
-    })
-    assert.equal(renders, 1)
-
-    await result.act(async () => {
-      store.state.update((draft) => {
-        draft.profile.name = 'Grace'
-      })
-      await settleEffects()
-    })
-    assert.equal(renders, 2)
-    assert.equal(result.$('[aria-label="name"]')?.textContent, 'Grace')
-
-    await result.act(async () => {
-      store.state.update((draft) => {
-        draft.profile.address.city = 'Arlington'
-      })
-      await settleEffects()
-    })
-    assert.equal(renders, 2)
-
-    await result.act(async () => {
-      store.state.update((draft) => {
-        draft.profile = {
-          name: 'Katherine',
-          address: { city: 'Cleveland' },
-        }
-      })
-      await settleEffects()
-    })
-    assert.equal(renders, 3)
-    assert.equal(result.$('[aria-label="name"]')?.textContent, 'Katherine')
-  })
-
-  it('derives keyed routes from Map and primitive Set patches', async (t) => {
-    let store = customEvents().store({
-      position: new Map([
-        ['a', 'X'],
-        ['b', 'O'],
-      ]),
-      selected: new Set(['red']),
-    })
+  it('derives keyed routes from Map and primitive Set folds', async (t) => {
+    let events = customEvents(
+      {
+        position: new Map([
+          ['a', 'X'],
+          ['b', 'O'],
+        ]),
+        selected: new Set(['red']),
+      },
+      {
+        set: (draft, { key, value }: { key: string; value: string }) => {
+          draft.position.set(key, value)
+        },
+        add: (draft, value: string) => {
+          draft.selected.add(value)
+        },
+      },
+    )
     let calls = { mapA: 0, mapB: 0, mapAll: 0, red: 0, blue: 0 }
     let positionEvents = 0
-    store.host.addEventListener('position', () => positionEvents++)
+    events.addEventListener('position', () => positionEvents++)
 
     function Collections() {
       return () => (
         <section>
-          <evented.output eventSource={store.events.position.get('a')}>
+          <evented.output eventSource={events.position.get('a')}>
             {(mark) => `${++calls.mapA}:${mark ?? ''}`}
           </evented.output>
-          <evented.output eventSource={store.events.position.get('b')}>
+          <evented.output eventSource={events.position.get('b')}>
             {(mark) => `${++calls.mapB}:${mark ?? ''}`}
           </evented.output>
-          <evented.output eventSource={store.events.position}>
+          <evented.output eventSource={events.position}>
             {(positions) => `${++calls.mapAll}:${positions.size}`}
           </evented.output>
-          <evented.output eventSource={store.events.selected.has('red')}>
+          <evented.output eventSource={events.selected.has('red')}>
             {(selected) => `${++calls.red}:${selected}`}
           </evented.output>
-          <evented.output eventSource={store.events.selected.has('blue')}>
+          <evented.output eventSource={events.selected.has('blue')}>
             {(selected) => `${++calls.blue}:${selected}`}
           </evented.output>
         </section>
@@ -330,9 +109,7 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.position.set('a', 'A')
-      })
+      await events.dispatchEvent({ set: { key: 'a', value: 'A' } })
       await settleEffects()
     })
     // Map item replaces skip whole-key subscribers: only the item's own
@@ -347,11 +124,9 @@ describe('customEvents', () => {
     assert.equal(positionEvents, 1)
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.position.set('a', 'AA')
-        draft.position.set('b', 'BB')
-        draft.selected.add('blue')
-      })
+      await events.dispatchEvent({ set: { key: 'a', value: 'AA' } })
+      await events.dispatchEvent({ set: { key: 'b', value: 'BB' } })
+      await events.dispatchEvent({ add: 'blue' })
       await settleEffects()
     })
     assert.deepEqual(calls, {
@@ -361,27 +136,39 @@ describe('customEvents', () => {
       red: 1,
       blue: 2,
     })
-    assert.equal(positionEvents, 2)
+    assert.equal(positionEvents, 3)
   })
 
-  it('renders keyed children from a store without component updates', async (t) => {
-    let store = customEvents<{
-      circles: Map<number, { id: number; x: number; r: number }>
-    }>().store({
-      circles: new Map([
-        [1, { id: 1, x: 10, r: 5 }],
-        [2, { id: 2, x: 20, r: 5 }],
-      ]),
-    })
+  it('renders keyed children from a retained descriptor without component updates', async (t) => {
+    let events = customEvents(
+      {
+        circles: new Map<number, { id: number; x: number; r: number }>([
+          [1, { id: 1, x: 10, r: 5 }],
+          [2, { id: 2, x: 20, r: 5 }],
+        ]),
+      },
+      {
+        resize: (draft, { id, r }: { id: number; r: number }) => {
+          let circle = draft.circles.get(id)
+          if (circle) circle.r = r
+        },
+        add: (draft, circle: { id: number; x: number; r: number }) => {
+          draft.circles.set(circle.id, circle)
+        },
+        replace: (draft, circles: Map<number, { id: number; x: number; r: number }>) => {
+          draft.circles = circles
+        },
+      },
+    )
 
     function Canvas() {
       return () => (
-        <evented.svg eventSource={store.events.circles}>
+        <evented.svg eventSource={events.circles}>
           {(circles) =>
             [...circles.values()].map((circle) => (
               <evented.circle
                 key={circle.id}
-                eventSource={store.events.circles.get(circle.id).r}
+                eventSource={events.circles.get(circle.id).r}
                 cx={circle.x}
                 r={(radius) => radius ?? circle.r}
               />
@@ -399,9 +186,7 @@ describe('customEvents', () => {
     let first = circles()[0]
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles.get(1)!.r = 9
-      })
+      await events.dispatchEvent({ resize: { id: 1, r: 9 } })
       await settleEffects()
     })
     // A Map item replace updates the item element in place and preserves the
@@ -411,17 +196,15 @@ describe('customEvents', () => {
     assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '9')
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles.set(3, { id: 3, x: 30, r: 7 })
-      })
+      await events.dispatchEvent({ add: { id: 3, x: 30, r: 7 } })
       await settleEffects()
     })
     assert.equal(circles().length, 3)
     assert.equal(circles()[0], first)
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles = new Map([[1, { id: 1, x: 10, r: 3 }]])
+      await events.dispatchEvent({
+        replace: new Map([[1, { id: 1, x: 10, r: 3 }]]),
       })
       await settleEffects()
     })
@@ -432,27 +215,39 @@ describe('customEvents', () => {
     assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '3')
   })
 
-  it('applies store updates to keyed list children fine-grained', async (t) => {
-    let store = customEvents<{
-      circles: Map<number, { id: number; x: number; r: number }>
-    }>().store({
-      circles: new Map([
-        [1, { id: 1, x: 10, r: 5 }],
-        [2, { id: 2, x: 20, r: 5 }],
-      ]),
-    })
+  it('applies folds to keyed list children fine-grained', async (t) => {
+    let events = customEvents(
+      {
+        circles: new Map<number, { id: number; x: number; r: number }>([
+          [1, { id: 1, x: 10, r: 5 }],
+          [2, { id: 2, x: 20, r: 5 }],
+        ]),
+      },
+      {
+        resize: (draft, { id, r }: { id: number; r: number }) => {
+          let circle = draft.circles.get(id)
+          if (circle) circle.r = r
+        },
+        add: (draft, circle: { id: number; x: number; r: number }) => {
+          draft.circles.set(circle.id, circle)
+        },
+        remove: (draft, id: number) => {
+          draft.circles.delete(id)
+        },
+      },
+    )
     let templateCalls = 0
 
     function Canvas() {
       return () => (
         <svg>
-          <evented.list eventSource={store.events.circles}>
+          <evented.list eventSource={events.circles}>
             {(circle, id) => {
               templateCalls++
               return (
                 <evented.circle
                   key={id}
-                  eventSource={store.events.circles.get(id).r}
+                  eventSource={events.circles.get(id).r}
                   cx={circle.x}
                   r={(radius) => radius ?? circle.r}
                 />
@@ -472,9 +267,7 @@ describe('customEvents', () => {
     let first = circles()[0]
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles.get(1)!.r = 9
-      })
+      await events.dispatchEvent({ resize: { id: 1, r: 9 } })
       await settleEffects()
     })
     // Map item replaces skip whole-key subscribers: the list does not
@@ -485,9 +278,7 @@ describe('customEvents', () => {
     assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '9')
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles.set(3, { id: 3, x: 30, r: 7 })
-      })
+      await events.dispatchEvent({ add: { id: 3, x: 30, r: 7 } })
       await settleEffects()
     })
     assert.equal(templateCalls, 3)
@@ -496,9 +287,7 @@ describe('customEvents', () => {
     assert.equal((circles()[2] as SVGCircleElement).getAttribute('r'), '7')
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles.delete(2)
-      })
+      await events.dispatchEvent({ remove: 2 })
       await settleEffects()
     })
     assert.equal(templateCalls, 3)
@@ -506,21 +295,29 @@ describe('customEvents', () => {
     assert.equal(circles()[0], first)
   })
 
-  it('settles coalesced bursts of list updates on the final store value', async (t) => {
-    let store = customEvents<{
-      items: Map<number, { id: number; label: string }>
-    }>().store({
-      items: new Map([
-        [1, { id: 1, label: 'one' }],
-        [2, { id: 2, label: 'two' }],
-      ]),
-    })
+  it('settles coalesced bursts of list folds on the final value', async (t) => {
+    let events = customEvents(
+      {
+        items: new Map<number, { id: number; label: string }>([
+          [1, { id: 1, label: 'one' }],
+          [2, { id: 2, label: 'two' }],
+        ]),
+      },
+      {
+        add: (draft, item: { id: number; label: string }) => {
+          draft.items.set(item.id, item)
+        },
+        remove: (draft, id: number) => {
+          draft.items.delete(id)
+        },
+      },
+    )
     let templateCalls = 0
 
     function Items() {
       return () => (
         <section>
-          <evented.list eventSource={store.events.items}>
+          <evented.list eventSource={events.items}>
             {(item, id) => {
               templateCalls++
               return (
@@ -539,86 +336,75 @@ describe('customEvents', () => {
     let items = () => result.$('section')!.querySelectorAll('.item')
     assert.equal(items().length, 2)
 
-    // A synchronous burst coalesces into one list update; every add lands.
+    // A synchronous burst coalesces; the routed adds insert fine-grained.
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.items.set(3, { id: 3, label: 'three' })
-      })
-      store.state.update((draft) => {
-        draft.items.set(4, { id: 4, label: 'four' })
-      })
-      store.state.update((draft) => {
-        draft.items.set(5, { id: 5, label: 'five' })
-      })
+      await events.dispatchEvent({ add: { id: 3, label: 'three' } })
+      await events.dispatchEvent({ add: { id: 4, label: 'four' } })
+      await events.dispatchEvent({ add: { id: 5, label: 'five' } })
       await settleEffects()
     })
-    // The coalesced update falls back to re-resolving every item.
-    assert.equal(templateCalls, 7)
+    assert.equal(templateCalls, 5)
     assert.equal(items().length, 5)
     assert.equal(items()[4].textContent, 'five')
 
     // A mixed burst of adds and removals settles on the final state.
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.items.delete(2)
-      })
-      store.state.update((draft) => {
-        draft.items.set(6, { id: 6, label: 'six' })
-      })
-      store.state.update((draft) => {
-        draft.items.delete(4)
-      })
+      await events.dispatchEvent({ remove: 2 })
+      await events.dispatchEvent({ add: { id: 6, label: 'six' } })
+      await events.dispatchEvent({ remove: 4 })
       await settleEffects()
     })
-    assert.equal(templateCalls, 11)
+    assert.equal(templateCalls, 6)
     assert.equal(items().length, 4)
     assert.equal([...items()].map((item) => item.textContent).join(','), 'one,three,five,six')
   })
 
   it('routes deep patches through every nested identity boundary', async (t) => {
-    let store = customEvents().store({
-      columns: new Map([
-        [
-          'column:todo',
-          {
-            cards: new Map([
-              ['card:one', { urgent: false }],
-              ['card:two', { urgent: false }],
-            ]),
-          },
-        ],
-        [
-          'column:done',
-          {
-            cards: new Map([['card:three', { urgent: false }]]),
-          },
-        ],
-      ]),
-    })
+    let events = customEvents(
+      {
+        columns: new Map([
+          [
+            'column:todo',
+            {
+              cards: new Map([
+                ['card:one', { urgent: false }],
+                ['card:two', { urgent: false }],
+              ]),
+            },
+          ],
+          [
+            'column:done',
+            {
+              cards: new Map([['card:three', { urgent: false }]]),
+            },
+          ],
+        ]),
+      },
+      {
+        toggle: (draft, { columnId, cardId }: { columnId: string; cardId: string }) => {
+          let card = draft.columns.get(columnId)?.cards.get(cardId)
+          if (card) card.urgent = !card.urgent
+        },
+      },
+    )
     let calls = { todo: 0, done: 0, one: 0, two: 0, three: 0 }
 
     function Board() {
       return () => (
         <section>
-          <evented.output eventSource={store.events.columns.get('column:todo')}>
+          <evented.output eventSource={events.columns.get('column:todo')}>
             {() => String(++calls.todo)}
           </evented.output>
-          <evented.output eventSource={store.events.columns.get('column:done')}>
+          <evented.output eventSource={events.columns.get('column:done')}>
             {() => String(++calls.done)}
           </evented.output>
-          <evented.output
-            eventSource={store.events.columns.get('column:todo').cards.get('card:one')}
-          >
+          <evented.output eventSource={events.columns.get('column:todo').cards.get('card:one')}>
             {() => String(++calls.one)}
           </evented.output>
-          <evented.output
-            eventSource={store.events.columns.get('column:todo').cards.get('card:two')}
-          >
+          <evented.output eventSource={events.columns.get('column:todo').cards.get('card:two')}>
             {() => String(++calls.two)}
           </evented.output>
-          <evented.output
-            eventSource={store.events.columns.get('column:done').cards.get('card:three')}
-          >
+          <evented.output eventSource={events.columns.get('column:done').cards.get('card:three')}>
             {() => String(++calls.three)}
           </evented.output>
         </section>
@@ -629,9 +415,7 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.columns.get('column:todo')!.cards.get('card:one')!.urgent = true
-      })
+      await events.dispatchEvent({ toggle: { columnId: 'column:todo', cardId: 'card:one' } })
       await settleEffects()
     })
 
@@ -644,18 +428,24 @@ describe('customEvents', () => {
     })
   })
 
-  it('preserves object identity in Map update addresses', async (t) => {
+  it('preserves object identity in Map fold addresses', async (t) => {
     let recordKey = {}
-    let store = customEvents<{
-      records: Map<object, { value: number }>
-    }>().store({
-      records: new Map([[recordKey, { value: 1 }]]),
-    })
+    let events = customEvents(
+      {
+        records: new Map<object, { value: number }>([[recordKey, { value: 1 }]]),
+      },
+      {
+        set: (draft, { key, value }: { key: object; value: number }) => {
+          let record = draft.records.get(key)
+          if (record) record.value = value
+        },
+      },
+    )
     let renders = 0
 
     function RecordValue() {
       return () => (
-        <evented.output eventSource={store.events.records.get(recordKey).value}>
+        <evented.output eventSource={events.records.get(recordKey).value}>
           {(value) => `${++renders}:${value}`}
         </evented.output>
       )
@@ -665,9 +455,7 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.records.get(recordKey)!.value = 2
-      })
+      await events.dispatchEvent({ set: { key: recordKey, value: 2 } })
       await settleEffects()
     })
 
@@ -676,23 +464,34 @@ describe('customEvents', () => {
   })
 
   it('derives array index routes by default', async (t) => {
-    let store = customEvents().store({
-      items: ['first', 'second'],
-    })
+    let events = customEvents(
+      {
+        items: ['first', 'second'],
+      },
+      {
+        set: (draft, { index, value }: { index: number; value: string }) => {
+          draft.items[index] = value
+        },
+        removeFirst: (draft) => {
+          draft.items.splice(0, 1)
+        },
+        replace: (draft, items: string[]) => {
+          draft.items = items
+        },
+      },
+    )
     let calls = { first: 0, second: 0, all: 0 }
 
     function Items() {
       return () => (
         <section>
-          <evented.output eventSource={store.events.items[0]}>
+          <evented.output eventSource={events.items[0]}>
             {() => String(++calls.first)}
           </evented.output>
-          <evented.output eventSource={store.events.items[1]} aria-label="1">
+          <evented.output eventSource={events.items[1]} aria-label="1">
             {() => String(++calls.second)}
           </evented.output>
-          <evented.output eventSource={store.events.items}>
-            {() => String(++calls.all)}
-          </evented.output>
+          <evented.output eventSource={events.items}>{() => String(++calls.all)}</evented.output>
         </section>
       )
     }
@@ -701,25 +500,19 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.items[1] = 'updated'
-      })
+      await events.dispatchEvent({ set: { index: 1, value: 'updated' } })
       await settleEffects()
     })
     assert.deepEqual(calls, { first: 1, second: 2, all: 2 })
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.items.splice(0, 1)
-      })
+      await events.dispatchEvent({ removeFirst: null })
       await settleEffects()
     })
     assert.deepEqual(calls, { first: 2, second: 3, all: 3 })
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.items = ['replacement']
-      })
+      await events.dispatchEvent({ replace: ['replacement'] })
       await settleEffects()
     })
     assert.deepEqual(calls, { first: 3, second: 4, all: 4 })
@@ -727,30 +520,43 @@ describe('customEvents', () => {
 
   it('routes object arrays by index', async (t) => {
     type Circle = { id: number; diameter: number }
-    let store = customEvents().store({
-      circles: [
-        { id: 7, diameter: 30 },
-        { id: 8, diameter: 40 },
-      ],
-      values: { A0: '10', B0: '20' },
-    })
+    let events = customEvents(
+      {
+        circles: [
+          { id: 7, diameter: 30 },
+          { id: 8, diameter: 40 },
+        ],
+        values: { A0: '10', B0: '20' },
+      },
+      {
+        resize: (draft, { index, diameter }: { index: number; diameter: number }) => {
+          let circle = draft.circles[index]
+          if (circle) circle.diameter = diameter
+        },
+        setValue: (draft, { key, value }: { key: string; value: string }) => {
+          ;(draft.values as Record<string, string>)[key] = value
+        },
+        removeFirst: (draft) => {
+          draft.circles.splice(0, 1)
+        },
+        replace: (draft, circles: Circle[]) => {
+          draft.circles = circles
+        },
+      },
+    )
     let calls = { circle0: 0, circle1: 0, A0: 0, B0: 0 }
 
     function Collections() {
       return () => (
         <section>
-          <evented.output eventSource={store.events.circles[0]}>
+          <evented.output eventSource={events.circles[0]}>
             {() => String(++calls.circle0)}
           </evented.output>
-          <evented.output eventSource={store.events.circles[1]} aria-label="1">
+          <evented.output eventSource={events.circles[1]} aria-label="1">
             {() => String(++calls.circle1)}
           </evented.output>
-          <evented.output eventSource={store.events.values.A0}>
-            {() => String(++calls.A0)}
-          </evented.output>
-          <evented.output eventSource={store.events.values.B0}>
-            {() => String(++calls.B0)}
-          </evented.output>
+          <evented.output eventSource={events.values.A0}>{() => String(++calls.A0)}</evented.output>
+          <evented.output eventSource={events.values.B0}>{() => String(++calls.B0)}</evented.output>
         </section>
       )
     }
@@ -759,31 +565,27 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles[0]!.diameter = 35
-        draft.values.A0 = '11'
-      })
+      await events.dispatchEvent({ resize: { index: 0, diameter: 35 } })
+      await events.dispatchEvent({ setValue: { key: 'A0', value: '11' } })
       await settleEffects()
     })
     assert.deepEqual(calls, { circle0: 2, circle1: 1, A0: 2, B0: 1 })
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles.splice(0, 1)
-      })
+      await events.dispatchEvent({ removeFirst: null })
       await settleEffects()
     })
     assert.deepEqual(calls, { circle0: 3, circle1: 2, A0: 2, B0: 1 })
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.circles = [
+      await events.dispatchEvent({
+        replace: [
           { id: 7, diameter: 50 },
           {
             id: 8,
             diameter: 60,
           },
-        ]
+        ],
       })
       await settleEffects()
     })
@@ -791,9 +593,16 @@ describe('customEvents', () => {
   })
 
   it('routes scalar identity values by value and notifies owners via as()', async (t) => {
-    let store = customEvents<{ selected: string | null }>().store({
-      selected: null,
-    })
+    let events = customEvents(
+      {
+        selected: null as string | null,
+      },
+      {
+        select: (draft, id: string | null) => {
+          draft.selected = id
+        },
+      },
+    )
     let calls = { first: 0, second: 0, all: 0 }
     let effectOrder: string[] = []
 
@@ -801,11 +610,11 @@ describe('customEvents', () => {
       return () => (
         <section>
           <evented.button
-            eventSource={store.events.selected.as('1')}
+            eventSource={events.selected.as('1')}
             aria-label="1"
             type="button"
             aria-pressed={(selected) => selected}
-            mix={store.events.selected.as('1').on(({ currentTarget, detail }) => {
+            mix={events.selected.as('1').on(({ currentTarget, detail }) => {
               effectOrder.push(currentTarget.getAttribute('aria-label') ?? '')
               if (detail === '1') {
                 currentTarget.focus()
@@ -815,11 +624,11 @@ describe('customEvents', () => {
             {() => String(++calls.first)}
           </evented.button>
           <evented.button
-            eventSource={store.events.selected.as('2')}
+            eventSource={events.selected.as('2')}
             aria-label="2"
             type="button"
             aria-pressed={(selected) => selected}
-            mix={store.events.selected.as('2').on(({ currentTarget, detail }) => {
+            mix={events.selected.as('2').on(({ currentTarget, detail }) => {
               effectOrder.push(currentTarget.getAttribute('aria-label') ?? '')
               if (detail === '2') {
                 currentTarget.focus()
@@ -828,9 +637,7 @@ describe('customEvents', () => {
           >
             {() => String(++calls.second)}
           </evented.button>
-          <evented.output eventSource={store.events.selected}>
-            {() => String(++calls.all)}
-          </evented.output>
+          <evented.output eventSource={events.selected}>{() => String(++calls.all)}</evented.output>
         </section>
       )
     }
@@ -839,9 +646,7 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.selected = '1'
-      })
+      await events.dispatchEvent({ select: '1' })
       await settleEffects()
     })
     assert.deepEqual(calls, { first: 2, second: 1, all: 2 })
@@ -850,9 +655,7 @@ describe('customEvents', () => {
 
     effectOrder.length = 0
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.selected = '2'
-      })
+      await events.dispatchEvent({ select: '2' })
       await settleEffects()
     })
     assert.deepEqual(calls, { first: 3, second: 2, all: 3 })
@@ -868,9 +671,7 @@ describe('customEvents', () => {
     )
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.selected = null
-      })
+      await events.dispatchEvent({ select: null })
       await settleEffects()
     })
     assert.deepEqual(calls, { first: 3, second: 3, all: 4 })
@@ -880,82 +681,16 @@ describe('customEvents', () => {
     )
   })
 
-  it('derives occurrences from event-map entries omitted by the store value', () => {
-    type State = { count: number }
-    type Occurrences = { refreshRequested: null; countDrafted: number }
-    let store = customEvents<State & Occurrences>().store({ count: 0 })
-    let received: Array<[string, unknown]> = []
-
-    store.host.addEventListener('count', (event) => {
-      received.push([event.type, event.detail])
-    })
-    store.host.addEventListener('countDrafted', (event) => {
-      received.push([event.type, event.detail])
-    })
-    store.host.addEventListener('refreshRequested', (event) => {
-      received.push([event.type, event.detail])
-    })
-
-    store.state.update((draft) => {
-      draft.count = 1
-    })
-    store.host.dispatchEvent(store.events.create('countDrafted', 2))
-    store.host.dispatchEvent(store.events.create('refreshRequested'))
-
-    assert.equal(store.state.value.count, 1)
-    assert.deepEqual(received, [
-      ['count', 1],
-      ['countDrafted', 2],
-      ['refreshRequested', null],
-    ])
-
-    store.host.dispatchEvent(store.events.create('count', 2))
-    assert.equal(store.state.value.count, 2)
-    assert.deepEqual(received[3], ['count', 2])
-
-    if (false) {
-      store.state.update((draft) => {
-        // @ts-expect-error - occurrences are not state properties.
-        draft.countDrafted = 2
-      })
-      // @ts-expect-error - occurrences do not become readable store.
-      store.countDrafted
-      // @ts-expect-error - occurrences cannot use native DOM event names.
-      customEvents<State & { click: null }>().store({ count: 0 })
-    }
-  })
-
-  it('combines state and occurrence event sources', async (t) => {
-    let store = customEvents<{
-      count: number
-      countDrafted: number
-    }>().store({ count: 0 })
-    let renders = 0
-
-    function Count() {
-      return () => (
-        <evented.output eventSource={[store.events.count, store.events.countDrafted]}>
-          {([count, draft]) => `${draft ?? count}:${++renders}`}
-        </evented.output>
-      )
-    }
-
-    let result = render(<Count />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('output')?.textContent, '0:1')
-
-    await result.act(async () => {
-      store.host.dispatchEvent(store.events.create('countDrafted', 2))
-      await settleEffects()
-    })
-    assert.equal(result.$('output')?.textContent, '2:2')
-  })
-
   it('keeps element-dispatched occurrences on the origin element', async (t) => {
-    let store = customEvents<{
-      count: number
-      countDrafted: number
-    }>().store({ count: 0 })
+    let events = customEvents(
+      { count: 0 },
+      {
+        increment: (draft, amount: number) => {
+          draft.count += amount
+        },
+        countDrafted: () => {},
+      },
+    )
     let drafts = 0
     let listenerRenders = 0
 
@@ -965,15 +700,15 @@ describe('customEvents', () => {
           <button
             aria-label="source"
             mix={[
-              store.events.countDrafted.on(() => {
+              events.countDrafted.on(() => {
                 drafts++
               }),
               on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(store.events.create('countDrafted', 1))
+                currentTarget.dispatchEvent(events.create('countDrafted', 1))
               }),
             ]}
           />
-          <evented.output aria-label="listener" eventSource={store.events.countDrafted}>
+          <evented.output aria-label="listener" eventSource={events.countDrafted}>
             {(count) => (count === undefined ? 'idle' : `${count}:${++listenerRenders}`)}
           </evented.output>
         </section>
@@ -991,7 +726,7 @@ describe('customEvents', () => {
     assert.equal(listener.textContent, 'idle')
 
     await result.act(async () => {
-      store.host.dispatchEvent(store.events.create('countDrafted', 2))
+      events.dispatchEvent({ countDrafted: 2 })
       await settleEffects()
     })
     assert.equal(listenerRenders, 1)
@@ -999,15 +734,19 @@ describe('customEvents', () => {
   })
 
   it('renders the whole composite through the wildcard source', async (t) => {
-    let store = customEvents<{
-      count: number
-      countDrafted: number
-    }>().store({ count: 0 })
+    let events = customEvents(
+      { count: 0 },
+      {
+        increment: (draft, amount: number) => {
+          draft.count += amount
+        },
+      },
+    )
     let seen: Array<[{ count: number }, unknown]> = []
 
     function Snapshot() {
       return () => (
-        <evented.output eventSource={store.events} aria-label="snapshot">
+        <evented.output eventSource={events} aria-label="snapshot">
           {(value, latest) => {
             seen.push([value, latest?.type])
             if (false) {
@@ -1029,42 +768,20 @@ describe('customEvents', () => {
     assert.equal(seen[0]?.[1], undefined)
 
     await result.act(async () => {
-      store.state.update((draft) => {
-        draft.count = 1
-      })
+      await events.dispatchEvent({ increment: 1 })
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'count:1')
     assert.deepEqual(seen[seen.length - 1], [{ count: 1 }, 'count'])
 
     await result.act(async () => {
-      store.host.dispatchEvent(store.events.create('countDrafted', 2))
+      events.dispatchEvent({ countDrafted: 2 })
       await settleEffects()
     })
     // The wildcard reads the composite for every event; occurrences ride along
     // as the matched event instead of replacing the input.
     assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'count:1 raw:2')
     assert.deepEqual(seen[seen.length - 1], [{ count: 1 }, 'countDrafted'])
-  })
-
-  it('creates an independent EventTarget host for each state model', () => {
-    let models = customEvents<{ count: number }>()
-    let first = models.store({ count: 0 })
-    let second = models.store({ count: 10 })
-    let firstCalls = 0
-    let secondCalls = 0
-
-    first.host.addEventListener('count', () => firstCalls++)
-    second.host.addEventListener('count', () => secondCalls++)
-
-    first.state.update((draft) => {
-      draft.count = 1
-    })
-
-    assert.equal(first.state.value.count, 1)
-    assert.equal(second.state.value.count, 10)
-    assert.equal(firstCalls, 1)
-    assert.equal(secondCalls, 0)
   })
 
   it('creates typed local-name events', () => {

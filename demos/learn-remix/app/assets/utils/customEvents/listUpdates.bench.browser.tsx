@@ -103,7 +103,21 @@ function report(
 }
 
 it('benchmarks evented list additions and removals', async (t) => {
-  let store = customEvents<{ items: Map<number, Item> }>().store({ items: seed() })
+  let committed = seed()
+  let events = customEvents(
+    { items: seed() as Map<number, Item> },
+    {
+      add: (draft, id: number) => {
+        draft.items.set(id, { id, label: `item-${id}` })
+      },
+      remove: (draft, id: number) => {
+        draft.items.delete(id)
+      },
+      reset: (draft) => {
+        draft.items = new Map(committed)
+      },
+    },
+  )
   let templateCalls = 0
   let nextId = itemCount
   let frontId = 0
@@ -112,7 +126,7 @@ it('benchmarks evented list additions and removals', async (t) => {
   function EventedList() {
     return () => (
       <section className="host">
-        <evented.list eventSource={store.events.items}>
+        <evented.list eventSource={events.items}>
           {(item, id) => {
             templateCalls++
             return (
@@ -133,53 +147,38 @@ it('benchmarks evented list additions and removals', async (t) => {
   let addPhase = async () => {
     for (let index = 0; index < ops; index++) {
       let id = nextId++
-      store.state.update((draft) => {
-        draft.items.set(id, { id, label: `item-${id}` })
-      })
+      await events.dispatchEvent({ add: id })
       await settle()
     }
   }
   let removeFrontPhase = async () => {
     for (let index = 0; index < ops; index++) {
       let id = frontId++
-      store.state.update((draft) => {
-        draft.items.delete(id)
-      })
+      await events.dispatchEvent({ remove: id })
       await settle()
     }
   }
   let removeMiddlePhase = async () => {
     for (let index = 0; index < ops; index++) {
       let id = middleId + index
-      store.state.update((draft) => {
-        draft.items.delete(id)
-      })
+      await events.dispatchEvent({ remove: id })
       await settle()
     }
   }
 
-  let committed = store.state.value.items
   let reset = async () => {
     nextId = itemCount
     frontId = 0
     middleId = 500
-    store.state.update((draft) => {
-      draft.items = new Map(committed)
-    })
+    await events.dispatchEvent({ reset: null })
     await settle()
   }
 
   assert.equal(section.querySelectorAll('.item').length, itemCount)
 
   warmup(
-    (id) =>
-      store.state.update((draft) => {
-        draft.items.set(id, { id, label: `item-${id}` })
-      }),
-    (id) =>
-      store.state.update((draft) => {
-        draft.items.delete(id)
-      }),
+    (id) => void events.dispatchEvent({ add: id }),
+    (id) => void events.dispatchEvent({ remove: id }),
   )
   await settle()
 

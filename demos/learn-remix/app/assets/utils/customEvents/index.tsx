@@ -9,7 +9,6 @@ import {
   produce,
   produceWithPatches,
 } from 'immer'
-import type { TypedEventTarget } from 'remix/ui'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
 import {
   canonicalAddressSegment,
@@ -23,9 +22,7 @@ import type {
   CustomEventsFactoryArgs,
   CustomEventsEventMap,
   EventDetails,
-  NativeDOMEventName,
   NormalizeCustomEventsDefinition,
-  ReservedCustomEventsName,
   RetainedDescriptor,
   RetainedDescriptorBase,
   RetainedFolds,
@@ -47,24 +44,10 @@ export const evented = customEventsEvented as unknown as CustomEventsEventedView
   never
 >
 
-type DescriptorWithStore<Events extends EventDetails> = CustomEventsDescriptor<Events> & {
-  /**
-   * Retains the supplied state entries as directly readable state. With no
-   * declared definition the value infers the whole store; declared events
-   * add occurrence payloads and widen `null`/`[]` entries.
-   */
-  store<Value extends EventDetails>(
-    value: StateInput<Events, Value>,
-  ): Store<
-    StaticStoreEvents<Events, StaticStoreState<Events, Value>>,
-    StaticStoreState<Events, Value>
-  >
-}
-
 /** Creates a typed native-event descriptor, optionally declaring its events. */
 export function customEvents<Definition extends CustomEventsDefinition = never>(
   ...args: CustomEventsFactoryArgs<Definition>
-): DescriptorWithStore<NormalizeCustomEventsDefinition<Definition>>
+): CustomEventsDescriptor<NormalizeCustomEventsDefinition<Definition>>
 /**
  * Creates a retained descriptor: a root composite event whose detail folds in
  * every held seed and effect event declared here.
@@ -82,12 +65,7 @@ export function customEvents(first?: unknown, foldsArg?: unknown): unknown {
   if (isRetainedDeclaration(first)) {
     return createRetained(first, foldsArg as RetainedFolds<EventDetails> | undefined)
   }
-  let descriptor = createCustomEventsDescriptor()
-  return Object.assign(descriptor, {
-    store(value: EventDetails) {
-      return createStore(value)
-    },
-  })
+  return createCustomEventsDescriptor()
 }
 
 function isRetainedDeclaration(value: unknown): value is EventDetails {
@@ -106,7 +84,6 @@ const reservedSeedNames = new Set<string>([
   'dispatchEvent',
   'addEventListener',
   'removeEventListener',
-  'store',
 ])
 
 type RetainedFoldFn<Held extends EventDetails> = (draft: Draft<Held>, detail: unknown) => void
@@ -172,57 +149,6 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
     fold: foldEntry,
   })
   return events as unknown as RetainedDescriptor<Seeds, Folds>
-}
-
-type StateInput<
-  Events extends EventDetails,
-  Value extends EventDetails,
-  InvalidKeys extends PropertyKey = Extract<
-    keyof Value,
-    ReservedCustomEventsName | NativeDOMEventName
-  >,
-> = [InvalidKeys] extends [never]
-  ? Value
-  : Value & {
-      readonly __customEventsStateError: 'store() keys cannot overwrite its API or use native DOM event names.'
-      readonly invalidKeys: InvalidKeys
-    }
-
-/** The state map of a store, widened by declared hints where provided. */
-type StaticStoreState<
-  Definition extends CustomEventsDefinition,
-  Value extends EventDetails,
-  Normalized extends EventDetails = NormalizeCustomEventsDefinition<Definition>,
-> = {
-  [Key in keyof Value as Key extends ReservedCustomEventsName | NativeDOMEventName
-    ? never
-    : Key]: Key extends keyof Normalized ? Normalized[Key] : Value[Key]
-}
-
-/** Declared occurrence payloads merged with held state keys. */
-type StaticStoreEvents<
-  Definition extends CustomEventsDefinition,
-  State extends EventDetails,
-  Normalized extends EventDetails = NormalizeCustomEventsDefinition<Definition>,
-> = Omit<Normalized, keyof State> & Immutable<State>
-
-/** The full event map of a store: occurrences plus held state keys. */
-type StoreEvents<Events, State> = Omit<Events, keyof State> & Immutable<State>
-
-/**
- * A state store: the event source graph, a `state` namespace that owns the
- * immutable snapshot and its updates, and a `host` for ordinary `EventTarget`
- * consumption.
- */
-type Store<Events extends EventDetails, State extends EventDetails> = {
-  readonly events: CustomEventsDescriptor<StoreEvents<Events, State>, Immutable<State>>
-  readonly state: {
-    /** The current immutable state snapshot. */
-    readonly value: Immutable<State>
-    update(recipe: (draft: Draft<State>) => undefined): void
-  }
-  /** The store's EventTarget host for ordinary consumption. */
-  readonly host: TypedEventTarget<CustomEventsEventMap<StoreEvents<Events, State>>>
 }
 
 function resolvePatchPath(
@@ -343,61 +269,4 @@ function entriesFromPatches(
     entries.push({ type: key, detail: nextValue, addresses, ops })
   }
   return entries
-}
-
-function createStore(initialState: EventDetails) {
-  let snapshot = freeze(initialState, true) as EventDetails
-  let target = new EventTarget()
-
-  function foldKey(type: string, detail: unknown) {
-    if (!Object.hasOwn(snapshot, type)) return undefined
-    let nextSnapshot = produce(snapshot, (draft) => {
-      ;(draft as EventDetails)[type] = detail
-    })
-    snapshot = nextSnapshot
-    return [
-      {
-        type,
-        detail: nextSnapshot[type],
-        addresses: [[]] as readonly (readonly unknown[])[],
-      },
-    ]
-  }
-
-  let events = createCustomEventsDescriptor<EventDetails, EventDetails>(
-    { owner: target, getState: () => snapshot, fold: foldKey },
-    target,
-  )
-  let state = {
-    get value() {
-      return snapshot
-    },
-    update(recipe: (draft: Draft<EventDetails>) => void) {
-      let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
-        let result = recipe(draft)
-        if (result !== undefined) {
-          throw new TypeError('State update recipes must be synchronous and return no value.')
-        }
-      })
-      if (patches.length === 0) return
-
-      let entries = entriesFromPatches(snapshot, nextSnapshot, patches)
-      snapshot = nextSnapshot
-      target.dispatchEvent(
-        (events.create as (...args: unknown[]) => Event)(
-          entries.map((entry) => ({
-            [entry.type]: {
-              detail: entry.detail,
-              options: { addresses: entry.addresses ?? [], ops: entry.ops ?? [] },
-            },
-          })),
-        ),
-      )
-    },
-  }
-  return {
-    events,
-    state,
-    host: target,
-  }
 }

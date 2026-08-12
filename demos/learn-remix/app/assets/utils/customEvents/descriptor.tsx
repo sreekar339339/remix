@@ -276,7 +276,7 @@ export function createCustomEventsDescriptor<
         property === 'removeEventListener' ||
         property === 'dispatchEvent'
       ) {
-        return Reflect.get(target, property, receiver)
+        return Reflect.get(target, property, target).bind(target)
       }
       if (Object.hasOwn(target, property)) {
         return Reflect.get(target, property, receiver)

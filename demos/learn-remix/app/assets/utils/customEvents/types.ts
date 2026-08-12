@@ -6,6 +6,7 @@ import {
   type MixinDescriptor,
   type Props,
   type RemixNode,
+  type TypedEventTarget,
 } from 'remix/ui'
 import type {
   EventSource,
@@ -502,7 +503,8 @@ export type CustomEventsDescriptor<
   Events extends EventDetails,
   State extends EventDetails | never = never,
 > = CustomEventsWildcardSource<Events, State> &
-  EventSources<Events, State> & {
+  EventSources<Events, State> &
+  TypedEventTarget<CustomEventsEventMap<Events>> & {
     /** Creates one fresh event. */
     create: CustomEventsFactory<Events>
     /** Dispatches a native event or an event-named input on the descriptor. */

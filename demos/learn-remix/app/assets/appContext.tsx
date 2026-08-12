@@ -1,4 +1,4 @@
-import { addEventListeners, type Handle, type RemixNode } from 'remix/ui'
+import type { Handle, RemixNode } from 'remix/ui'
 import { customEvents, evented } from './utils/customEvents/index.tsx'
 
 export type AppContextValue = {
@@ -9,44 +9,44 @@ export type AppContextValue = {
   }
 }
 
-export const appContextEvents = customEvents<AppContextValue>()
-export type AppContext = ReturnType<typeof appContextEvents.store<AppContextValue>>
-
-export function AppProvider(handle: Handle<{ children?: RemixNode }, AppContext>) {
-  let appContext = appContextEvents.store({
-    user: null,
+export function createAppContext() {
+  return customEvents({
+    user: null as AppContextValue['user'],
     settings: { layout: 'normal', theme: 'system' },
   })
-  let { state } = appContext
-  handle.context.set(appContext)
+}
 
-  handle.queueTask(async (signal) => {
+export type AppContext = ReturnType<typeof createAppContext>
+
+export function AppProvider(handle: Handle<{ children?: RemixNode }, AppContext>) {
+  let events = createAppContext()
+  handle.context.set(events)
+
+  handle.queueTask(async () => {
     // perform auth and other async stuff and dispatch context value
-    state.update((draft) => {
-      draft.user = { age: 23, name: 'Bob Lazar' }
-      draft.settings = { layout: 'zen', theme: 'light' }
+    events.dispatchEvent({
+      user: { age: 23, name: 'Bob Lazar' },
+      settings: { layout: 'zen', theme: 'light' },
     })
   })
 
   return () => <body>{handle.props.children}</body>
 }
 
-// Components can subscribe to only the events they care about
+// Components subscribe to the shared descriptor with evented views or the
+// descriptor's own EventTarget channel (addEventListener/addEventListeners).
 export function UserDisplay(handle: Handle) {
-  let { state, host } = handle.context.get(AppProvider)
+  let events = handle.context.get(AppProvider)
 
-  addEventListeners(host, handle.signal, {
-    user() {
-      void handle.update()
-    },
-  })
-
-  return () => <div>{state.value.user?.name ?? 'Not logged in'}</div>
+  return () => (
+    <div>
+      <evented.div eventSource={events.user.name}>{(name) => name ?? 'Not logged in'}</evented.div>
+    </div>
+  )
 }
 
-// Event-aware elements can display context values without calling handle.update().
 export function EventUserDisplay(handle: Handle) {
-  let { events } = handle.context.get(AppProvider)
+  let events = handle.context.get(AppProvider)
 
   return () => (
     <div>
@@ -56,29 +56,23 @@ export function EventUserDisplay(handle: Handle) {
 }
 
 export function SettingsDisplay(handle: Handle) {
-  let { state, host } = handle.context.get(AppProvider)
-
-  addEventListeners(host, handle.signal, {
-    settings() {
-      void handle.update()
-    },
-  })
+  let events = handle.context.get(AppProvider)
 
   return () => (
     <div>
-      <pre>
-        Layout: {state.value.settings.layout}, Theme: {state.value.settings.theme}
-      </pre>
+      <evented.div eventSource={events.settings}>
+        {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
+      </evented.div>
     </div>
   )
 }
 
 export function EventSettingsDisplay(handle: Handle) {
-  let { events } = handle.context.get(AppProvider)
+  let events = handle.context.get(AppProvider)
 
   return () => (
     <evented.pre eventSource={events.settings}>
-      {(context) => `Layout: ${context.layout}, Theme: ${context.theme}`}
+      {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
     </evented.pre>
   )
 }
