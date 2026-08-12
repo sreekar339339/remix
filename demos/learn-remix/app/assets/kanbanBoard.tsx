@@ -116,7 +116,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
         gap: 16,
       })}
     >
-      {(held) => (
+      {(current) => (
         <>
           <header>
             <h1>Deep identity routing experiment</h1>
@@ -133,7 +133,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
               alignItems: 'start',
             })}
           >
-            {held.columns
+            {current.columns
               .entries()
               .map(([columnId, column]) => (
                 <section key={columnId} mix={columnCss}>

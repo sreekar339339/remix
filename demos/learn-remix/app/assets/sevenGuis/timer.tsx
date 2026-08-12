@@ -37,7 +37,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
       <div>
         <evented.progress
           eventSource={events}
-          value={(held) => Math.min(1, held.elapsed / held.duration)}
+          value={(current) => Math.min(1, current.elapsed / current.duration)}
           max={1}
         />
         <evented.output eventSource={events.elapsed}>

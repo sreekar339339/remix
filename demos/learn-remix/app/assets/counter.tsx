@@ -20,7 +20,7 @@ export const Counter = clientEntry(import.meta.url, function Counter(handle) {
           }),
         ]}
       >
-        <evented.span eventSource={events}>{(held) => held.count}</evented.span>
+        <evented.span eventSource={events}>{(current) => current.count}</evented.span>
       </button>
       <label>
         Increment by{' '}
