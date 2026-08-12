@@ -406,23 +406,6 @@ type NullDetailEventTypes<Events extends EventDetails> = {
   [Type in keyof Events & string]: [Events[Type]] extends [null] ? Type : never
 }[keyof Events & string]
 
-type CustomEventsResult<
-  Events extends EventDetails,
-  Type extends CustomEventsEventType<Events>,
-  Async extends boolean,
-> = Async extends true ? Promise<void> : CustomEventsEventMap<Events>[Type]
-
-/** Call grammar for one detail-less event; the second argument is init. */
-type CustomEventsSingleOperation<
-  Events extends EventDetails,
-  Prefix extends unknown[],
-  Async extends boolean,
-> = {
-  <Type extends NullDetailEventTypes<Events> & CustomEventsEventType<Events>>(
-    ...args: [...Prefix, type: Type, init?: CustomEventsInit]
-  ): CustomEventsResult<Events, Type, Async>
-}
-
 /**
  * The build surface: `create('name', init?)` for detail-less events, and
  * `create({ name: detail, ... }, init?)` for one or more event-named details
@@ -566,8 +549,9 @@ export type RememberedEventsMap<
 /**
  * The write input of a remembered descriptor: an event-named object of details
  * (remembered keys replace their slice, fold events fold it in, undeclared
- * names fire occurrences) or a bare name for a detail-less occurrence. Batches
- * use the callable descriptor with a native `dispatchEvent`.
+ * names fire occurrences) or a bare name for a detail-less occurrence.
+ * Multi-entry transactions build a carrier with `events.create({...})` and
+ * dispatch it on a native target.
  */
 export type RememberedEventInput<Seeds extends EventDetails> =
   | string

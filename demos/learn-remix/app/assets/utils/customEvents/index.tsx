@@ -9,11 +9,7 @@ import {
   produceWithPatches,
 } from 'immer'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
-import {
-  canonicalAddressSegment,
-  isPropertyKey,
-  type CustomEventsBatchRuntimeEntry,
-} from './runtime.ts'
+import { canonicalAddressSegment, isPropertyKey, type CustomEventsRuntimeEntry } from './runtime.ts'
 import { reservedCustomEventsNames } from './types.ts'
 import type {
   CustomEventsDescriptor,
@@ -104,7 +100,7 @@ function createRemembered<Seeds extends EventDetails, Folds extends RememberedFo
       let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
         foldFn(draft as Draft<Seeds>, detail)
       })
-      let entries: CustomEventsBatchRuntimeEntry[] = []
+      let entries: CustomEventsRuntimeEntry[] = []
       if (patches.length > 0) {
         entries = entriesFromPatches(snapshot, nextSnapshot, patches)
         snapshot = nextSnapshot
@@ -233,9 +229,9 @@ function entriesFromPatches(
   previousState: EventDetails,
   nextState: EventDetails,
   patches: Patch[],
-): CustomEventsBatchRuntimeEntry[] {
+): CustomEventsRuntimeEntry[] {
   let patchesByKey = Map.groupBy(patches, ({ path }) => path[0] as string)
-  let entries: CustomEventsBatchRuntimeEntry[] = []
+  let entries: CustomEventsRuntimeEntry[] = []
   for (let [key, keyPatches] of patchesByKey) {
     let addresses = normalizePatches(previousState, nextState, keyPatches)
     let nextValue = nextState[key]

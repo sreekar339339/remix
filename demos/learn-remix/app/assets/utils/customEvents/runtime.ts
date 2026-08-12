@@ -23,16 +23,16 @@ type AddressNode = {
 
 type SubscriptionIndex = Record<SubscriptionPhase, Map<string, AddressNode>>
 
-export type CustomEventsBatchRuntimeEntry = {
+export type CustomEventsRuntimeEntry = {
   type: string
   detail: unknown
   addresses?: readonly EventAddress[]
 }
 
 type ProductEventMetadata = {
-  entries: CustomEventsBatchRuntimeEntry[]
+  entries: CustomEventsRuntimeEntry[]
   completion?: Promise<void>
-  /** Batch-shaped carriers do not natively deliver their entry types. */
+  /** Transaction carriers do not natively deliver their entry types. */
   transaction?: boolean
 }
 
@@ -185,7 +185,7 @@ function collect(results: unknown[], operation: () => unknown) {
 }
 
 function createEventSnapshot(
-  entry: CustomEventsBatchRuntimeEntry,
+  entry: CustomEventsRuntimeEntry,
   target: EventTarget,
   carrier: CustomEvent,
 ) {
@@ -248,7 +248,7 @@ function createProductEvent(
   carrierType: string,
   detail: unknown,
   init: EventInit,
-  entries: CustomEventsBatchRuntimeEntry[],
+  entries: CustomEventsRuntimeEntry[],
 ) {
   addEventType(runtime, carrierType)
   for (let { type } of entries) addEventType(runtime, type)
@@ -380,7 +380,7 @@ function* matchingSubscriptions(
 
 function notifyEntries(
   runtime: CustomEventsRuntimeState,
-  entries: CustomEventsBatchRuntimeEntry[],
+  entries: CustomEventsRuntimeEntry[],
   originScope: EventTarget,
   originTarget: EventTarget,
   carrier: CustomEvent,

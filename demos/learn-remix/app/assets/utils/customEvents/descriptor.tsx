@@ -16,7 +16,7 @@ import {
   readPath,
   samePropertyKey,
   subscribeView,
-  type CustomEventsBatchRuntimeEntry,
+  type CustomEventsRuntimeEntry,
   type CustomEventsRuntimeState,
   type EventAddress,
 } from './runtime.ts'
@@ -52,7 +52,7 @@ type InternalEntryOptions = CustomEventsInit & {
 type RememberedEventContext = {
   getState(): EventDetails
   /** Folds a dispatched event into the remembered composite; absent for pure descriptors. */
-  fold?(type: string, detail: unknown): readonly CustomEventsBatchRuntimeEntry[] | undefined
+  fold?(type: string, detail: unknown): readonly CustomEventsRuntimeEntry[] | undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -121,7 +121,7 @@ export function createCustomEventsDescriptor<
     type: string,
     detail: unknown,
     options?: InternalEntryOptions,
-  ): CustomEventsBatchRuntimeEntry[] {
+  ): CustomEventsRuntimeEntry[] {
     options?.signal?.throwIfAborted()
     if (type === ALL_EVENTS) {
       throw new TypeError('customEvents reserves "*" for subscriptions.')
@@ -140,7 +140,7 @@ export function createCustomEventsDescriptor<
     ]
   }
 
-  function createTransaction(entries: CustomEventsBatchRuntimeEntry[], init?: CustomEventsInit) {
+  function createTransaction(entries: CustomEventsRuntimeEntry[], init?: CustomEventsInit) {
     init?.signal?.throwIfAborted()
     return customEventsRuntime.createProductEvent(
       getRuntime(),
@@ -154,27 +154,26 @@ export function createCustomEventsDescriptor<
   // The builder member: a bare name builds a detail-less event, an object of
   // event-named details builds a single-event or transaction carrier.
   let create = (...args: Array<unknown>) => {
-    let [typeOrEvents, detailOrInit, maybeInit] = args as [
-      string | Record<string, unknown>,
-      unknown?,
-      CustomEventsInit?,
-    ]
+    let [typeOrEvents, detailOrInit] = args as [string | Record<string, unknown>, unknown?]
     if (typeof typeOrEvents === 'string') {
-      let isOptionsOnly = args.length === 2 && isCustomEventsInit(detailOrInit)
-      let detail = args.length === 1 || isOptionsOnly ? null : detailOrInit
-      let init = isOptionsOnly ? (detailOrInit as CustomEventsInit) : maybeInit
+      let init = args.length >= 2 ? (detailOrInit as CustomEventsInit) : undefined
+      if (args.length >= 2 && !isCustomEventsInit(detailOrInit)) {
+        throw new TypeError(
+          'customEvents create() expects CustomEventsInit as the second argument.',
+        )
+      }
       return customEventsRuntime.createProductEvent(
         getRuntime(),
         typeOrEvents,
-        detail,
+        null,
         getEventInit(init),
-        resolveEntry(typeOrEvents, detail, init),
+        resolveEntry(typeOrEvents, null, init),
       )
     }
 
     if (isRecord(typeOrEvents)) {
       let init = args.length >= 2 ? (detailOrInit as CustomEventsInit | undefined) : undefined
-      let entries: CustomEventsBatchRuntimeEntry[] = []
+      let entries: CustomEventsRuntimeEntry[] = []
       for (let [type, detail] of Object.entries(typeOrEvents)) {
         entries.push(...resolveEntry(type, detail, init))
       }
@@ -218,7 +217,7 @@ export function createCustomEventsDescriptor<
     if (first instanceof Event) {
       return EventTarget.prototype.dispatchEvent.call(base, first)
     }
-    let event = create(first, args[1], args[2]) as Event
+    let event = create(first, ...(args.slice(1) as [unknown?])) as Event
     let target = customEventsRuntime.defaultHost(getRuntime())
     if (target === undefined) {
       throw new TypeError('customEvents dispatchEvent requires a registered host.')
