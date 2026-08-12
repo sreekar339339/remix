@@ -5,7 +5,11 @@ import { buttonCss } from './styles.ts'
 export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisCounter() {
   let events = customEvents(
     { count: 0 },
-    { increment: (held, offset: number) => ({ count: held.count + offset }) },
+    {
+      increment: (draft, offset: number) => {
+        draft.count += offset
+      },
+    },
   )
   let incrementOffset = 1
   return () => (

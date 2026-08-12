@@ -325,13 +325,13 @@ export const ListUpdatesFilterBoard = clientEntry(
         timing: emptyTiming(),
       },
       {
-        applyView: (held, { query, sort }: { query: string; sort: SortKey }) => {
-          let order = orderedVisible(held.catalog, query, sort)
-          let currentKeys = [...held.visible.keys()]
+        applyView: (draft, { query, sort }: { query: string; sort: SortKey }) => {
+          let order = orderedVisible(draft.catalog, query, sort)
+          let currentKeys = [...draft.visible.keys()]
           let sameOrder =
             currentKeys.length === order.length &&
             currentKeys.every((key, index) => key === order[index])
-          if (sameOrder) return {}
+          if (sameOrder) return
           let currentSet = new Set(currentKeys)
           let orderSet = new Set(order)
           let additions = order.filter((id) => !currentSet.has(id))
@@ -339,44 +339,43 @@ export const ListUpdatesFilterBoard = clientEntry(
           if (additions.length > 0 || removals.length === 0) {
             // New rows appeared (or a pure reorder): rebuild the whole map so
             // sorted positions land correctly; the list reconciles by key.
-            return {
-              visible: new Map(order.map((id) => [id, held.catalog.get(id)!] as const)),
-            }
+            draft.visible = new Map(order.map((id) => [id, draft.catalog.get(id)!] as const))
+            return
           }
-          let visible = new Map(held.visible)
-          for (let id of removals) visible.delete(id)
-          return { visible }
+          for (let id of removals) draft.visible.delete(id)
         },
-        tickWide: (held) => ({
-          visible: new Map(
-            orderedVisible(held.catalog, 'crimson', 'id').map(
-              (id) => [id, held.catalog.get(id)!] as const,
+        tickWide: (draft) => {
+          draft.visible = new Map(
+            orderedVisible(draft.catalog, 'crimson', 'id').map(
+              (id) => [id, draft.catalog.get(id)!] as const,
             ),
-          ),
-        }),
-        tickKeep: (held) => {
-          let keep = new Set(orderedVisible(held.catalog, 'crimson-widget-500', 'id'))
-          let visible = new Map(held.visible)
-          for (let id of [...visible.keys()]) {
-            if (!keep.has(id)) visible.delete(id)
-          }
-          return { visible }
+          )
         },
-        resetVisible: (held) => ({ visible: new Map(held.catalog) }),
-        meterTick: (held, count: number) => ({ meter: count }),
-        recordTiming: (held, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
-          let timing = { ...held.timing }
+        tickKeep: (draft) => {
+          let keep = new Set(orderedVisible(draft.catalog, 'crimson-widget-500', 'id'))
+          for (let id of [...draft.visible.keys()]) {
+            if (!keep.has(id)) draft.visible.delete(id)
+          }
+        },
+        resetVisible: (draft) => {
+          draft.visible = new Map(draft.catalog)
+        },
+        meterTick: (draft, count: number) => {
+          draft.meter = count
+        },
+        recordTiming: (draft, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
           if (mode === 'evented') {
-            timing.eventedMs += ms
-            timing.eventedTicks += 1
+            draft.timing.eventedMs += ms
+            draft.timing.eventedTicks += 1
           } else {
-            timing.plainMs += ms
-            timing.plainTicks += 1
+            draft.timing.plainMs += ms
+            draft.timing.plainTicks += 1
           }
-          return { timing }
         },
-        resetTiming: () => ({ timing: emptyTiming() }),
-        refresh: () => ({}),
+        resetTiming: (draft) => {
+          draft.timing = emptyTiming()
+        },
+        refresh: () => {},
       },
     )
     let mode: 'evented' | 'plain' = 'evented'
@@ -511,39 +510,37 @@ export const ListUpdatesFeedBoard = clientEntry(
         ringStart: 0,
       },
       {
-        feed: (held) => {
-          let items = new Map(held.items)
-          let nextId = held.nextId
+        feed: (draft) => {
           for (let index = 0; index < batch; index++) {
-            let id = nextId++
-            items.set(id, {
+            let id = draft.nextId++
+            draft.items.set(id, {
               id,
               label: `${feedNouns[id % feedNouns.length]}-${id}`,
               value: (id * 7919) % 10_000,
             })
           }
-          let excess = items.size - feedCap
-          let ringStart = held.ringStart
+          let excess = draft.items.size - feedCap
           for (let index = 0; index < excess; index++) {
-            items.delete(ringStart + index)
+            draft.items.delete(draft.ringStart + index)
           }
-          ringStart += excess
-          return { items, nextId, ringStart }
+          draft.ringStart += excess
         },
-        meterTick: (held, count: number) => ({ meter: count }),
-        recordTiming: (held, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
-          let timing = { ...held.timing }
+        meterTick: (draft, count: number) => {
+          draft.meter = count
+        },
+        recordTiming: (draft, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
           if (mode === 'evented') {
-            timing.eventedMs += ms
-            timing.eventedTicks += 1
+            draft.timing.eventedMs += ms
+            draft.timing.eventedTicks += 1
           } else {
-            timing.plainMs += ms
-            timing.plainTicks += 1
+            draft.timing.plainMs += ms
+            draft.timing.plainTicks += 1
           }
-          return { timing }
         },
-        resetTiming: () => ({ timing: emptyTiming() }),
-        refresh: () => ({}),
+        resetTiming: (draft) => {
+          draft.timing = emptyTiming()
+        },
+        refresh: () => {},
       },
     )
     let mode: 'evented' | 'plain' = 'evented'
@@ -692,50 +689,46 @@ export const ListUpdatesHeavyBoard = clientEntry(
         timing: emptyTiming(),
       },
       {
-        toggleRow: (held, id: number) => {
-          let row = held.items.get(id)
-          if (!row) return {}
-          let items = new Map(held.items)
-          items.set(id, { ...row, done: !row.done, edits: row.edits + 1 })
-          return { items }
+        toggleRow: (draft, id: number) => {
+          let row = draft.items.get(id)
+          if (!row) return
+          row.done = !row.done
+          row.edits += 1
         },
-        editRow: (held, id: number) => {
-          let row = held.items.get(id)
-          if (!row) return {}
-          let items = new Map(held.items)
-          items.set(id, { ...row, edits: row.edits + 1 })
-          return { items }
+        editRow: (draft, id: number) => {
+          let row = draft.items.get(id)
+          if (row) row.edits += 1
         },
-        churn: (held, picked: ReadonlySet<number>) => {
-          let items = new Map(held.items)
+        churn: (draft, picked: ReadonlySet<number>) => {
           for (let id of picked) {
-            let item = items.get(id)
-            if (item) items.set(id, { ...item, priority: ((item.priority + 1) % 5) + 1 })
+            let item = draft.items.get(id)
+            if (item) item.priority = ((item.priority + 1) % 5) + 1
           }
-          return { items }
         },
-        bumpAll: (held) => {
-          let items = new Map(held.items)
-          for (let [id, item] of items) {
-            items.set(id, { ...item, priority: ((item.priority + 1) % 5) + 1 })
+        bumpAll: (draft) => {
+          for (let item of draft.items.values()) {
+            item.priority = ((item.priority + 1) % 5) + 1
           }
-          return { items }
         },
-        resetItems: () => ({ items: seedHeavy() }),
-        meterTick: (held, count: number) => ({ meter: count }),
-        recordTiming: (held, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
-          let timing = { ...held.timing }
+        resetItems: (draft) => {
+          draft.items = seedHeavy()
+        },
+        meterTick: (draft, count: number) => {
+          draft.meter = count
+        },
+        recordTiming: (draft, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
           if (mode === 'evented') {
-            timing.eventedMs += ms
-            timing.eventedTicks += 1
+            draft.timing.eventedMs += ms
+            draft.timing.eventedTicks += 1
           } else {
-            timing.plainMs += ms
-            timing.plainTicks += 1
+            draft.timing.plainMs += ms
+            draft.timing.plainTicks += 1
           }
-          return { timing }
         },
-        resetTiming: () => ({ timing: emptyTiming() }),
-        refresh: () => ({}),
+        resetTiming: (draft) => {
+          draft.timing = emptyTiming()
+        },
+        refresh: () => {},
       },
     )
     let mode: 'evented' | 'plain' = 'evented'

@@ -88,25 +88,20 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
       drafted: { id: null as CellId | null, text: '' },
     },
     {
-      beginEdit: (held, id: string) => ({
-        drafted: { id: id as CellId, text: held.formulas[id as CellId] ?? '' },
-      }),
-      draftCell: (held, payload: { id: string; text: string }) => ({
-        drafted: { id: payload.id as CellId, text: payload.text },
-      }),
-      commitCell: (held, payload: { id: string; text: string }) => {
-        let nextFormulas = { ...held.formulas, [payload.id]: payload.text }
-        let nextValues = calculate(nextFormulas)
-        let committed = held.values[payload.id as CellId]
-        let next = nextValues[payload.id as CellId]
-        if (Object.is(committed, next)) {
-          return {
-            formulas: nextFormulas,
-            values: nextValues,
-            drafted: { id: payload.id as CellId, text: next ?? '' },
-          }
+      beginEdit: (draft, id: string) => {
+        draft.drafted = { id: id as CellId, text: draft.formulas[id as CellId] ?? '' }
+      },
+      draftCell: (draft, payload: { id: string; text: string }) => {
+        draft.drafted = { id: payload.id as CellId, text: payload.text }
+      },
+      commitCell: (draft, payload: { id: string; text: string }) => {
+        let committed = draft.values[payload.id as CellId]
+        draft.formulas[payload.id as CellId] = payload.text
+        let nextValues = calculate(draft.formulas)
+        Object.assign(draft.values, nextValues)
+        if (Object.is(committed, nextValues[payload.id as CellId])) {
+          draft.drafted = { id: payload.id as CellId, text: nextValues[payload.id as CellId] ?? '' }
         }
-        return { formulas: nextFormulas, values: nextValues }
       },
     },
   )

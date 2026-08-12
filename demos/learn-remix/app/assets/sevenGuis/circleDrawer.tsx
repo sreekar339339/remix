@@ -14,11 +14,10 @@ type CircleHistory = {
   index: number
 }
 
-function nextDrawingSnapshot(circles: Map<number, Circle>, history: CircleHistory): CircleHistory {
-  return {
-    snapshots: [...history.snapshots.slice(0, history.index + 1), new Map(circles)],
-    index: history.index + 1,
-  }
+function recordDrawingSnapshot(circles: Map<number, Circle>, history: CircleHistory) {
+  history.snapshots.splice(history.index + 1)
+  history.snapshots.push(new Map(circles))
+  history.index++
 }
 
 function hitCircle(circles: Iterable<Circle>, x: number, y: number) {
@@ -57,66 +56,56 @@ export const SevenGuisCircleDrawer = clientEntry(
         nextCircleId: 1,
       },
       {
-        addCircle: (held, point: { x: number; y: number }) => {
-          if (held.editingCircleById !== null) return {}
-          if (hitCircle(held.circles.values(), point.x, point.y)) return {}
+        addCircle: (draft, point: { x: number; y: number }) => {
+          if (draft.editingCircleById !== null) return
+          if (hitCircle(draft.circles.values(), point.x, point.y)) return
           let circle = {
-            id: held.nextCircleId,
+            id: draft.nextCircleId,
             ...point,
             diameter: 30,
           }
-          let circles = new Map(held.circles).set(circle.id, circle)
-          return {
-            circles,
-            history: nextDrawingSnapshot(circles, held.history),
-            nextCircleId: held.nextCircleId + 1,
-          }
+          draft.circles.set(circle.id, circle)
+          recordDrawingSnapshot(draft.circles, draft.history)
+          draft.nextCircleId += 1
         },
-        openEditor: (held, id: number) => {
-          if (held.editingCircleById !== null) return {}
-          return { editingCircleById: id }
+        openEditor: (draft, id: number) => {
+          if (draft.editingCircleById !== null) return
+          draft.editingCircleById = id
         },
-        setDiameter: (held, diameter: number) => {
-          let id = held.editingCircleById
-          if (id === null) return {}
-          let circle = held.circles.get(id)
-          if (!circle || circle.diameter === diameter) return {}
-          return { circles: new Map(held.circles).set(id, { ...circle, diameter }) }
+        setDiameter: (draft, diameter: number) => {
+          let id = draft.editingCircleById
+          if (id === null) return
+          let circle = draft.circles.get(id)
+          if (!circle || circle.diameter === diameter) return
+          circle.diameter = diameter
         },
-        closeEditor: (held) => {
-          let id = held.editingCircleById
-          if (id === null) return {}
-          let circle = held.circles.get(id)
-          let committed = held.history.snapshots[held.history.index]?.get(id)
+        closeEditor: (draft) => {
+          let id = draft.editingCircleById
+          if (id === null) return
+          let circle = draft.circles.get(id)
+          let committed = draft.history.snapshots[draft.history.index]?.get(id)
           if (circle && committed && circle.diameter !== committed.diameter) {
-            return {
-              history: nextDrawingSnapshot(held.circles, held.history),
-              editingCircleById: null,
-            }
+            recordDrawingSnapshot(draft.circles, draft.history)
           }
-          return { editingCircleById: null }
+          draft.editingCircleById = null
         },
-        undo: (held) => {
-          let index = held.history.index - 1
-          if (index < 0) return {}
-          return {
-            circles: new Map(
-              held.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
-            ),
-            editingCircleById: null,
-            history: { ...held.history, index },
-          }
+        undo: (draft) => {
+          let index = draft.history.index - 1
+          if (index < 0) return
+          draft.circles = new Map(
+            draft.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
+          )
+          draft.editingCircleById = null
+          draft.history.index = index
         },
-        redo: (held) => {
-          let index = held.history.index + 1
-          if (index >= held.history.snapshots.length) return {}
-          return {
-            circles: new Map(
-              held.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
-            ),
-            editingCircleById: null,
-            history: { ...held.history, index },
-          }
+        redo: (draft) => {
+          let index = draft.history.index + 1
+          if (index >= draft.history.snapshots.length) return
+          draft.circles = new Map(
+            draft.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
+          )
+          draft.editingCircleById = null
+          draft.history.index = index
         },
       },
     )

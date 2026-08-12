@@ -6,13 +6,13 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
   let events = customEvents(
     { elapsed: 0, duration: 10 },
     {
-      tick: (held, delta: number) => ({
-        elapsed: Math.min(held.duration, held.elapsed + delta),
-      }),
-      setDuration: (held, duration: number) => ({
-        duration,
-        elapsed: Math.min(held.elapsed, duration),
-      }),
+      tick: (draft, delta: number) => {
+        draft.elapsed = Math.min(draft.duration, draft.elapsed + delta)
+      },
+      setDuration: (draft, duration: number) => {
+        draft.duration = duration
+        draft.elapsed = Math.min(draft.elapsed, duration)
+      },
     },
   )
   return () => (

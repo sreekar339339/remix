@@ -1839,7 +1839,11 @@ describe('retained customEvents', () => {
   it('folds held replaces and effect events into the root composite', async (t) => {
     let events = customEvents(
       { count: 0, label: 'idle' },
-      { inc: (held, amount: number) => ({ count: held.count + amount }) },
+      {
+        inc: (draft, amount: number) => {
+          draft.count += amount
+        },
+      },
     )
     let seen: Array<[unknown, unknown]> = []
 
@@ -1930,10 +1934,10 @@ describe('retained customEvents', () => {
     let events = customEvents(
       { items: new Map<number, Item>([[1, { id: 1, label: 'one' }]]) },
       {
-        rename: (held, { id, label }: { id: number; label: string }) => {
-          let item = held.items.get(id)
-          if (!item) return {}
-          return { items: new Map(held.items).set(id, { ...item, label }) }
+        rename: (draft, { id, label }: { id: number; label: string }) => {
+          let item = draft.items.get(id)
+          if (!item) return
+          draft.items.set(id, { ...item, label })
         },
       },
     )
@@ -1986,7 +1990,11 @@ describe('retained customEvents', () => {
   it("keeps the effect event's own payload visible to its subscribers", async (t) => {
     let events = customEvents(
       { elapsed: 0 },
-      { tick: (held, delta: number) => ({ elapsed: held.elapsed + delta }) },
+      {
+        tick: (draft, delta: number) => {
+          draft.elapsed += delta
+        },
+      },
     )
     let seen: Array<[unknown, unknown]> = []
 

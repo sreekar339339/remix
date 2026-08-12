@@ -46,27 +46,25 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
       focusTarget: NaN,
     },
     {
-      place: (held, cellId: number) => {
-        if (held.position.has(cellId) || held.result !== null) return {}
-        let position = new Map(held.position)
-        let nextPlayer: Player = position.size % 2 === 0 ? 'X' : 'O'
-        position.set(cellId, nextPlayer)
-        let result = deriveResult(position)
-        let focusTarget = held.focusTarget
+      place: (draft, cellId: number) => {
+        if (draft.position.has(cellId) || draft.result !== null) return
+        let nextPlayer: Player = draft.position.size % 2 === 0 ? 'X' : 'O'
+        draft.position.set(cellId, nextPlayer)
+        let result = deriveResult(draft.position)
+        draft.result = result
         if (result === null) {
           let nextFreeCellIdx = cellId
-          while (position.has(nextFreeCellIdx)) {
+          while (draft.position.has(nextFreeCellIdx)) {
             nextFreeCellIdx = (nextFreeCellIdx + 1) % 9
             if (nextFreeCellIdx === cellId) break
           }
-          focusTarget = nextFreeCellIdx
+          draft.focusTarget = nextFreeCellIdx
         }
-        return { position, result, focusTarget }
       },
-      moveFocus: (held, { cellId, increment }: { cellId: number; increment: number }) => {
+      moveFocus: (draft, { cellId, increment }: { cellId: number; increment: number }) => {
         let boundIdx = increment < 0 ? 0 : 8
         let nextFreeCellIdx = cellId
-        while (nextFreeCellIdx === cellId || held.position.has(nextFreeCellIdx)) {
+        while (nextFreeCellIdx === cellId || draft.position.has(nextFreeCellIdx)) {
           nextFreeCellIdx += increment
           if (
             (boundIdx === 0 && nextFreeCellIdx < boundIdx) ||
@@ -75,9 +73,13 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
             break
           }
         }
-        return { focusTarget: nextFreeCellIdx }
+        draft.focusTarget = nextFreeCellIdx
       },
-      reset: () => ({ position: new Map(), result: null, focusTarget: 0 }),
+      reset: (draft) => {
+        draft.position.clear()
+        draft.result = null
+        draft.focusTarget = 0
+      },
     },
   )
   return () => (
@@ -98,16 +100,12 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
           on('click', ({ target }) => {
             if (!(target instanceof HTMLElement)) return
             let cellId = Number(target.dataset.idx)
-            if (Number.isNaN(cellId)) return
-            if (cellId < 0) return
             events.dispatch({ place: cellId })
           }),
           on('keydown', ({ key, target }) => {
             if (!isArrowKey(key)) return
             if (!(target instanceof HTMLElement)) return
             let cellId = Number(target.dataset.idx)
-            if (Number.isNaN(cellId)) return
-            if (cellId < 0) return
             events.dispatch({
               moveFocus: { cellId, increment: arrowKeyIdxIncrementMap[key] },
             })

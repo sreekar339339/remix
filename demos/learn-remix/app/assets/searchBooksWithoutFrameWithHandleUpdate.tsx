@@ -16,7 +16,7 @@ type SearchEvents = {
 
 type SearchEvent = CustomEventsEventMap<SearchEvents>[keyof SearchEvents]
 
-let events = customEvents<SearchEvents>()
+const events = customEvents<SearchEvents>()
 
 async function fetchBooks(query: string, input: HTMLInputElement, signal: AbortSignal) {
   let options = { signal }

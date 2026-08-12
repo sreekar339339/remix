@@ -93,13 +93,9 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
   let events = customEvents(
     { columns: initialColumns() },
     {
-      toggleUrgency: (held, { columnId, cardId }: { columnId: string; cardId: string }) => {
-        let column = held.columns.get(columnId)
-        let card = column?.cards.get(cardId)
-        if (!column || !card) return {}
-        let nextColumn = { ...column, cards: new Map(column.cards) }
-        nextColumn.cards.set(cardId, { ...card, urgent: !card.urgent })
-        return { columns: new Map(held.columns).set(columnId, nextColumn) }
+      toggleUrgency: (draft, { columnId, cardId }: { columnId: string; cardId: string }) => {
+        let card = draft.columns.get(columnId)?.cards.get(cardId)
+        if (card) card.urgent = !card.urgent
       },
     },
   )

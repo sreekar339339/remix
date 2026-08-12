@@ -4,7 +4,11 @@ import { customEvents, evented } from './utils/customEvents/index.tsx'
 export const Counter = clientEntry(import.meta.url, function Counter(handle) {
   let events = customEvents(
     { count: 0 },
-    { increment: (held, offset: number) => ({ count: held.count + offset }) },
+    {
+      increment: (draft) => {
+        draft.count += incrementOffset
+      },
+    },
   )
   let incrementOffset = 1
   return () => (
@@ -12,7 +16,7 @@ export const Counter = clientEntry(import.meta.url, function Counter(handle) {
       <button
         mix={[
           on('click', () => {
-            events.dispatch({ increment: incrementOffset })
+            events.dispatch('increment')
           }),
         ]}
       >

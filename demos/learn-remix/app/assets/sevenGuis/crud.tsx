@@ -26,37 +26,33 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
       nextId: 4,
     },
     {
-      selectPerson: (held, id: number) => {
-        let person = held.people.find((candidate) => candidate.id === id)
-        if (!person) return {}
-        return {
-          selectedId: person.id,
-          draft: { name: person.name, surname: person.surname },
-        }
+      selectPerson: (draft, id: number) => {
+        let person = draft.people.find((candidate) => candidate.id === id)
+        if (!person) return
+        draft.selectedId = person.id
+        draft.draft.name = person.name
+        draft.draft.surname = person.surname
       },
-      create: (held) => {
-        let person = { id: held.nextId, ...held.draft }
-        return {
-          people: [...held.people, person],
-          selectedId: person.id,
-          nextId: held.nextId + 1,
-        }
+      create: (draft) => {
+        let person = { id: draft.nextId, ...draft.draft }
+        draft.people.push(person)
+        draft.selectedId = person.id
+        draft.nextId += 1
       },
-      update: (held) => {
-        if (held.selectedId === null) return {}
-        return {
-          people: held.people.map((person) =>
-            person.id === held.selectedId ? { ...person, ...held.draft } : person,
-          ),
-        }
+      update: (draft) => {
+        if (draft.selectedId === null) return
+        let person = draft.people.find((candidate) => candidate.id === draft.selectedId)
+        if (!person) return
+        person.name = draft.draft.name
+        person.surname = draft.draft.surname
       },
-      delete: (held) => {
-        if (held.selectedId === null) return {}
-        return {
-          people: held.people.filter((person) => person.id !== held.selectedId),
-          selectedId: null,
-          draft: { name: '', surname: '' },
-        }
+      delete: (draft) => {
+        if (draft.selectedId === null) return
+        let index = draft.people.findIndex((candidate) => candidate.id === draft.selectedId)
+        if (index !== -1) draft.people.splice(index, 1)
+        draft.selectedId = null
+        draft.draft.name = ''
+        draft.draft.surname = ''
       },
     },
   )

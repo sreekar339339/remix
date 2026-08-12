@@ -106,12 +106,9 @@ function isRetainedDeclaration(value: unknown): value is EventDetails {
 
 const reservedSeedNames = new Set<string>(['create', 'dispatch', 'on', 'asHost', 'store'])
 
-type RetainedFoldFn<Held extends EventDetails> = (
-  held: Held,
-  detail: unknown,
-) => Partial<Held> | undefined
+type RetainedFoldFn<Held extends EventDetails> = (draft: Draft<Held>, detail: unknown) => void
 
-/** Creates a retained descriptor from held seeds and declared effect events. */
+/** Creates a retained descriptor from initial details and declared fold events. */
 function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<Seeds>>(
   seeds: Seeds,
   folds?: Folds,
@@ -133,42 +130,13 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
   function foldEntry(type: string, detail: unknown) {
     let foldFn = foldFns.get(type)
     if (foldFn) {
+      let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
+        foldFn(draft as Draft<Seeds>, detail)
+      })
       let entries: CustomEventsBatchRuntimeEntry[] = []
-      let partial = foldFn(snapshot as Seeds, detail)
-      if (partial !== undefined && Object.keys(partial).length > 0) {
-        let nextSnapshot = produce(snapshot, (draft) => {
-          Object.assign(draft as EventDetails, partial)
-        })
-        let keyPatches = new Map<string, Patch[]>()
-        for (let key of Object.keys(partial)) {
-          let patches = diffKey(snapshot[key], (nextSnapshot as EventDetails)[key]).map(
-            (patch) => ({ ...patch, path: [key, ...patch.path] }),
-          )
-          if (patches.length > 0) keyPatches.set(key, patches)
-        }
-        if (keyPatches.size > 0) {
-          for (let [key, patches] of keyPatches) {
-            let { addresses, ops } = normalizePatches(snapshot, nextSnapshot, patches)
-            let previousValue = snapshot[key]
-            let nextValue = (nextSnapshot as EventDetails)[key]
-            if (isPrimitive(previousValue) && isPrimitive(nextValue)) {
-              addresses = [
-                ...(previousValue !== undefined && previousValue !== null
-                  ? [ownerAddress(previousValue)]
-                  : []),
-                ...(nextValue !== undefined && nextValue !== null ? [ownerAddress(nextValue)] : []),
-              ]
-              ops = ['replace']
-            }
-            entries.push({
-              type: key,
-              detail: nextValue,
-              addresses,
-              ops,
-            })
-          }
-          snapshot = nextSnapshot
-        }
+      if (patches.length > 0) {
+        entries = entriesFromPatches(snapshot, nextSnapshot, patches)
+        snapshot = nextSnapshot
       }
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
@@ -183,30 +151,14 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
       return entries
     }
 
+    // A seed dispatch is the implicit fold that replaces itself.
     if (Object.hasOwn(snapshot, type)) {
-      let previousValue = snapshot[type]
-      let nextSnapshot = produce(snapshot, (draft) => {
+      let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
         ;(draft as EventDetails)[type] = detail
       })
+      let entries = entriesFromPatches(snapshot, nextSnapshot, patches)
       snapshot = nextSnapshot
-      let addresses: readonly (readonly unknown[])[] = [[]]
-      if (isPrimitive(previousValue) && isPrimitive(nextSnapshot[type])) {
-        addresses = [
-          ...(previousValue !== undefined && previousValue !== null
-            ? [ownerAddress(previousValue)]
-            : []),
-          ...(nextSnapshot[type] !== undefined && nextSnapshot[type] !== null
-            ? [ownerAddress(nextSnapshot[type])]
-            : []),
-        ]
-      }
-      return [
-        {
-          type,
-          detail: (nextSnapshot as EventDetails)[type],
-          addresses,
-        },
-      ]
+      return entries
     }
     return undefined
   }
@@ -358,75 +310,35 @@ function isPrimitive(value: unknown) {
   return value === null || typeof value !== 'object'
 }
 
-/** Diff-style patches for one held key, with Map/Set item granularity. */
-function diffKey(previous: unknown, next: unknown): Patch[] {
-  let segment = (value: unknown) => value as string | number
-  function diffValue(prev: unknown, next: unknown, path: (string | number)[]): Patch[] {
-    if (prev instanceof Map && next instanceof Map) {
-      let patches: Patch[] = []
-      for (let [key, prevValue] of prev) {
-        if (next.has(key)) {
-          if (next.get(key) !== prevValue) {
-            patches.push(...diffValue(prevValue, next.get(key), [...path, segment(key)]))
-          }
-        } else {
-          patches.push({ op: 'remove', path: [...path, segment(key)] })
-        }
-      }
-      for (let [key, value] of next) {
-        if (!prev.has(key)) {
-          patches.push({ op: 'add', path: [...path, segment(key)], value })
-        }
-      }
-      if (patches.length > 0) return patches
-      return prev === next ? [] : [{ op: 'replace', path }]
-    }
-    if (prev instanceof Set && next instanceof Set) {
-      let patches: Patch[] = []
-      for (let value of prev) {
-        if (!next.has(value)) patches.push({ op: 'remove', path: [...path, segment(value)] })
-      }
-      for (let value of next) {
-        if (!prev.has(value)) {
-          patches.push({ op: 'add', path: [...path, segment(value)], value })
-        }
-      }
-      return patches
-    }
-    if (Array.isArray(prev) && Array.isArray(next)) {
-      if (prev.length !== next.length) return [{ op: 'replace', path }]
-      let patches: Patch[] = []
-      for (let index = 0; index < prev.length; index++) {
-        if (prev[index] !== next[index]) {
-          patches.push(...diffValue(prev[index], next[index], [...path, index]))
-        }
-      }
-      return patches
-    }
-    if (prev !== null && next !== null && typeof prev === 'object' && typeof next === 'object') {
-      let patches: Patch[] = []
-      for (let key of Reflect.ownKeys(prev)) {
-        if (typeof key !== 'string') continue
-        let prevValue = Reflect.get(prev, key)
-        let nextValue = Reflect.get(next, key)
-        if (!Object.is(prevValue, nextValue)) {
-          patches.push(...diffValue(prevValue, nextValue, [...path, key]))
-        }
-      }
-      for (let key of Reflect.ownKeys(next)) {
-        if (typeof key !== 'string' || Object.hasOwn(prev, key)) continue
-        patches.push({ op: 'add', path: [...path, key], value: Reflect.get(next, key) })
-      }
-      if (patches.length > 0) return patches
-      return prev === next ? [] : [{ op: 'replace', path }]
-    }
-    return prev === next ? [] : [{ op: 'replace', path }]
-  }
-  return diffValue(previous, next, [])
-}
-
 function ownerAddress(value: unknown): readonly unknown[] {
   return [canonicalAddressSegment(value)]
+}
+
+/** Builds per-key runtime entries from Immer patches, with scalar owner routes. */
+function entriesFromPatches(
+  previousState: EventDetails,
+  nextState: EventDetails,
+  patches: Patch[],
+): CustomEventsBatchRuntimeEntry[] {
+  let patchesByKey = Map.groupBy(patches, ({ path }) => path[0] as string)
+  let entries: CustomEventsBatchRuntimeEntry[] = []
+  for (let [key, keyPatches] of patchesByKey) {
+    let { addresses, ops } = normalizePatches(previousState, nextState, keyPatches)
+    let nextValue = nextState[key]
+    let previousOwner = previousState[key]
+
+    if (isPrimitive(previousOwner) && isPrimitive(nextValue)) {
+      addresses = [
+        ...(previousOwner !== undefined && previousOwner !== null
+          ? [ownerAddress(previousOwner)]
+          : []),
+        ...(nextValue !== undefined && nextValue !== null ? [ownerAddress(nextValue)] : []),
+      ]
+      ops = ['replace']
+    }
+    entries.push({ type: key, detail: nextValue, addresses, ops })
+  }
+  return entries
 }
 
 function createStore(initialState: EventDetails) {
@@ -465,43 +377,18 @@ function createStore(initialState: EventDetails) {
       })
       if (patches.length === 0) return
 
-      let patchesByKey = Map.groupBy(patches, ({ path }) => path[0] as string)
-
-      let entries: Array<Record<string, unknown>> = []
-      for (let [key, keyPatches] of patchesByKey) {
-        let { addresses, ops } = normalizePatches(snapshot, nextSnapshot, keyPatches)
-        let nextValue = nextSnapshot[key]
-        let previousOwner = snapshot[key]
-
-        if (isPrimitive(previousOwner) && isPrimitive(nextValue)) {
-          entries.push({
-            [key]: {
-              detail: nextValue,
-              options: {
-                addresses: [
-                  ...(previousOwner !== undefined && previousOwner !== null
-                    ? [ownerAddress(previousOwner)]
-                    : []),
-                  ...(nextValue !== undefined && nextValue !== null
-                    ? [ownerAddress(nextValue)]
-                    : []),
-                ],
-              },
-            },
-          })
-          continue
-        }
-
-        entries.push({
-          [key]: {
-            detail: nextValue,
-            options: { addresses, ops },
-          },
-        })
-      }
-
+      let entries = entriesFromPatches(snapshot, nextSnapshot, patches)
       snapshot = nextSnapshot
-      target.dispatchEvent((events.create as (...args: unknown[]) => Event)(entries))
+      target.dispatchEvent(
+        (events.create as (...args: unknown[]) => Event)(
+          entries.map((entry) => ({
+            [entry.type]: {
+              detail: entry.detail,
+              options: { addresses: entry.addresses ?? [], ops: entry.ops ?? [] },
+            },
+          })),
+        ),
+      )
     },
   }
   return {

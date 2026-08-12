@@ -1,4 +1,4 @@
-import type { Immutable } from 'immer'
+import type { Draft, Immutable } from 'immer'
 import {
   type EVENT_SOURCE,
   type EventSourceProtocol,
@@ -499,9 +499,9 @@ export type CustomEventsDescriptor<
 
 /** How a declared effect event folds into the retained composite. */
 export type RetainedFold<Held extends EventDetails, Detail = unknown> = (
-  held: Held,
+  draft: Draft<Held>,
   detail: Detail,
-) => Partial<Held> | undefined
+) => void
 
 /**
  * The declared effect events of a retained descriptor, keyed by event name.
