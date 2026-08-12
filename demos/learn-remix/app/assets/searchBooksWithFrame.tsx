@@ -7,7 +7,7 @@ export const SearchBooksWithFrame = clientEntry(
   function SearchBooksWithFrame(handle: Handle<{ initialQuery?: string }>) {
     let events = customEvents<'queryEmpty' | 'querySubmitted'>()
     let query = handle.props.initialQuery?.trim() ?? ''
-    let initialEvent = events(query ? 'querySubmitted' : 'queryEmpty')
+    let initialEvent = events.create(query ? 'querySubmitted' : 'queryEmpty')
 
     return () => (
       <div mix={events.asHost()}>
@@ -18,7 +18,7 @@ export const SearchBooksWithFrame = clientEntry(
               evt.preventDefault()
               query = (new FormData(evt.currentTarget).get('q') as string).trim()
               evt.currentTarget.dispatchEvent(
-                query ? events('querySubmitted') : events('queryEmpty'),
+                query ? events.create('querySubmitted') : events.create('queryEmpty'),
               )
             }),
           ]}

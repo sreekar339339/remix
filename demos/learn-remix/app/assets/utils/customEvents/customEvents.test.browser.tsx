@@ -53,7 +53,7 @@ describe('customEvents', () => {
 
     assert.equal(typed.textContent, '')
     await result.act(async () => {
-      typed.dispatchEvent(events('submitted', { id: 'order-1' }))
+      typed.dispatchEvent(events.create({ submitted: { id: 'order-1' } }))
       await settleEffects()
     })
     assert.equal(typed.dataset.id, 'order-1')
@@ -706,7 +706,7 @@ describe('customEvents', () => {
                 drafts++
               }),
               on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events('countDrafted', 1))
+                currentTarget.dispatchEvent(events.create({ countDrafted: 1 }))
               }),
             ]}
           />
@@ -789,9 +789,9 @@ describe('customEvents', () => {
   it('creates typed local-name events', () => {
     let events = createEvents()
     let otherEvents = createEvents()
-    let first = events('submitted', { id: 'first' })
-    let second = events('submitted', { id: 'second' })
-    let signal = events('paid')
+    let first = events.create({ submitted: { id: 'first' } })
+    let second = events.create({ submitted: { id: 'second' } })
+    let signal = events.create('paid')
 
     assert.equal(first.detail.id, 'first')
     assert.equal(signal.detail, null)
@@ -801,7 +801,7 @@ describe('customEvents', () => {
     assert.equal(first.cancelable, false)
     first.preventDefault()
     assert.equal(first.defaultPrevented, false)
-    assert.equal(otherEvents('submitted', { id: 'other' }).type, 'submitted')
+    assert.equal(otherEvents.create({ submitted: { id: 'other' } }).type, 'submitted')
     let target = new EventTarget()
     let observed = false
     target.addEventListener('submitted', () => {
@@ -810,28 +810,27 @@ describe('customEvents', () => {
     assert.equal(target.dispatchEvent(first), true)
     assert.equal(observed, true)
 
-    let createWithEventInit = events as unknown as (
-      type: 'submitted',
-      detail: { id: string },
+    let createWithEventInit = events.create as unknown as (
+      input: object,
       init: EventInit,
-    ) => CustomEvent<{ id: string }>
+    ) => CustomEvent
     assert.throws(
-      () => createWithEventInit('submitted', { id: 'runtime-check' }, { cancelable: true }),
+      () => createWithEventInit({ submitted: { id: 'runtime-check' } }, { cancelable: true }),
       /cannot be cancelable/,
     )
 
     if (false) {
       // @ts-expect-error - detailed events require detail.
-      events('submitted')
+      events.create('submitted')
       // @ts-expect-error - signal events do not accept detail.
-      events('paid', 'unexpected')
+      events.create('paid', 'unexpected')
       // @ts-expect-error - `*` is reserved for subscriptions.
-      events('*')
+      events.create('*')
       // @ts-expect-error - native DOM event names are reserved.
       customEvents<'click'>()
       // @ts-expect-error - descriptor events are completed, non-cancelable facts.
-      events('paid', { cancelable: true })
-      // @ts-expect-error - dispatchEvent is self-only; target.dispatchEvent(events(...)) for hosted.
+      events.create('paid', { cancelable: true })
+      // @ts-expect-error - dispatchEvent is self-only; target.dispatchEvent(events.create(...)) for hosted.
       events.dispatchEvent(new EventTarget(), 'submitted')
       // @ts-expect-error - customEvents effects do not expose reentry signals.
       events.on.paid((_event, _signal) => {})
@@ -857,7 +856,7 @@ describe('customEvents', () => {
     let reason = new Error('stale transition')
     controller.abort(reason)
 
-    let factories = [() => events('paid', { signal: controller.signal })]
+    let factories = [() => events.create('paid', { signal: controller.signal })]
 
     for (let createEvent of factories) {
       let thrown: unknown
@@ -897,7 +896,7 @@ describe('customEvents', () => {
     let section = result.$('section') as HTMLElement
 
     await result.act(async () => {
-      section.dispatchEvent(events(['name', 'length', 'bind', 'toString']))
+      section.dispatchEvent(events.create({ name: null, length: null, bind: null, toString: null }))
     })
 
     for (let type of ['name', 'length', 'bind', 'toString']) {
@@ -914,14 +913,14 @@ describe('customEvents', () => {
           <button
             aria-label="submit"
             mix={on('click', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events('submitted', { id: 'order-1' }))
+              currentTarget.dispatchEvent(events.create({ submitted: { id: 'order-1' } }))
             })}
           >
             Submit
           </button>
           <evented.form
             eventSource={events.on.submitted}
-            initial={events('submitted', { id: 'idle' })}
+            initial={events.create({ submitted: { id: 'idle' } })}
             aria-label="form"
             class={(order, event) => (order.id === 'idle' ? '' : 'pending')}
             aria-busy={(order, event) => order.id !== 'idle'}
@@ -967,7 +966,7 @@ describe('customEvents', () => {
           </evented.output>
           <evented.output
             eventSource={events.on.submitted}
-            initial={events('submitted', { id: 'initial' })}
+            initial={events.create({ submitted: { id: 'initial' } })}
             hidden={(order, event) => order.id === 'hidden'}
             aria-label="initial-confirmation"
           >
@@ -988,10 +987,10 @@ describe('customEvents', () => {
     assert.equal(initialConfirmation.hidden, false)
     assert.equal(initialConfirmation.textContent, 'initial')
 
-    await result.act(() => host.dispatchEvent(events('paid')))
+    await result.act(() => host.dispatchEvent(events.create('paid')))
     assert.equal(confirmation.hidden, true)
 
-    await result.act(() => host.dispatchEvent(events('submitted', { id: 'order-1' })))
+    await result.act(() => host.dispatchEvent(events.create({ submitted: { id: 'order-1' } })))
     assert.equal(confirmation.hidden, false)
     assert.equal(confirmation.textContent, 'order-1')
   })
@@ -1028,7 +1027,7 @@ describe('customEvents', () => {
     input.focus()
 
     await result.act(async () => {
-      form.dispatchEvent(events('submitted', { id: 'order-1' }))
+      form.dispatchEvent(events.create({ submitted: { id: 'order-1' } }))
       await settleEffects()
     })
 
@@ -1039,7 +1038,7 @@ describe('customEvents', () => {
 
   it('broadcasts named groups and wildcards to every listener', async (t) => {
     let events = createEvents()
-    let initialOutcome = events('paid')
+    let initialOutcome = events.create('paid')
 
     function Orders() {
       return () => (
@@ -1047,7 +1046,7 @@ describe('customEvents', () => {
           <button
             aria-label="update"
             mix={on('click', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events('submitted', { id: 'first' }))
+              currentTarget.dispatchEvent(events.create({ submitted: { id: 'first' } }))
             })}
           />
           {['first', 'second'].map((id) => (
@@ -1084,23 +1083,9 @@ describe('customEvents', () => {
     assert.equal(result.$('[aria-label="all"]')?.textContent, 'submitted')
 
     await result.act(() => {
-      ;(result.$('section') as HTMLElement).dispatchEvent(
-        events(
-          [
-            {
-              submitted: {
-                detail: { id: 'first-again' },
-              },
-            },
-            {
-              submitted: {
-                detail: { id: 'second' },
-              },
-            },
-          ],
-          { composed: true },
-        ),
-      )
+      let section = result.$('section') as HTMLElement
+      section.dispatchEvent(events.create({ submitted: { id: 'first-again' } }, { composed: true }))
+      section.dispatchEvent(events.create({ submitted: { id: 'second' } }, { composed: true }))
     })
 
     assert.equal(first.textContent, 'second')
@@ -1122,7 +1107,7 @@ describe('customEvents', () => {
                 currentTarget.dataset.received = 'true'
               }),
               on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events('paid', { bubbles: false }))
+                currentTarget.dispatchEvent(events.create('paid', { bubbles: false }))
               }),
             ]}
           />
@@ -1130,7 +1115,7 @@ describe('customEvents', () => {
             <button
               aria-label="unhosted-source"
               mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events('paid'))
+                currentTarget.dispatchEvent(events.create('paid'))
               })}
             />
             <output
@@ -1144,7 +1129,7 @@ describe('customEvents', () => {
             <button
               aria-label="hosted-source"
               mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events('paid'))
+                currentTarget.dispatchEvent(events.create('paid'))
               })}
             />
             <output
@@ -1201,21 +1186,14 @@ describe('customEvents', () => {
             <button
               aria-label="local"
               mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events('submitted', { id: 'local' }))
+                currentTarget.dispatchEvent(events.create({ submitted: { id: 'local' } }))
               })}
             />
             <button
               aria-label="composed"
               mix={on('click', ({ currentTarget }) => {
                 currentTarget.dispatchEvent(
-                  events(
-                    [
-                      {
-                        submitted: { detail: { id: 'composed' } },
-                      },
-                    ],
-                    { composed: true },
-                  ),
+                  events.create({ submitted: { id: 'composed' } }, { composed: true }),
                 )
               })}
             />
@@ -1268,16 +1246,7 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     await result.act(() =>
-      dispatchTarget.dispatchEvent(
-        events([
-          {
-            submitted: {
-              detail: { id: 'batched' },
-            },
-          },
-          'paid',
-        ]),
-      ),
+      dispatchTarget.dispatchEvent(events.create({ submitted: { id: 'batched' }, paid: null })),
     )
     await settleEffects()
 
@@ -1294,8 +1263,9 @@ describe('customEvents', () => {
     })
     domain.addEventListener('paid', () => nativeCalls.push('paid'))
 
-    domain.dispatchEvent(events([{ submitted: { detail: { id: 'batch' } } }, 'paid']))
-    domain.dispatchEvent(events(['paid', 'paid']))
+    domain.dispatchEvent(events.create({ submitted: { id: 'batch' }, paid: null }))
+    domain.dispatchEvent(events.create({ paid: null }))
+    domain.dispatchEvent(events.create({ paid: null }))
 
     assert.deepEqual(nativeCalls, ['submitted:batch', 'paid', 'paid', 'paid'])
   })
@@ -1310,7 +1280,7 @@ describe('customEvents', () => {
           mix={[
             events.asHost(),
             on('input', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events('paid'))
+              currentTarget.dispatchEvent(events.create('paid'))
             }),
             events.on.paid(({ currentTarget }) => {
               currentTarget.dataset.ready = 'true'

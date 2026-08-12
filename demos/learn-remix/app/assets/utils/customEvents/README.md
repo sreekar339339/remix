@@ -61,7 +61,7 @@ A typed vocabulary of transient events with no remembered model:
 const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
 ```
 
-Reserved names cannot be events: `on`, `asHost`, `dispatchEvent`,
+Reserved names cannot be events: `create`, `on`, `asHost`, `dispatchEvent`,
 `addEventListener`, `removeEventListener`, and native DOM event names.
 
 ### The descriptor is callable
@@ -73,7 +73,7 @@ object:
 ```ts
 events.addEventListener('count', (event) => console.log(event.detail))
 addEventListeners(events, signal, { count() {} })
-element.dispatchEvent(events('countDrafted', 2)) // hosted elements
+element.dispatchEvent(events.create({ countDrafted: 2 })) // hosted elements
 ```
 
 `asHost()` registers an element host as a mixin; `asHost(target)` bridges the
@@ -139,12 +139,12 @@ Evented-view props:
 
 ### Descriptor methods
 
-| Member                                     | Signature                                                                     | Purpose                                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- | ---- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`                        | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
-| _(callable)_                               | `events(type, detail?, init?)` / `events({ name: detail })` / `events([...])` | Builds a fresh event for any target.                                                           |     | `on` | `on['*'](listener)` / `on.<source>(listener)` | The `'*'` node runs a wildcard effect; source nodes scope effects to one event. |
-| `asHost`                                   | `asHost()` / `asHost(target)`                                                 | Element host (mixin) or domain `EventTarget` bridge.                                           |
-| `addEventListener` / `removeEventListener` | native                                                                        | Native listeners on the descriptor.                                                            |
+| Member                                     | Signature                                                                       | Purpose                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- | ---- | --------------------------------------------- | ------------------------------------------------------------------------------- |
+| `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`                          | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
+| `create`                                   | `create('name', init?)` / `create({ name: detail })` / `create({ a: 1, b: 2 })` | Builds a fresh event (or transaction carrier) for any target.                                  |     | `on` | `on['*'](listener)` / `on.<source>(listener)` | The `'*'` node runs a wildcard effect; source nodes scope effects to one event. |
+| `asHost`                                   | `asHost()` / `asHost(target)`                                                   | Element host (mixin) or domain `EventTarget` bridge.                                           |
+| `addEventListener` / `removeEventListener` | native                                                                          | Native listeners on the descriptor.                                                            |
 
 Writes are dispatch-only. The object grammar dispatches an event-named set of
 details atomically:
@@ -152,8 +152,8 @@ details atomically:
 ```ts
 await events.dispatchEvent({ kind: 'return flight' }) // remembered: folds in
 await events.dispatchEvent('bookingConfirmed') // bare name: an occurrence
-await events.dispatchEvent([{ startDate }, { returnDate }]) // via events(...) + a native target
-element.dispatchEvent(events('countDrafted', 2)) // hosted elements
+await events.dispatchEvent({ kind: 'one-way flight', startDate }) // both fold in atomically
+element.dispatchEvent(events.create({ countDrafted: 2 })) // hosted elements
 ```
 
 `dispatchEvent(event)` returns the native `boolean`; the input form returns a

@@ -50,7 +50,7 @@ export const draggable_ = createMixin<HTMLElement, [boolean], DraggableCustomEve
       startClientY = event.clientY
       pointerId = event.pointerId
       element.setPointerCapture(event.pointerId)
-      element.dispatchEvent(events('start', { left: startLeft, top: startTop }))
+      element.dispatchEvent(events.create({ start: { left: startLeft, top: startTop } }))
       window.addEventListener('pointermove', moveDrag)
       window.addEventListener('pointerup', stopDrag)
       window.addEventListener('pointercancel', stopDrag)
@@ -71,9 +71,11 @@ export const draggable_ = createMixin<HTMLElement, [boolean], DraggableCustomEve
       window.removeEventListener('pointerup', stopDrag)
       window.removeEventListener('pointercancel', stopDrag)
       element.dispatchEvent(
-        events('end', {
-          left: readPx(element.style.left),
-          top: readPx(element.style.top),
+        events.create({
+          end: {
+            left: readPx(element.style.left),
+            top: readPx(element.style.top),
+          },
         }),
       )
     }

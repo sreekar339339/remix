@@ -22,7 +22,6 @@ import {
 } from './runtime.ts'
 import type {
   CustomEventsAsHost,
-  CustomEventsBatchItem,
   CustomEventsDescriptor,
   CustomEventsDispatchEvent,
   CustomEventsInit,
@@ -141,42 +140,6 @@ export function createCustomEventsDescriptor<
     ]
   }
 
-  function isEntryConfiguration(value: unknown): value is Record<string, unknown> {
-    return isRecord(value) && (Object.hasOwn(value, 'detail') || Object.hasOwn(value, 'options'))
-  }
-
-  function entryDetail(value: unknown) {
-    if (isEntryConfiguration(value)) {
-      return {
-        detail: Object.hasOwn(value, 'detail') ? value.detail : null,
-        options: value.options as InternalEntryOptions | undefined,
-      }
-    }
-    return { detail: value }
-  }
-
-  function normalizeEntries(
-    entries: readonly (string | Record<string, unknown>)[],
-    singleKey = false,
-  ) {
-    let out: CustomEventsBatchRuntimeEntry[] = []
-    for (let entry of entries) {
-      if (typeof entry === 'string') {
-        out.push(...resolveEntry(entry, null))
-        continue
-      }
-      let objectEntries = Object.entries(entry)
-      if (singleKey && objectEntries.length !== 1) {
-        throw new TypeError('Each configured customEvents batch entry must contain one event.')
-      }
-      for (let [type, value] of objectEntries) {
-        let { detail, options } = entryDetail(value)
-        out.push(...resolveEntry(type, detail, options))
-      }
-    }
-    return out
-  }
-
   function createTransaction(entries: CustomEventsBatchRuntimeEntry[], init?: CustomEventsInit) {
     init?.signal?.throwIfAborted()
     return customEventsRuntime.createProductEvent(
@@ -188,10 +151,11 @@ export function createCustomEventsDescriptor<
     )
   }
 
-  // The callable descriptor: invoking it builds a fresh event.
+  // The builder member: a bare name builds a detail-less event, an object of
+  // event-named details builds a single-event or transaction carrier.
   let create = (...args: Array<unknown>) => {
     let [typeOrEvents, detailOrInit, maybeInit] = args as [
-      string | readonly CustomEventsBatchItem<Events>[] | Record<string, unknown>,
+      string | Record<string, unknown>,
       unknown?,
       CustomEventsInit?,
     ]
@@ -208,19 +172,28 @@ export function createCustomEventsDescriptor<
       )
     }
 
-    if (Array.isArray(typeOrEvents)) {
-      return createTransaction(
-        normalizeEntries(typeOrEvents as readonly CustomEventsBatchItem<Events>[], true),
-        detailOrInit as CustomEventsInit | undefined,
-      )
-    }
-
     if (isRecord(typeOrEvents)) {
-      let init = args.length >= 2 && isCustomEventsInit(detailOrInit) ? detailOrInit : undefined
-      return createTransaction(normalizeEntries([typeOrEvents]), init)
+      let init = args.length >= 2 ? (detailOrInit as CustomEventsInit | undefined) : undefined
+      let entries: CustomEventsBatchRuntimeEntry[] = []
+      for (let [type, detail] of Object.entries(typeOrEvents)) {
+        entries.push(...resolveEntry(type, detail, init))
+      }
+      // A single resolved entry builds the event under its own name (like the
+      // string form); several entries commit as one transaction carrier.
+      if (entries.length === 1) {
+        let entry = entries[0]!
+        return customEventsRuntime.createProductEvent(
+          getRuntime(),
+          entry.type,
+          entry.detail,
+          getEventInit(init),
+          entries,
+        )
+      }
+      return createTransaction(entries, init)
     }
 
-    throw new TypeError('customEvents expects an event name, event object, or event array.')
+    throw new TypeError('customEvents create expects an event name or an object of details.')
   }
 
   // The descriptor doubles as the wildcard event source: subscribing to it
@@ -288,8 +261,8 @@ export function createCustomEventsDescriptor<
   }) as CustomEventsOnNamespace<Events, State>
 
   // The descriptor's own members and native EventTarget channel ride on the
-  // callable target; the `on` namespace owns every event source.
-  let descriptorTarget = Object.assign(create, { dispatchEvent, on, asHost })
+  // plain target; the `on` namespace owns every event source.
+  let descriptorTarget = Object.assign({}, { create, dispatchEvent, on, asHost })
   customEventsRuntime.registerHost(getRuntime(), base)
 
   let createSource = (
@@ -359,13 +332,15 @@ export function createCustomEventsDescriptor<
       if (property === 'addEventListener' || property === 'removeEventListener') {
         return Reflect.get(EventTarget.prototype, property, base).bind(base)
       }
-      if (property === 'dispatchEvent' || property === 'on' || property === 'asHost') {
+      if (
+        property === 'create' ||
+        property === 'dispatchEvent' ||
+        property === 'on' ||
+        property === 'asHost'
+      ) {
         return Reflect.get(target, property, target)
       }
       return undefined
-    },
-    construct() {
-      throw new TypeError('customEvents descriptors are not constructors.')
     },
   })
   eventsProxy = proxy

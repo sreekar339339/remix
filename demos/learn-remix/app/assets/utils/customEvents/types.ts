@@ -41,6 +41,7 @@ type NativeNamesIn<Definition> = Extract<EventNames<Definition>, NativeDOMEventN
 
 /** Descriptor members that cannot be event names; the type derives from this constant. */
 export const reservedCustomEventsNames = [
+  'create',
   'on',
   'asHost',
   'dispatchEvent',
@@ -405,30 +406,13 @@ type NullDetailEventTypes<Events extends EventDetails> = {
   [Type in keyof Events & string]: [Events[Type]] extends [null] ? Type : never
 }[keyof Events & string]
 
-/** Per-entry routing; propagation belongs to the shared batch carrier. */
-type CustomEventsBatchEntryConfiguration<Detail> = [Detail] extends [null]
-  ? { detail?: null }
-  : { detail: Detail }
-
-/** One entry in a shared event transaction. */
-export type CustomEventsBatchEntry<Events extends EventDetails> = {
-  [Type in keyof Events & string]: Record<Type, CustomEventsBatchEntryConfiguration<Events[Type]>>
-}[keyof Events & string]
-
-/** A detail-less event-name shorthand or a configured transaction entry. */
-export type CustomEventsBatchItem<Events extends EventDetails> =
-  | NullDetailEventTypes<Events>
-  | CustomEventsBatchEntry<Events>
-
-type NonEmptyArray<Value> = readonly [Value, ...Value[]]
-
 type CustomEventsResult<
   Events extends EventDetails,
   Type extends CustomEventsEventType<Events>,
   Async extends boolean,
 > = Async extends true ? Promise<void> : CustomEventsEventMap<Events>[Type]
 
-/** Call grammar for one event: detail-less, or with a typed payload. */
+/** Call grammar for one detail-less event; the second argument is init. */
 type CustomEventsSingleOperation<
   Events extends EventDetails,
   Prefix extends unknown[],
@@ -437,36 +421,35 @@ type CustomEventsSingleOperation<
   <Type extends NullDetailEventTypes<Events> & CustomEventsEventType<Events>>(
     ...args: [...Prefix, type: Type, init?: CustomEventsInit]
   ): CustomEventsResult<Events, Type, Async>
-
-  <Type extends keyof Events & string & CustomEventsEventType<Events>>(
-    ...args: [...Prefix, type: Type, detail: Events[Type], init?: CustomEventsInit]
-  ): CustomEventsResult<Events, Type, Async>
 }
-
-/** Call grammar for an ordered transaction: one shared carrier and commit. */
-type CustomEventsBatchOperation<Events extends EventDetails, Prefix extends unknown[]> = {
-  <const Entries extends NonEmptyArray<CustomEventsBatchItem<Events>>>(
-    ...args: [...Prefix, entries: Entries, init?: CustomEventsInit]
-  ): Event
-}
-
-export type CustomEventsFactory<Events extends EventDetails> = CustomEventsSingleOperation<
-  Events,
-  [],
-  false
-> &
-  CustomEventsBatchOperation<Events, []>
 
 /**
- * The descriptor is callable: invoking it builds a fresh event (typed
- * positional details, event-named object, or batch entries) for manual
- * dispatch on any target.
+ * The build surface: `create('name', init?)` for detail-less events, and
+ * `create({ name: detail, ... }, init?)` for one or more event-named details
+ * committed as a single transaction. The object form returns the matched
+ * event(s): the single declared event for one key, the event union for
+ * several, and a plain event for undeclared occurrence names.
  */
-export type CustomEventsBuilder<
-  Events extends EventDetails,
-  Input extends EventDetails = Events,
-> = CustomEventsFactory<Events> & {
-  (input: Partial<Input> & Record<string, unknown>, init?: CustomEventsInit): Event
+export type CustomEventsCreate<Events extends EventDetails> = {
+  <Type extends NullDetailEventTypes<Events> & CustomEventsEventType<Events>>(
+    type: Type,
+    init?: CustomEventsInit,
+  ): CustomEventsEventMap<Events>[Type]
+} & {
+  <const Input extends Partial<Events> & Record<string, unknown>>(
+    input: Input,
+    init?: CustomEventsInit,
+  ): [keyof Input & keyof Events] extends [never]
+    ? Event
+    : CustomEventsEventMap<Events>[keyof Input & keyof Events & CustomEventsEventType<Events>]
+}
+
+/**
+ * The descriptor's builder member: `events.create` builds a fresh event (or
+ * transaction carrier) for manual dispatch on any target.
+ */
+export type CustomEventsBuilder<Events extends EventDetails> = {
+  create: CustomEventsCreate<Events>
 }
 
 /**
@@ -609,7 +592,7 @@ export type RememberedOnFunction = {
 export type RememberedDescriptorBase<
   Events extends EventDetails,
   Seeds extends EventDetails,
-> = CustomEventsBuilder<Events, Seeds> & {
+> = CustomEventsBuilder<Events> & {
   dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
   on: { readonly '*': RememberedOnFunction } & CustomEventsOnNamespace<Events, Immutable<Seeds>>
 } & CustomEventsDescriptor<Events, Immutable<Seeds>>
