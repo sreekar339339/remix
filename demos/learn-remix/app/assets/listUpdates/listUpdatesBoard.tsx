@@ -1,20 +1,11 @@
 import { clientEntry, css, on, ref } from 'remix/ui'
 import type { Handle, RemixNode } from 'remix/ui'
-import type { Draft } from 'immer'
 import { customEvents, evented } from '../utils/customEvents/index.tsx'
 
 type FilterItem = { id: number; name: string; rank: number }
 type SortKey = 'id' | 'name' | 'nameDesc' | 'rank'
-type FilterBoardState = {
-  catalog: Map<number, FilterItem>
-  visible: Map<number, FilterItem>
-  meter: number
-  timing: Timing
-}
 type FeedItem = { id: number; label: string; value: number }
-type FeedBoardState = { items: Map<number, FeedItem>; meter: number; timing: Timing }
 type HeavyItem = { id: number; title: string; done: boolean; priority: number; edits: number }
-type HeavyBoardState = { items: Map<number, HeavyItem>; meter: number; timing: Timing }
 
 const filterItemCount = 3000
 const palette = [
@@ -182,8 +173,8 @@ const heavyRowCss = css({
   },
 })
 
-function installMeter<State extends { meter: number }>(
-  store: { state: { update(recipe: (draft: Draft<State>) => undefined): void } },
+function installMeter(
+  commit: (payload: Record<string, unknown>) => Promise<void>,
   signal: AbortSignal,
 ) {
   let mutations = 0
@@ -191,9 +182,7 @@ function installMeter<State extends { meter: number }>(
   let interval = setInterval(() => {
     let count = mutations
     mutations = 0
-    store.state.update((draft) => {
-      draft.meter = count
-    })
+    void commit({ meter: count })
   }, 1000)
   signal.addEventListener('abort', () => {
     clearInterval(interval)
@@ -229,73 +218,38 @@ function timingLabel(timing: Timing | null | undefined): string {
   return parts.join(' · ')
 }
 
-function recordTiming<State extends { timing: Timing }>(
-  store: { state: { update(recipe: (draft: Draft<State>) => void): void } },
-  mode: 'evented' | 'plain',
-  ms: number,
-) {
-  store.state.update((draft) => {
-    if (mode === 'evented') {
-      draft.timing.eventedMs += ms
-      draft.timing.eventedTicks += 1
-    } else {
-      draft.timing.plainMs += ms
-      draft.timing.plainTicks += 1
+// Shared commit/measure machinery over a retained descriptor: `commit`
+// dispatches a fold payload and, in plain mode, also schedules the board
+// re-render; `measure` times one tick from commit until the DOM has settled;
+// `resetTiming` clears the per-mode accumulators so a benchmark reads cleanly.
+function makeWorkflow(options: {
+  dispatch: (payload: Record<string, unknown>) => Promise<void>
+  handle: Handle
+  getMode: () => 'evented' | 'plain'
+}) {
+  async function commit(payload: Record<string, unknown>) {
+    await options.dispatch(payload)
+    if (options.getMode() === 'plain') {
+      // Plain mode re-renders the whole rows subtree; a refresh event forces
+      // it even when the dispatch's own routes are per-item (mapReplace).
+      await options.dispatch({ refresh: null })
+      await options.handle.update()
     }
-  })
-}
-
-// Evented updates are applied by the scheduler on a microtask flush, so a
-// commit settles after a few microtask hops. Overlapping ticks coalesce into
-// one flush; the guard skips measuring them so their shared work is not
-// double-counted.
-function makeSettler() {
-  let measuring = false
-  return {
-    async settleTick(): Promise<boolean> {
-      if (measuring) return false
-      measuring = true
-      try {
-        for (let index = 0; index < 8; index++) await Promise.resolve()
-      } finally {
-        measuring = false
-      }
-      return true
-    },
   }
-}
-
-// Shared commit/measure machinery: `commit` applies a store recipe and, in
-// plain mode, also schedules the board re-render; `measure` times one tick
-// from commit until the DOM has settled; `resetTiming` clears the per-mode
-// accumulators so a benchmark reads cleanly.
-function makeWorkflow<State extends { timing: Timing }>(
-  store: { state: { update(recipe: (draft: Draft<State>) => void): void } },
-  handle: Handle,
-  getMode: () => 'evented' | 'plain',
-) {
-  let settler = makeSettler()
-  function commit(recipe: (draft: Draft<State>) => void) {
-    store.state.update(recipe)
-    if (getMode() === 'plain') return handle.update()
-  }
-  async function measure(recipe: (draft: Draft<State>) => void, record = true) {
+  async function measure(payload: Record<string, unknown>, record = true) {
     let t0 = performance.now()
-    let pending = commit(recipe)
-    if (pending) {
-      await pending
-    } else if (!(await settler.settleTick())) {
-      return
+    await commit(payload)
+    if (record) {
+      await options.dispatch({
+        recordTiming: { mode: options.getMode(), ms: performance.now() - t0 },
+      })
     }
-    if (record) recordTiming(store, getMode(), performance.now() - t0)
   }
   function record(ms: number) {
-    recordTiming(store, getMode(), ms)
+    void options.dispatch({ recordTiming: { mode: options.getMode(), ms } })
   }
   function resetTiming() {
-    store.state.update((draft) => {
-      draft.timing = emptyTiming()
-    })
+    void options.dispatch({ resetTiming: null })
   }
   return { commit, measure, resetTiming, record }
 }
@@ -312,8 +266,8 @@ let yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 
 // afterwards. Timing accumulators are cleared first and one timing entry is
 // recorded per tick (tick recipes pass record=false to the workflow measure)
 // so the meters show the benchmark numbers only.
-function makeBenchmarker<State extends { timing: Timing }>(options: {
-  workflow: ReturnType<typeof makeWorkflow<State>>
+function makeBenchmarker(options: {
+  workflow: ReturnType<typeof makeWorkflow>
   handle: Handle
   getMode: () => 'evented' | 'plain'
   setMode: (mode: 'evented' | 'plain') => void
@@ -363,17 +317,74 @@ function makeBenchmarker<State extends { timing: Timing }>(options: {
 export const ListUpdatesFilterBoard = clientEntry(
   import.meta.url,
   function ListUpdatesFilterBoard(handle: Handle) {
-    let store = customEvents<FilterBoardState>().store({
-      catalog: seedCatalog(),
-      visible: seedCatalog(),
-      meter: 0,
-      timing: emptyTiming(),
-    })
+    let events = customEvents(
+      {
+        catalog: seedCatalog(),
+        visible: seedCatalog(),
+        meter: 0,
+        timing: emptyTiming(),
+      },
+      {
+        applyView: (held, { query, sort }: { query: string; sort: SortKey }) => {
+          let order = orderedVisible(held.catalog, query, sort)
+          let currentKeys = [...held.visible.keys()]
+          let sameOrder =
+            currentKeys.length === order.length &&
+            currentKeys.every((key, index) => key === order[index])
+          if (sameOrder) return {}
+          let currentSet = new Set(currentKeys)
+          let orderSet = new Set(order)
+          let additions = order.filter((id) => !currentSet.has(id))
+          let removals = currentKeys.filter((id) => !orderSet.has(id))
+          if (additions.length > 0 || removals.length === 0) {
+            // New rows appeared (or a pure reorder): rebuild the whole map so
+            // sorted positions land correctly; the list reconciles by key.
+            return {
+              visible: new Map(order.map((id) => [id, held.catalog.get(id)!] as const)),
+            }
+          }
+          let visible = new Map(held.visible)
+          for (let id of removals) visible.delete(id)
+          return { visible }
+        },
+        tickWide: (held) => ({
+          visible: new Map(
+            orderedVisible(held.catalog, 'crimson', 'id').map(
+              (id) => [id, held.catalog.get(id)!] as const,
+            ),
+          ),
+        }),
+        tickKeep: (held) => {
+          let keep = new Set(orderedVisible(held.catalog, 'crimson-widget-500', 'id'))
+          let visible = new Map(held.visible)
+          for (let id of [...visible.keys()]) {
+            if (!keep.has(id)) visible.delete(id)
+          }
+          return { visible }
+        },
+        resetVisible: (held) => ({ visible: new Map(held.catalog) }),
+        meterTick: (held, count: number) => ({ meter: count }),
+        recordTiming: (held, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
+          let timing = { ...held.timing }
+          if (mode === 'evented') {
+            timing.eventedMs += ms
+            timing.eventedTicks += 1
+          } else {
+            timing.plainMs += ms
+            timing.plainTicks += 1
+          }
+          return { timing }
+        },
+        resetTiming: () => ({ timing: emptyTiming() }),
+        refresh: () => ({}),
+      },
+    )
     let mode: 'evented' | 'plain' = 'evented'
     let query = ''
     let sort: SortKey = 'id'
-    let meter = installMeter(store, handle.signal)
-    let workflow = makeWorkflow(store, handle, () => mode)
+    let commit = (payload: Record<string, unknown>) => events.dispatch(payload as never)
+    let meter = installMeter(commit, handle.signal)
+    let workflow = makeWorkflow({ dispatch: commit, handle, getMode: () => mode })
     let benchmarker = makeBenchmarker({
       workflow,
       handle,
@@ -382,55 +393,22 @@ export const ListUpdatesFilterBoard = clientEntry(
         mode = next
       },
       tick: async () => {
-        let wide = orderedVisible(store.state.value.catalog, 'crimson', 'id')
-        await workflow.measure((draft) => {
-          draft.visible = new Map(
-            wide.map((id) => [id, store.state.value.catalog.get(id)!] as const),
-          )
-        }, false)
-        let keep = new Set(orderedVisible(store.state.value.catalog, 'crimson-widget-500', 'id'))
-        await workflow.measure((draft) => {
-          for (let id of [...draft.visible.keys()]) {
-            if (!keep.has(id)) draft.visible.delete(id)
-          }
-        }, false)
+        await workflow.measure({ tickWide: null }, false)
+        await workflow.measure({ tickKeep: null }, false)
       },
     })
 
     async function benchmark() {
       await benchmarker.run()
       query = ''
-      store.state.update((draft) => {
-        draft.visible = new Map(store.state.value.catalog)
-      })
+      await workflow.commit({ resetVisible: null })
       await handle.update()
     }
 
     async function applyView(nextQuery: string, nextSort: SortKey) {
       query = nextQuery
       sort = nextSort
-      let current = store.state.value
-      let order = orderedVisible(current.catalog, query, sort)
-      let currentKeys = [...current.visible.keys()]
-      let sameOrder =
-        currentKeys.length === order.length &&
-        currentKeys.every((key, index) => key === order[index])
-      if (sameOrder) return
-      let currentSet = new Set(currentKeys)
-      let orderSet = new Set(order)
-      let additions = order.filter((id) => !currentSet.has(id))
-      let removals = currentKeys.filter((id) => !orderSet.has(id))
-      if (additions.length > 0 || removals.length === 0) {
-        // New rows appeared (or a pure reorder): rebuild the whole map so sorted
-        // positions land correctly; the list reconciles by key.
-        await workflow.measure((draft) => {
-          draft.visible = new Map(order.map((id) => [id, draft.catalog.get(id)!] as const))
-        })
-      } else {
-        await workflow.measure((draft) => {
-          for (let id of removals) draft.visible.delete(id)
-        })
-      }
+      await workflow.measure({ applyView: { query, sort } })
     }
 
     function filterRow(item: FilterItem, key?: number): RemixNode {
@@ -490,26 +468,25 @@ export const ListUpdatesFilterBoard = clientEntry(
           >
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
-          <evented.output eventSource={store.events.visible} mix={meterCss}>
+          <evented.output eventSource={events.visible} mix={meterCss}>
             {(rows) => (rows ? `${rows.size} shown` : '')}
           </evented.output>
-          <evented.output eventSource={store.events.meter} mix={meterCss}>
+          <evented.output eventSource={events.meter} mix={meterCss}>
             {(mutations) => `DOM mutations/s: ${mutations ?? 0}`}
           </evented.output>
-          <evented.output eventSource={store.events.timing} mix={meterCss}>
+          <evented.output eventSource={events.timing} mix={meterCss}>
             {(timing) => timingLabel(timing)}
           </evented.output>
         </div>
         <div className="filter-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
           {mode === 'evented' ? (
-            <evented.list eventSource={store.events.visible}>
+            <evented.list key="evented" eventSource={events.visible}>
               {(item, id) => filterRow(item, id)}
             </evented.list>
           ) : (
-            store.state.value.visible
-              .values()
-              .map((item) => filterRow(item))
-              .toArray()
+            <evented.div key="plain" eventSource={[events.visible, events.refresh]}>
+              {([visible]) => visible.values().map((item) => filterRow(item)).toArray()}
+            </evented.div>
           )}
         </div>
       </section>
@@ -520,30 +497,56 @@ export const ListUpdatesFilterBoard = clientEntry(
 export const ListUpdatesFeedBoard = clientEntry(
   import.meta.url,
   function ListUpdatesFeedBoard(handle: Handle) {
-    let store = customEvents().store({ items: seedFeed(), meter: 0, timing: emptyTiming() })
+    let events = customEvents(
+      {
+        items: seedFeed(),
+        meter: 0,
+        timing: emptyTiming(),
+        nextId: 50,
+        ringStart: 0,
+      },
+      {
+        feed: (held) => {
+          let items = new Map(held.items)
+          let nextId = held.nextId
+          for (let index = 0; index < batch; index++) {
+            let id = nextId++
+            items.set(id, {
+              id,
+              label: `${feedNouns[id % feedNouns.length]}-${id}`,
+              value: (id * 7919) % 10_000,
+            })
+          }
+          let excess = items.size - feedCap
+          let ringStart = held.ringStart
+          for (let index = 0; index < excess; index++) {
+            items.delete(ringStart + index)
+          }
+          ringStart += excess
+          return { items, nextId, ringStart }
+        },
+        meterTick: (held, count: number) => ({ meter: count }),
+        recordTiming: (held, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
+          let timing = { ...held.timing }
+          if (mode === 'evented') {
+            timing.eventedMs += ms
+            timing.eventedTicks += 1
+          } else {
+            timing.plainMs += ms
+            timing.plainTicks += 1
+          }
+          return { timing }
+        },
+        resetTiming: () => ({ timing: emptyTiming() }),
+        refresh: () => ({}),
+      },
+    )
     let mode: 'evented' | 'plain' = 'evented'
     let running = false
     let batch = 10
-    let nextId = 50
-    let ringStart = 0
-    let meter = installMeter(store, handle.signal)
-    let workflow = makeWorkflow(store, handle, () => mode)
-
-    function feedRecipe(draft: Draft<FeedBoardState>) {
-      for (let index = 0; index < batch; index++) {
-        let id = nextId++
-        draft.items.set(id, {
-          id,
-          label: `${feedNouns[id % feedNouns.length]}-${id}`,
-          value: (id * 7919) % 10_000,
-        })
-      }
-      let excess = draft.items.size - feedCap
-      for (let index = 0; index < excess; index++) {
-        draft.items.delete(ringStart + index)
-      }
-      ringStart += excess
-    }
+    let commit = (payload: Record<string, unknown>) => events.dispatch(payload as never)
+    let meter = installMeter(commit, handle.signal)
+    let workflow = makeWorkflow({ dispatch: commit, handle, getMode: () => mode })
 
     let wasRunning: boolean | undefined
     let benchmarker = makeBenchmarker({
@@ -561,12 +564,12 @@ export const ListUpdatesFeedBoard = clientEntry(
         if (wasRunning !== undefined) running = wasRunning
       },
       tick: async () => {
-        await workflow.measure(feedRecipe, false)
+        await workflow.measure({ feed: null }, false)
       },
     })
 
     function feed() {
-      void workflow.measure(feedRecipe)
+      void workflow.measure({ feed: null })
     }
 
     let interval = setInterval(() => {
@@ -643,26 +646,25 @@ export const ListUpdatesFeedBoard = clientEntry(
           >
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
-          <evented.output eventSource={store.events.items} mix={meterCss}>
+          <evented.output eventSource={events.items} mix={meterCss}>
             {(items) => (items ? `${items.size}/${feedCap}` : '')}
           </evented.output>
-          <evented.output eventSource={store.events.meter} mix={meterCss}>
+          <evented.output eventSource={events.meter} mix={meterCss}>
             {(mutations) => `DOM mutations/s: ${mutations ?? 0}`}
           </evented.output>
-          <evented.output eventSource={store.events.timing} mix={meterCss}>
+          <evented.output eventSource={events.timing} mix={meterCss}>
             {(timing) => timingLabel(timing)}
           </evented.output>
         </div>
         <div className="feed-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
           {mode === 'evented' ? (
-            <evented.list eventSource={store.events.items}>
+            <evented.list key="evented" eventSource={events.items}>
               {(item, id) => feedRow(item, id)}
             </evented.list>
           ) : (
-            store.state.value.items
-              .values()
-              .map((item) => feedRow(item))
-              .toArray()
+            <evented.div key="plain" eventSource={[events.items, events.refresh]}>
+              {([items]) => items.values().map((item) => feedRow(item)).toArray()}
+            </evented.div>
           )}
         </div>
       </section>
@@ -673,23 +675,65 @@ export const ListUpdatesFeedBoard = clientEntry(
 export const ListUpdatesHeavyBoard = clientEntry(
   import.meta.url,
   function ListUpdatesHeavyBoard(handle: Handle) {
-    let store = customEvents<HeavyBoardState>().store({
-      items: seedHeavy(),
-      meter: 0,
-      timing: emptyTiming(),
-    })
+    let events = customEvents(
+      {
+        items: seedHeavy(),
+        meter: 0,
+        timing: emptyTiming(),
+      },
+      {
+        toggleRow: (held, id: number) => {
+          let row = held.items.get(id)
+          if (!row) return {}
+          let items = new Map(held.items)
+          items.set(id, { ...row, done: !row.done, edits: row.edits + 1 })
+          return { items }
+        },
+        editRow: (held, id: number) => {
+          let row = held.items.get(id)
+          if (!row) return {}
+          let items = new Map(held.items)
+          items.set(id, { ...row, edits: row.edits + 1 })
+          return { items }
+        },
+        churn: (held, picked: ReadonlySet<number>) => {
+          let items = new Map(held.items)
+          for (let id of picked) {
+            let item = items.get(id)
+            if (item) items.set(id, { ...item, priority: ((item.priority + 1) % 5) + 1 })
+          }
+          return { items }
+        },
+        bumpAll: (held) => {
+          let items = new Map(held.items)
+          for (let [id, item] of items) {
+            items.set(id, { ...item, priority: ((item.priority + 1) % 5) + 1 })
+          }
+          return { items }
+        },
+        resetItems: () => ({ items: seedHeavy() }),
+        meterTick: (held, count: number) => ({ meter: count }),
+        recordTiming: (held, { mode, ms }: { mode: 'evented' | 'plain'; ms: number }) => {
+          let timing = { ...held.timing }
+          if (mode === 'evented') {
+            timing.eventedMs += ms
+            timing.eventedTicks += 1
+          } else {
+            timing.plainMs += ms
+            timing.plainTicks += 1
+          }
+          return { timing }
+        },
+        resetTiming: () => ({ timing: emptyTiming() }),
+        refresh: () => ({}),
+      },
+    )
     let mode: 'evented' | 'plain' = 'evented'
     let churning = false
     let churnPerTick = 20
-    let meter = installMeter(store, handle.signal)
-    let workflow = makeWorkflow(store, handle, () => mode)
-
-    function churnRecipe(draft: Draft<HeavyBoardState>, picked: ReadonlySet<number>) {
-      for (let id of picked) {
-        let item = draft.items.get(id)
-        if (item) item.priority = ((item.priority + 1) % 5) + 1
-      }
-    }
+    let commit = (payload: Record<string, unknown>) => events.dispatch(payload as never)
+    let meter = installMeter(commit, handle.signal)
+    let workflow = makeWorkflow({ dispatch: commit, handle, getMode: () => mode })
 
     function pickChurn() {
       let picked = new Set<number>()
@@ -713,12 +757,12 @@ export const ListUpdatesHeavyBoard = clientEntry(
         if (wasChurning !== undefined) churning = wasChurning
       },
       tick: async () => {
-        await workflow.measure((draft) => churnRecipe(draft, pickChurn()), false)
+        await workflow.measure({ churn: pickChurn() }, false)
       },
     })
 
     function churn() {
-      void workflow.measure((draft) => churnRecipe(draft, pickChurn()))
+      void workflow.measure({ churn: pickChurn() })
     }
 
     let interval = setInterval(() => {
@@ -727,17 +771,11 @@ export const ListUpdatesHeavyBoard = clientEntry(
     handle.signal.addEventListener('abort', () => clearInterval(interval))
 
     function bumpAll() {
-      void workflow.measure((draft) => {
-        for (let item of draft.items.values()) {
-          item.priority = ((item.priority + 1) % 5) + 1
-        }
-      })
+      void workflow.measure({ bumpAll: null })
     }
 
     function reset() {
-      void workflow.measure((draft) => {
-        draft.items = seedHeavy()
-      })
+      void workflow.measure({ resetItems: null })
     }
 
     function heavyRowContent(item: HeavyItem): RemixNode {
@@ -748,13 +786,7 @@ export const ListUpdatesHeavyBoard = clientEntry(
             checked={item.done}
             aria-label={`toggle ${item.title}`}
             mix={on('change', () => {
-              workflow.commit((draft) => {
-                let row = draft.items.get(item.id)
-                if (row) {
-                  row.done = !row.done
-                  row.edits += 1
-                }
-              })
+              void workflow.commit({ toggleRow: item.id })
             })}
           />
           <strong>{item.title}</strong>
@@ -765,10 +797,7 @@ export const ListUpdatesHeavyBoard = clientEntry(
           <button
             type="button"
             mix={on('click', () => {
-              workflow.commit((draft) => {
-                let row = draft.items.get(item.id)
-                if (row) row.edits += 1
-              })
+              void workflow.commit({ editRow: item.id })
             })}
           >
             edit
@@ -841,36 +870,46 @@ export const ListUpdatesHeavyBoard = clientEntry(
           >
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
-          <evented.output eventSource={store.events.meter} mix={meterCss}>
+          <evented.output eventSource={events.meter} mix={meterCss}>
             {(mutations) => `DOM mutations/s: ${mutations ?? 0}`}
           </evented.output>
-          <evented.output eventSource={store.events.timing} mix={meterCss}>
+          <evented.output eventSource={events.timing} mix={meterCss}>
             {(timing) => timingLabel(timing)}
           </evented.output>
         </div>
         <div className="heavy-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
-          {mode === 'evented'
-            ? store.state.value.items
-                .values()
-                .map((item) => (
-                  <evented.article
-                    key={item.id}
-                    className="row"
-                    eventSource={store.events.items.get(item.id)}
-                    mix={heavyRowCss}
-                  >
-                    {(row) => heavyRowContent(row ?? item)}
-                  </evented.article>
-                ))
-                .toArray()
-            : store.state.value.items
-                .values()
-                .map((item) => (
-                  <article key={item.id} className="row" mix={heavyRowCss}>
-                    {heavyRowContent(item)}
-                  </article>
-                ))
-                .toArray()}
+          {mode === 'evented' ? (
+            <evented.div key="evented" eventSource={events.items}>
+              {(items) =>
+                items
+                  .values()
+                  .map((item) => (
+                    <evented.article
+                      key={item.id}
+                      className="row"
+                      eventSource={events.items.get(item.id)}
+                      mix={heavyRowCss}
+                    >
+                      {(row) => heavyRowContent(row ?? item)}
+                    </evented.article>
+                  ))
+                  .toArray()
+              }
+            </evented.div>
+          ) : (
+            <evented.div key="plain" eventSource={[events.items, events.refresh]}>
+              {([items]) =>
+                items
+                  .values()
+                  .map((item) => (
+                    <article key={item.id} className="row" mix={heavyRowCss}>
+                      {heavyRowContent(item)}
+                    </article>
+                  ))
+                  .toArray()
+              }
+            </evented.div>
+          )}
         </div>
       </section>
     )

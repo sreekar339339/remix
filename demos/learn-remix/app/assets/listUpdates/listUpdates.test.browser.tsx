@@ -10,7 +10,7 @@ import {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function settle() {
-  for (let index = 0; index < 5; index++) await Promise.resolve()
+  for (let index = 0; index < 30; index++) await Promise.resolve()
 }
 
 function button(root: HTMLElement, section: string, label: string) {
