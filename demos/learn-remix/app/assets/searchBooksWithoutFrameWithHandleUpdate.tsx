@@ -111,7 +111,7 @@ export const SearchBooksWithoutFrameWithHandleUpdate = clientEntry(
                 currentTarget.dispatchEvent(events('querySubmitted', { query }))
                 fetchBooks(query, currentTarget, signal)
               }),
-              events.on(async (event) => {
+              events.on['*'](async (event) => {
                 currentEvent = event
                 let signal = await handle.update()
                 if (!signal.aborted && event.type !== 'querySubmitted') {

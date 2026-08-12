@@ -26,7 +26,6 @@ import type {
   CustomEventsDescriptor,
   CustomEventsDispatchEvent,
   CustomEventsInit,
-  CustomEventsOnFunction,
   CustomEventsOnNamespace,
   EventDetails,
   EventSourceMetadata,
@@ -261,18 +260,19 @@ export function createCustomEventsDescriptor<
     customEventsRuntime.registerHost(getRuntime(), target)
     return eventsProxy
   }) as CustomEventsAsHost<Events, State>
-  let wildcardOn = ((listener?: (event: Event) => void | Promise<unknown>) => {
+  // The `on` surface is a pure namespace: `'*'` runs an element-owned effect
+  // for every descriptor event, every other name is a source node (callable
+  // to scope an effect to one source).
+  let wildcardOn = (listener: (event: Event) => void | Promise<unknown>) => {
     if (!listener) {
       throw new TypeError('customEvents on() requires an event listener.')
     }
     return customEventsOnMixin(getRuntime(), undefined, listener)
-  }) as CustomEventsOnFunction<Events>
-
-  // The `on` surface: a wildcard effect when called, and the source namespace
-  // (every declared event name resolves to a callable source node).
+  }
   let sources = new Map<string, object>()
-  let on = new Proxy(wildcardOn, {
+  let on = new Proxy(Object.create(null), {
     get(_, property) {
+      if (property === '*') return wildcardOn
       if (typeof property !== 'string') return undefined
       let source = sources.get(property)
       if (!source) {
@@ -284,9 +284,6 @@ export function createCustomEventsDescriptor<
         sources.set(property, source)
       }
       return source
-    },
-    construct() {
-      throw new TypeError('customEvents on() is not a constructor.')
     },
   }) as CustomEventsOnNamespace<Events, State>
 

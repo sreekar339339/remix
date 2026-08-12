@@ -10,7 +10,7 @@ describe('Drummer', () => {
     let events: string[] = []
     let result = render(
       <output
-        mix={drummer.events.on(({ type, detail }) => {
+        mix={drummer.events.on['*'](({ type, detail }) => {
           events.push(`${type}:${detail}`)
         })}
       />,

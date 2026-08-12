@@ -140,9 +140,9 @@ Evented-view props:
 ### Descriptor methods
 
 | Member                                     | Signature                                                                     | Purpose                                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- | ---- | ---------------------------------------- | --------------------------------------------------------------------- |
+| ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- | ---- | --------------------------------------------- | ------------------------------------------------------------------------------- |
 | `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`                        | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
-| _(callable)_                               | `events(type, detail?, init?)` / `events({ name: detail })` / `events([...])` | Builds a fresh event for any target.                                                           |     | `on` | `on(listener)` / `on.<source>(listener)` | Wildcard effect when called; source nodes scope effects to one event. |
+| _(callable)_                               | `events(type, detail?, init?)` / `events({ name: detail })` / `events([...])` | Builds a fresh event for any target.                                                           |     | `on` | `on['*'](listener)` / `on.<source>(listener)` | The `'*'` node runs a wildcard effect; source nodes scope effects to one event. |
 | `asHost`                                   | `asHost()` / `asHost(target)`                                                 | Element host (mixin) or domain `EventTarget` bridge.                                           |
 | `addEventListener` / `removeEventListener` | native                                                                        | Native listeners on the descriptor.                                                            |
 
@@ -303,7 +303,7 @@ source, not the matched occurrence.
 
 ### Element-owned effects
 
-`events.on` is callable and a namespace: `events.on(listener)` runs for every
+`events.on` is a namespace: `events.on['*'](listener)` runs for every
 descriptor event, while calling a source node with a listener scopes the
 effect to that source. Both create a Remix mixin that lives only while its
 host element is mounted:

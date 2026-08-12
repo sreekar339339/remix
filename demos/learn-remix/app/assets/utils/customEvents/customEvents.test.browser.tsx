@@ -835,7 +835,7 @@ describe('customEvents', () => {
       events.dispatchEvent(new EventTarget(), 'submitted')
       // @ts-expect-error - customEvents effects do not expose reentry signals.
       events.on.paid((_event, _signal) => {})
-      events.on((event) => {
+      events.on['*']((event) => {
         switch (event.type) {
           case 'submitted':
             event.detail.id satisfies string
@@ -1055,7 +1055,7 @@ describe('customEvents', () => {
               eventSource={[events.on.submitted, events.on.paid]}
               initial={initialOutcome}
               aria-label={id}
-              mix={events.on(({ currentTarget, type }) => {
+              mix={events.on['*'](({ currentTarget, type }) => {
                 currentTarget.dataset.effect = type
               })}
             >
@@ -1253,7 +1253,7 @@ describe('customEvents', () => {
           <evented.output
             eventSource={events}
             aria-label="view"
-            mix={events.on(async ({ type, currentTarget }) => {
+            mix={events.on['*'](async ({ type, currentTarget }) => {
               await Promise.resolve()
               effects.push(`${type}:${currentTarget.textContent}`)
             })}

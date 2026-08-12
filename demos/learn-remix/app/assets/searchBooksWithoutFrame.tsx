@@ -77,7 +77,7 @@ export const SearchBooksWithoutFrame = clientEntry(
                 currentTarget.dispatchEvent(events('querySubmitted', { query }))
                 fetchBooks(query, currentTarget, signal)
               }),
-              events.on(({ currentTarget, type }) => {
+              events.on['*'](({ currentTarget, type }) => {
                 if (type !== 'querySubmitted') currentTarget.select()
               }),
               ref((input, signal) => {

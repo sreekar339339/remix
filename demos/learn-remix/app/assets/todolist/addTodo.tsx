@@ -53,7 +53,7 @@ export function AddTodo(handle: Handle<Props<'form'>>) {
           class={(_, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
           mix={[
             inputCss,
-            events.on(({ currentTarget, type }) => {
+            events.on['*'](({ currentTarget, type }) => {
               if (type !== 'actionSubmitted') {
                 currentTarget.select()
               }

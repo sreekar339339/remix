@@ -82,6 +82,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
       },
     },
   )
+  events.on.place
   return () => (
     <div
       mix={css({

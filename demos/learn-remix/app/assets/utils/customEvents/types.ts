@@ -508,14 +508,15 @@ export type CustomEventsOnFunction<Events extends EventDetails> = {
 }
 
 /**
- * The `events.on` surface: callable for a wildcard effect, and a namespace
- * exposing every declared event as a source node. Nodes are callable too, so
- * `events.on.<name>(listener)` scopes an effect to one source.
+ * The `events.on` surface: a pure namespace. Every declared event name
+ * resolves to a callable source node, and `'*'` is the wildcard effect that
+ * runs for every descriptor event. Invoking a node with a listener scopes an
+ * effect to its source.
  */
 export type CustomEventsOnNamespace<
   Events extends EventDetails,
   State extends EventDetails | never = never,
-> = CustomEventsOnFunction<Events> & EventSources<Events, State>
+> = { readonly '*': CustomEventsOnFunction<Events> } & EventSources<Events, State>
 
 /** Element-host mixin factory and domain-target bridge. */
 export type CustomEventsAsHost<
@@ -534,7 +535,7 @@ export type CustomEventsDescriptor<
   TypedEventTarget<CustomEventsEventMap<Events>> & {
     /** Dispatches a native event or an event-named input on the descriptor. */
     dispatchEvent: CustomEventsDispatchEvent<Events>
-    /** Wildcard effect (callable) and the source namespace (`events.on.<name>`). */
+    /** The effect namespace: `on['*'](listener)` is the wildcard, `on.<name>(listener)` scopes one. */
     on: CustomEventsOnNamespace<Events, State>
     /** Registers an element host (mixin) or a domain `EventTarget` (bridge). */
     asHost: CustomEventsAsHost<Events, State>
@@ -610,7 +611,7 @@ export type RememberedDescriptorBase<
   Seeds extends EventDetails,
 > = CustomEventsBuilder<Events, Seeds> & {
   dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
-  on: RememberedOnFunction & CustomEventsOnNamespace<Events, Immutable<Seeds>>
+  on: { readonly '*': RememberedOnFunction } & CustomEventsOnNamespace<Events, Immutable<Seeds>>
 } & CustomEventsDescriptor<Events, Immutable<Seeds>>
 
 /**
