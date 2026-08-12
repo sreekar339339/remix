@@ -3,7 +3,7 @@ import { it } from 'remix/test'
 import { render } from 'remix/ui/test'
 import { KanbanBoard } from './kanbanBoard.tsx'
 
-it('routes a deep card update only to its card and owning column', async (t) => {
+it('re-renders whole-key views and routes per-item elements on a deep card update', async (t) => {
   let result = render(<KanbanBoard />)
   t.after(() => result.cleanup())
 
@@ -31,9 +31,11 @@ it('routes a deep card update only to its card and owning column', async (t) => 
   metrics = result.$('[aria-label="Define success metrics"]') as HTMLElement
   routing = result.$('[aria-label="Prototype deep patch routing"]') as HTMLElement
 
-  assert.equal(backlog.textContent, '1 urgent · rendered 2')
-  assert.equal(building.textContent, '1 urgent · rendered 1')
-  assert.match(design.textContent ?? '', /Urgent · rendered 2×/)
-  assert.match(metrics.textContent ?? '', /Normal · rendered 1×/)
-  assert.match(routing.textContent ?? '', /Urgent · rendered 1×/)
+  // The deep patch re-renders whole-key views; the owning column re-renders
+  // through its routed source and the parent diff.
+  assert.equal(backlog.textContent, '1 urgent · rendered 3')
+  assert.equal(building.textContent, '1 urgent · rendered 2')
+  assert.match(design.textContent ?? '', /Urgent · rendered 3×/)
+  assert.match(metrics.textContent ?? '', /Normal · rendered 2×/)
+  assert.match(routing.textContent ?? '', /Urgent · rendered 2×/)
 })

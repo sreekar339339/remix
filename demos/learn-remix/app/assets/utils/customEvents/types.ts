@@ -397,44 +397,8 @@ export type CustomEventsEventedViews<
   Events extends EventDetails,
   State extends EventDetails | never = never,
 > = {
-  [Tag in keyof JSX.IntrinsicElements]: Tag extends 'list'
-    ? CustomEventsEventedListView<Events, State>
-    : CustomEventsEventedView<Events, State, Tag>
+  [Tag in keyof JSX.IntrinsicElements]: CustomEventsEventedView<Events, State, Tag>
 }
-
-/**
- * The per-item template of a keyed list element: one render per collection
- * item. The item and key types flow from the state source's value when it is
- * a Map, Set, or array.
- */
-export type CustomEventsListItemTemplate<Source> =
-  CustomEventsSourceDetail<Source> extends ReadonlyMap<infer Key, infer Item>
-    ? (item: Item, key: Key) => RemixNode
-    : CustomEventsSourceDetail<Source> extends ReadonlySet<infer Item>
-      ? (item: Item, key: Item) => RemixNode
-      : CustomEventsSourceDetail<Source> extends readonly (infer Item)[]
-        ? (item: Item, key: number) => RemixNode
-        : never
-
-/**
- * Evented-view for the keyed `list` intrinsic: one state source drives the
- * whole collection and children stay a per-item template. List children never
- * re-resolve from a callback of the event input, so the source forms that
- * would type children that way do not apply here.
- */
-type CustomEventsEventedListView<
-  Events extends EventDetails,
-  State extends EventDetails | never,
-> = 'list' &
-  GenericJSXComponent & {
-    <const Source extends SourceSelection<EventSource<any, any, any>>>(
-      props: IsRememberedEventSource<Source> extends true
-        ? Omit<CustomEventsRememberedElementProps<never, never, 'list', Source>, 'children'> & {
-            children?: CustomEventsListItemTemplate<Source>
-          }
-        : never,
-    ): RemixNode
-  }
 
 type NullDetailEventTypes<Events extends EventDetails> = {
   [Type in keyof Events & string]: [Events[Type]] extends [null] ? Type : never

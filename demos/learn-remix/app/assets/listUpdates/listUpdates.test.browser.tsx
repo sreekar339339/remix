@@ -33,7 +33,7 @@ async function waitForBenchmark(root: HTMLElement, section: string, label: strin
   assert.fail(`benchmark on ${section} did not finish`)
 }
 
-it('filters fine-grained and keeps rows across mode toggles', async (t) => {
+it('filters with keyed rows and keeps DOM across mode toggles', async (t) => {
   let result = render(<ListUpdatesFilterBoard />)
   t.after(() => result.cleanup())
 
@@ -138,7 +138,7 @@ it('applies feed bursts in evented and plain modes', async (t) => {
   assert.match(feedText, /time saved \d+%/, 'timing meter reports time saved')
 })
 
-it('updates single heavy rows fine-grained and re-renders all in plain mode', async (t) => {
+it('updates single heavy rows via per-item sources and re-renders all in plain mode', async (t) => {
   let result = render(<ListUpdatesHeavyBoard />)
   t.after(() => result.cleanup())
 

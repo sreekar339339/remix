@@ -158,30 +158,35 @@ export const SevenGuisCircleDrawer = clientEntry(
             }),
           ]}
         >
-          <evented.list eventSource={events.circles}>
-            {(circle, id) => (
-              <evented.circle
-                eventSource={[events.circles.get(id).diameter, events.editingCircleById.as(id)]}
-                cx={circle.x}
-                cy={circle.y}
-                r={([diameter]) => (diameter ?? circle.diameter) / 2}
-                fill={([, isEditing]) => (isEditing ? '#d4d4d8' : 'none')}
-                mix={[
-                  css({
-                    pointerEvents: 'all',
-                    '&:hover': {
-                      fill: '#d4d4d8',
-                    },
-                    stroke: '#18181b',
-                  }),
-                  on('contextmenu', (event) => {
-                    event.preventDefault()
-                    events.dispatchEvent({ openEditor: id })
-                  }),
-                ]}
-              />
+          <evented.svg eventSource={events.circles}>
+            {(circles) => (
+              <>
+                {[...circles.entries()].map(([id, circle]) => (
+                  <evented.circle
+                    key={id}
+                    eventSource={[events.circles.get(id).diameter, events.editingCircleById.as(id)]}
+                    cx={circle.x}
+                    cy={circle.y}
+                    r={([diameter]) => (diameter ?? circle.diameter) / 2}
+                    fill={([, isEditing]) => (isEditing ? '#d4d4d8' : 'none')}
+                    mix={[
+                      css({
+                        pointerEvents: 'all',
+                        '&:hover': {
+                          fill: '#d4d4d8',
+                        },
+                        stroke: '#18181b',
+                      }),
+                      on('contextmenu', (event) => {
+                        event.preventDefault()
+                        events.dispatchEvent({ openEditor: id })
+                      }),
+                    ]}
+                  />
+                ))}
+              </>
             )}
-          </evented.list>
+          </evented.svg>
         </svg>
         <evented.form
           eventSource={events.editingCircleById}

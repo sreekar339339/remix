@@ -17,7 +17,6 @@ import {
   samePropertyKey,
   subscribeView,
   type CustomEventsBatchRuntimeEntry,
-  type CustomEventsEntryOp,
   type CustomEventsRuntimeState,
   type EventAddress,
 } from './runtime.ts'
@@ -49,7 +48,6 @@ export const customEventsEvented = new Proxy(Object.create(null), {
 
 type InternalEntryOptions = CustomEventsInit & {
   addresses?: readonly (readonly unknown[])[]
-  ops?: readonly CustomEventsEntryOp[]
 }
 
 type RememberedEventContext = {
@@ -134,13 +132,11 @@ export function createCustomEventsDescriptor<
       if (folded !== undefined) return [...folded]
     }
     let addresses = options?.addresses
-    let ops = options?.ops
     return [
       {
         type,
         detail,
         ...(addresses === undefined ? {} : { addresses }),
-        ...(ops === undefined ? {} : { ops }),
       },
     ]
   }

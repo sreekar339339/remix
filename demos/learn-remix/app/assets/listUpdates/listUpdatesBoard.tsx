@@ -424,12 +424,12 @@ export const ListUpdatesFilterBoard = clientEntry(
         <header>
           <h3>Per-keystroke filter and sort</h3>
           <p>
-            {filterItemCount} widgets in a Map store. Typing removes rows that stop matching
-            fine-grained (one DOM op per dropped row); widening the query or switching the sort
-            rebuilds the visible map, and the keyed diff reorders the DOM without recreating rows.
-            The plain re-render re-runs every row template on each keystroke. Average apply time per
-            keystroke is tracked next to the DOM mutation meter; the benchmark button runs 30 ticks
-            per mode automatically.
+            {filterItemCount} widgets in a Map store. Typing removes rows that stop matching; the
+            keyed diff drops each with one DOM op. Widening the query or switching the sort rebuilds
+            the visible map, and the keyed diff reorders the DOM without recreating rows. The plain
+            re-render re-runs every row template on each keystroke. Average apply time per keystroke
+            is tracked next to the DOM mutation meter; the benchmark button runs 30 ticks per mode
+            automatically.
           </p>
         </header>
         <div mix={controlsCss}>
@@ -479,9 +479,9 @@ export const ListUpdatesFilterBoard = clientEntry(
         </div>
         <div className="filter-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
           {mode === 'evented' ? (
-            <evented.list key="evented" eventSource={events.visible}>
-              {(item, id) => filterRow(item, id)}
-            </evented.list>
+            <evented.div key="evented" eventSource={events.visible}>
+              {(visible) => <>{[...visible.entries()].map(([id, item]) => filterRow(item, id))}</>}
+            </evented.div>
           ) : (
             <evented.div key="plain" eventSource={[events.visible, events.refresh]}>
               {([visible]) =>
@@ -594,10 +594,10 @@ export const ListUpdatesFeedBoard = clientEntry(
           <h3>High-frequency live feed</h3>
           <p>
             A burst of {batch} adds (plus the oldest drops to stay under {feedCap}) arrives every{' '}
-            {feedIntervalMs} ms as one coalesced update. The evented list applies the burst as a
-            handful of fine-grained DOM ops; the plain re-render rebuilds every row. Average apply
-            time per burst is tracked next to the DOM mutation meter; the benchmark button runs 30
-            bursts per mode automatically.
+            {feedIntervalMs} ms as one coalesced update. Keyed rows apply the burst with one DOM op
+            per added row; the plain re-render rebuilds every row. Average apply time per burst is
+            tracked next to the DOM mutation meter; the benchmark button runs 30 bursts per mode
+            automatically.
           </p>
         </header>
         <div mix={controlsCss}>
@@ -660,9 +660,9 @@ export const ListUpdatesFeedBoard = clientEntry(
         </div>
         <div className="feed-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
           {mode === 'evented' ? (
-            <evented.list key="evented" eventSource={events.items}>
-              {(item, id) => feedRow(item, id)}
-            </evented.list>
+            <evented.div key="evented" eventSource={events.items}>
+              {(items) => <>{[...items.entries()].map(([id, item]) => feedRow(item, id))}</>}
+            </evented.div>
           ) : (
             <evented.div key="plain" eventSource={[events.items, events.refresh]}>
               {([items]) =>

@@ -140,9 +140,9 @@ Evented-view props:
 ### Descriptor methods
 
 | Member                                     | Signature                                                                     | Purpose                                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- | ---- | -------------- | --------------------------------------------------------- |
 | `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`                        | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
-| _(callable)_                               | `events(type, detail?, init?)` / `events({ name: detail })` / `events([...])` | Builds a fresh event for any target.                                                           || `on`                                       | `on(listener)`                                                                | Element-owned wildcard effect for every descriptor event.                                      |
+| _(callable)_                               | `events(type, detail?, init?)` / `events({ name: detail })` / `events([...])` | Builds a fresh event for any target.                                                           |     | `on` | `on(listener)` | Element-owned wildcard effect for every descriptor event. |
 | `asHost`                                   | `asHost()` / `asHost(target)`                                                 | Element host (mixin) or domain `EventTarget` bridge.                                           |
 | `addEventListener` / `removeEventListener` | native                                                                        | Native listeners on the descriptor.                                                            |
 
@@ -203,8 +203,8 @@ let events = customEvents(
 ```
 
 Fold recipes must be synchronous and return no value. A no-op fold emits
-nothing but its own event. Immer patches drive the routing: Map item replaces
-keep keyed granularity, scalar writes route by owner identity, and deep
+nothing but its own event. Immer patches drive the routing: keyed writes keep
+per-item granularity, scalar writes route by owner identity, and deep
 mutations reach exactly the affected addresses.
 
 **Reads are views only**: subscribe `eventSource={events}` for the whole
@@ -237,8 +237,8 @@ a tuple index-aligned with `eventSource`:
 ### Dynamic lists
 
 A container with a children function is a live keyed list; keyed diffs
-reconcile additions, removals, and reorders while item edits stay on item
-views:
+reconcile additions, removals, and reorders with minimal DOM work while item
+edits stay on item views:
 
 ```tsx
 <evented.svg eventSource={events.circles}>
@@ -257,9 +257,9 @@ views:
 </evented.svg>
 ```
 
-For large collections use the keyed `evented.list` intrinsic with a per-item
-template; per-item elements follow their own keyed routes so whole collections
-skip re-resolving on item edits.
+Every matched event re-resolves the children function; the keyed diff applies
+the change in place, and per-item elements follow their own routed sources so
+edits re-render exactly the touched item.
 
 ### Whole-model wildcard view
 

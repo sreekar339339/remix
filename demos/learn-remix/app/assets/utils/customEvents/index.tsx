@@ -13,7 +13,6 @@ import {
   canonicalAddressSegment,
   isPropertyKey,
   type CustomEventsBatchRuntimeEntry,
-  type CustomEventsEntryOp,
 } from './runtime.ts'
 import { reservedCustomEventsNames } from './types.ts'
 import type {
@@ -113,12 +112,10 @@ function createRemembered<Seeds extends EventDetails, Folds extends RememberedFo
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
       let addresses = entries.flatMap((entry) => entry.addresses ?? [])
-      let ops = entries.flatMap((entry) => entry.ops ?? [])
       entries.unshift({
         type,
         detail,
         ...(addresses.length > 0 ? { addresses } : {}),
-        ...(ops.length > 0 ? { ops } : {}),
       })
       return entries
     }
@@ -182,15 +179,13 @@ function resolvePatchPath(
 function normalizePatches(previousState: EventDetails, nextState: EventDetails, patches: Patch[]) {
   let rootKey = patches[0]?.path[0]
   if (typeof rootKey !== 'string') {
-    return { addresses: [], ops: [] }
+    return []
   }
   let previous = previousState[rootKey]
   let next = nextState[rootKey]
   let addresses: Array<readonly unknown[]> = []
-  let ops: CustomEventsEntryOp[] = []
-  let mapContainer = previous instanceof Map || next instanceof Map
 
-  let addAddress = (address: readonly unknown[] | undefined, op: string) => {
+  let addAddress = (address: readonly unknown[] | undefined) => {
     if (!address) return
     let duplicate = addresses.some(
       (candidate) =>
@@ -199,32 +194,30 @@ function normalizePatches(previousState: EventDetails, nextState: EventDetails, 
     )
     if (!duplicate) {
       addresses.push(address)
-      ops.push(mapContainer && op === 'replace' ? 'mapReplace' : (op as CustomEventsEntryOp))
     }
   }
 
   for (let patch of patches) {
     let addressCount = addresses.length
     let segments = (patch.path as unknown[]).slice(1)
-    let op = patch.op
 
     if (previous instanceof Set || next instanceof Set) {
       if (!Object.hasOwn(patch, 'value')) {
-        addAddress([], op)
+        addAddress([])
         continue
       }
-      addAddress([canonicalAddressSegment(patch.value)], op)
+      addAddress([canonicalAddressSegment(patch.value)])
       continue
     }
 
     let previousPath = resolvePatchPath(previousState, rootKey, segments)
     let nextPath = resolvePatchPath(nextState, rootKey, segments)
 
-    addAddress(previousPath, op)
-    addAddress(nextPath, op)
-    if (addresses.length === addressCount) addAddress([], op)
+    addAddress(previousPath)
+    addAddress(nextPath)
+    if (addresses.length === addressCount) addAddress([])
   }
-  return { addresses, ops }
+  return addresses
 }
 
 function isPrimitive(value: unknown) {
@@ -244,7 +237,7 @@ function entriesFromPatches(
   let patchesByKey = Map.groupBy(patches, ({ path }) => path[0] as string)
   let entries: CustomEventsBatchRuntimeEntry[] = []
   for (let [key, keyPatches] of patchesByKey) {
-    let { addresses, ops } = normalizePatches(previousState, nextState, keyPatches)
+    let addresses = normalizePatches(previousState, nextState, keyPatches)
     let nextValue = nextState[key]
     let previousOwner = previousState[key]
 
@@ -255,9 +248,8 @@ function entriesFromPatches(
           : []),
         ...(nextValue !== undefined && nextValue !== null ? [ownerAddress(nextValue)] : []),
       ]
-      ops = ['replace']
     }
-    entries.push({ type: key, detail: nextValue, addresses, ops })
+    entries.push({ type: key, detail: nextValue, addresses })
   }
   return entries
 }

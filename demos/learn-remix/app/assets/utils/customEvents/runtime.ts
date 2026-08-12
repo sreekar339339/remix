@@ -1,4 +1,4 @@
-import { EVENT_ROUTES, type EventSourceSubscriber } from 'remix/ui'
+import type { EventSourceSubscriber } from 'remix/ui'
 
 export const ALL_EVENTS = '*'
 
@@ -23,18 +23,10 @@ type AddressNode = {
 
 type SubscriptionIndex = Record<SubscriptionPhase, Map<string, AddressNode>>
 
-/**
- * Patch operation classification per event entry address. `mapReplace` marks a
- * keyed patch on a Map container: whole-key subscribers skip such events
- * because per-item elements already follow their own keyed routes.
- */
-export type CustomEventsEntryOp = 'add' | 'remove' | 'replace' | 'mapReplace'
-
 export type CustomEventsBatchRuntimeEntry = {
   type: string
   detail: unknown
   addresses?: readonly EventAddress[]
-  ops?: readonly CustomEventsEntryOp[]
 }
 
 type ProductEventMetadata = {
@@ -47,7 +39,6 @@ type ProductEventMetadata = {
 type TransactionEvent = {
   event: CustomEvent
   addresses?: readonly EventAddress[]
-  ops?: readonly CustomEventsEntryOp[]
 }
 
 export type EventAddress = readonly unknown[]
@@ -149,29 +140,18 @@ function collectBranch(selected: Set<ElementSubscription>, node: AddressNode) {
   for (let child of node.children.values()) collectBranch(selected, child)
 }
 
-function selectRoute(
-  root: AddressNode,
-  addresses: readonly EventAddress[] | undefined,
-  ops?: readonly CustomEventsEntryOp[],
-  warnRootSkip?: () => void,
-) {
+function selectRoute(root: AddressNode, addresses: readonly EventAddress[] | undefined) {
   let selected = new Set<ElementSubscription>()
   if (addresses === undefined) {
     collectBranch(selected, root)
     return selected
   }
-  // Whole-key changes (the root key itself was patched) notify every
-  // subscriber; keyed changes notify their addressed branch only. Map item
-  // replaces skip the root so whole-key subscribers do not re-resolve while
-  // per-item elements follow their own keyed routes.
-  let includeRoot =
-    addresses.some((address) => address.length === 0) ||
-    ops === undefined ||
-    ops.some((op) => op !== 'mapReplace')
-  if (!includeRoot && root.subscriptions.size > 0) warnRootSkip?.()
+  // Whole-key subscribers always re-resolve; addressed branches fan out to
+  // per-item element subscriptions only.
+  for (let subscription of root.subscriptions) selected.add(subscription)
   for (let address of addresses) {
     let nodes = walkAddress(root, address)
-    for (let index = includeRoot ? 0 : 1; index < nodes.length; index++) {
+    for (let index = 1; index < nodes.length; index++) {
       for (let subscription of nodes[index].subscriptions) {
         selected.add(subscription)
       }
@@ -239,7 +219,6 @@ export type CustomEventsRuntimeState = {
   subscriptions: SubscriptionIndex
   dispatchTargets: WeakMap<EventTarget, DispatchTargetRegistration>
   hosts: WeakMap<Element, number>
-  rootSkipWarnings: Set<string>
   defaultHost?: EventTarget
 }
 
@@ -255,7 +234,6 @@ export function createCustomEventsRuntimeState(): CustomEventsRuntimeState {
     },
     dispatchTargets: new WeakMap(),
     hosts: new WeakMap(),
-    rootSkipWarnings: new Set(),
   }
 }
 
@@ -384,30 +362,19 @@ function matchesScope(
   )
 }
 
-function warnRootSkipOnce(runtime: CustomEventsRuntimeState, type: string) {
-  if (runtime.rootSkipWarnings.has(type)) return
-  runtime.rootSkipWarnings.add(type)
-  console.warn(
-    `Map value replaces in "${type}" skip whole-key subscribers, so a whole-key <list> or ` +
-      `<output> does not re-render for in-place item changes. Subscribe per item (for example ` +
-      `events.${type}.get(id)) when an element renders fields that change per item.`,
-  )
-}
-
 function* matchingSubscriptions(
   runtime: CustomEventsRuntimeState,
   phase: SubscriptionPhase,
   transactionEvent: TransactionEvent,
 ) {
   let index = runtime.subscriptions[phase]
-  let warnRootSkip = () => warnRootSkipOnce(runtime, transactionEvent.event.type)
   let wildcard = index.get(ALL_EVENTS)
   if (wildcard) {
-    yield* selectRoute(wildcard, transactionEvent.addresses, transactionEvent.ops, warnRootSkip)
+    yield* selectRoute(wildcard, transactionEvent.addresses)
   }
   let typed = index.get(transactionEvent.event.type)
   if (typed) {
-    yield* selectRoute(typed, transactionEvent.addresses, transactionEvent.ops, warnRootSkip)
+    yield* selectRoute(typed, transactionEvent.addresses)
   }
 }
 
@@ -420,18 +387,9 @@ function notifyEntries(
 ) {
   let events: TransactionEvent[] = entries.map((entry) => {
     let event = createEventSnapshot(entry, originTarget, carrier)
-    let addresses = entry.addresses
-    let ops = entry.ops
-    if (addresses !== undefined && ops !== undefined) {
-      setEventProperty(event, EVENT_ROUTES, {
-        addresses,
-        ops: ops.map((op) => (op === 'mapReplace' ? 'replace' : op)),
-      })
-    }
     return {
       event,
-      ...(addresses === undefined ? {} : { addresses }),
-      ...(ops === undefined ? {} : { ops }),
+      ...(entry.addresses === undefined ? {} : { addresses: entry.addresses }),
     }
   })
 

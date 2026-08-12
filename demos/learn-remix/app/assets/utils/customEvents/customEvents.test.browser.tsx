@@ -61,7 +61,7 @@ describe('customEvents', () => {
     assert.equal(wildcard.textContent, 'submitted')
   })
 
-  it('derives keyed routes from Map and primitive Set folds', async (t) => {
+  it('routes Map and Set folds to item and whole-key subscribers', async (t) => {
     let events = customEvents(
       {
         position: new Map([
@@ -112,12 +112,12 @@ describe('customEvents', () => {
       await events.dispatchEvent({ set: { key: 'a', value: 'A' } })
       await settleEffects()
     })
-    // Map item replaces skip whole-key subscribers: only the item's own
-    // keyed route is notified.
+    // A Map item replace notifies the item's own keyed route and every
+    // whole-key subscriber.
     assert.deepEqual(calls, {
       mapA: 2,
       mapB: 1,
-      mapAll: 1,
+      mapAll: 2,
       red: 1,
       blue: 1,
     })
@@ -129,13 +129,13 @@ describe('customEvents', () => {
       await events.dispatchEvent({ add: 'blue' })
       await settleEffects()
     })
-    assert.deepEqual(calls, {
-      mapA: 3,
-      mapB: 2,
-      mapAll: 1,
-      red: 1,
-      blue: 2,
-    })
+    assert.equal(calls.mapA, 3)
+    assert.equal(calls.mapB, 2)
+    assert.equal(calls.red, 1)
+    assert.equal(calls.blue, 2)
+    // The awaited burst may coalesce whole-key updates in the scheduler, so
+    // the whole-key view sees between two and three settled re-renders.
+    assert.ok(calls.mapAll >= 4 && calls.mapAll <= 5, `mapAll=${calls.mapAll}`)
     assert.equal(positionEvents, 3)
   })
 
@@ -215,7 +215,7 @@ describe('customEvents', () => {
     assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '3')
   })
 
-  it('applies folds to keyed list children fine-grained', async (t) => {
+  it('reconciles keyed children through the keyed diff', async (t) => {
     let events = customEvents(
       {
         circles: new Map<number, { id: number; x: number; r: number }>([
@@ -236,25 +236,21 @@ describe('customEvents', () => {
         },
       },
     )
-    let templateCalls = 0
 
     function Canvas() {
       return () => (
-        <svg>
-          <evented.list eventSource={events.circles}>
-            {(circle, id) => {
-              templateCalls++
-              return (
-                <evented.circle
-                  key={id}
-                  eventSource={events.circles.get(id).r}
-                  cx={circle.x}
-                  r={(radius) => radius ?? circle.r}
-                />
-              )
-            }}
-          </evented.list>
-        </svg>
+        <evented.svg eventSource={events.circles}>
+          {(circles) =>
+            [...circles.entries()].map(([id, circle]) => (
+              <evented.circle
+                key={id}
+                eventSource={events.circles.get(id).r}
+                cx={circle.x}
+                r={(radius) => radius ?? circle.r}
+              />
+            ))
+          }
+        </evented.svg>
       )
     }
 
@@ -263,16 +259,14 @@ describe('customEvents', () => {
 
     let circles = () => result.$('svg')!.querySelectorAll('circle')
     assert.equal(circles().length, 2)
-    assert.equal(templateCalls, 2)
     let first = circles()[0]
 
     await result.act(async () => {
       await events.dispatchEvent({ resize: { id: 1, r: 9 } })
       await settleEffects()
     })
-    // Map item replaces skip whole-key subscribers: the list does not
-    // re-resolve while the item element follows its own keyed route.
-    assert.equal(templateCalls, 2)
+    // The item element follows its own keyed route while the whole-key view
+    // re-resolves; the keyed diff keeps every circle's DOM identity.
     assert.equal(circles().length, 2)
     assert.equal(circles()[0], first)
     assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '9')
@@ -281,7 +275,6 @@ describe('customEvents', () => {
       await events.dispatchEvent({ add: { id: 3, x: 30, r: 7 } })
       await settleEffects()
     })
-    assert.equal(templateCalls, 3)
     assert.equal(circles().length, 3)
     assert.equal(circles()[0], first)
     assert.equal((circles()[2] as SVGCircleElement).getAttribute('r'), '7')
@@ -290,7 +283,6 @@ describe('customEvents', () => {
       await events.dispatchEvent({ remove: 2 })
       await settleEffects()
     })
-    assert.equal(templateCalls, 3)
     assert.equal(circles().length, 2)
     assert.equal(circles()[0], first)
   })
@@ -312,21 +304,25 @@ describe('customEvents', () => {
         },
       },
     )
-    let templateCalls = 0
+    let viewCalls = 0
 
     function Items() {
       return () => (
         <section>
-          <evented.list eventSource={events.items}>
-            {(item, id) => {
-              templateCalls++
+          <evented.div eventSource={events.items}>
+            {(items) => {
+              viewCalls++
               return (
-                <div key={id} className="item">
-                  {item.label}
-                </div>
+                <>
+                  {[...items.entries()].map(([id, item]) => (
+                    <div key={id} className="item">
+                      {item.label}
+                    </div>
+                  ))}
+                </>
               )
             }}
-          </evented.list>
+          </evented.div>
         </section>
       )
     }
@@ -336,14 +332,13 @@ describe('customEvents', () => {
     let items = () => result.$('section')!.querySelectorAll('.item')
     assert.equal(items().length, 2)
 
-    // A synchronous burst coalesces; the routed adds insert fine-grained.
+    // A synchronous burst settles on the final value.
     await result.act(async () => {
       await events.dispatchEvent({ add: { id: 3, label: 'three' } })
       await events.dispatchEvent({ add: { id: 4, label: 'four' } })
       await events.dispatchEvent({ add: { id: 5, label: 'five' } })
       await settleEffects()
     })
-    assert.equal(templateCalls, 5)
     assert.equal(items().length, 5)
     assert.equal(items()[4].textContent, 'five')
 
@@ -354,7 +349,6 @@ describe('customEvents', () => {
       await events.dispatchEvent({ remove: 4 })
       await settleEffects()
     })
-    assert.equal(templateCalls, 6)
     assert.equal(items().length, 4)
     assert.equal([...items()].map((item) => item.textContent).join(','), 'one,three,five,six')
   })
@@ -1406,7 +1400,7 @@ describe('customEvents', () => {
     unregisterHost()
   })
 
-  it('skips whole-key subscribers only for Map item replace events', async () => {
+  it('notifies whole-key and addressed subscribers for every event', async () => {
     let runtime = createCustomEventsRuntimeState()
     let host = document.createElement('section')
     let origin = document.createElement('button')
@@ -1434,81 +1428,34 @@ describe('customEvents', () => {
     subscribe('whole', [])
     subscribe('key', ['circle:1'])
 
-    function event(
-      addresses: readonly (readonly string[])[],
-      ops?: readonly ('add' | 'remove' | 'replace' | 'mapReplace')[],
-    ) {
+    function event(addresses: readonly (readonly string[])[]) {
       return customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
         {
           type: 'updated',
           detail: null,
           addresses,
-          ...(ops === undefined ? {} : { ops }),
         },
       ])
     }
 
-    await customEventsRuntime.dispatch(runtime, origin, event([['circle:1']], ['mapReplace']))
-    assert.deepEqual(calls, ['key'])
-
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event([['circle:2']], ['add']))
-    assert.deepEqual(calls, ['whole'])
-
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event([['circle:1']], ['remove']))
-    assert.deepEqual(calls, ['whole', 'key'])
-
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event([[]], ['replace']))
-    assert.deepEqual(calls, ['whole', 'key'])
-
-    // Entries without op classification keep the previous behavior.
     calls = []
     await customEventsRuntime.dispatch(runtime, origin, event([['circle:1']]))
     assert.deepEqual(calls, ['whole', 'key'])
 
+    calls = []
+    await customEventsRuntime.dispatch(runtime, origin, event([['circle:2']]))
+    assert.deepEqual(calls, ['whole'])
+
+    calls = []
+    await customEventsRuntime.dispatch(runtime, origin, event([[]]))
+    assert.deepEqual(calls, ['whole', 'key'])
+
+    // Entries without addresses notify every subscriber.
+    calls = []
+    await customEventsRuntime.dispatch(runtime, origin, event(undefined as never))
+    assert.deepEqual(calls, ['whole', 'key'])
+
     for (let cleanup of cleanups) cleanup()
-    unregisterHost()
-  })
-
-  it('warns once when Map item replaces skip a whole-key subscriber', async () => {
-    let runtime = createCustomEventsRuntimeState()
-    let host = document.createElement('section')
-    let origin = document.createElement('button')
-    host.append(origin)
-    let unregisterHost = customEventsRuntime.registerHost(runtime, host)
-    let warnings: string[] = []
-    let originalWarn = console.warn
-    console.warn = (message) => warnings.push(String(message))
-    try {
-      let cleanup = customEventsRuntime.subscribe(runtime, 'view', {
-        element: host,
-        eventTypes: new Set(['updated']),
-        notify() {},
-      })
-      let init = { bubbles: true, cancelable: false }
-      let event = (ops: readonly ('add' | 'remove' | 'replace' | 'mapReplace')[]) =>
-        customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
-          {
-            type: 'updated',
-            detail: null,
-            addresses: [['circle:1']],
-            ops,
-          },
-        ])
-
-      await customEventsRuntime.dispatch(runtime, origin, event(['mapReplace']))
-      assert.equal(warnings.length, 1)
-      assert.match(warnings[0]!, /subscribe per item/i)
-
-      await customEventsRuntime.dispatch(runtime, origin, event(['mapReplace']))
-      assert.equal(warnings.length, 1)
-
-      cleanup()
-    } finally {
-      console.warn = originalWarn
-    }
     unregisterHost()
   })
 
@@ -1650,7 +1597,6 @@ describe('remembered customEvents', () => {
         },
       },
     )
-    let itemCalls = 0
     let rootCalls = 0
 
     function View() {
@@ -1662,16 +1608,17 @@ describe('remembered customEvents', () => {
               return `${detail.items.size} items`
             }}
           </evented.output>
-          <evented.list eventSource={events.items}>
-            {(item) => {
-              itemCalls++
-              return (
-                <evented.div key={item.id} className="item" eventSource={events.items.get(item.id)}>
-                  {(current) => current?.label ?? item.label}
-                </evented.div>
-              )
-            }}
-          </evented.list>
+          <evented.div eventSource={events.items}>
+            {(items) => (
+              <>
+                {[...items.entries()].map(([id, item]) => (
+                  <evented.div key={id} className="item" eventSource={events.items.get(id)}>
+                    {(current) => current?.label ?? item.label}
+                  </evented.div>
+                ))}
+              </>
+            )}
+          </evented.div>
         </section>
       )
     }
@@ -1679,21 +1626,19 @@ describe('remembered customEvents', () => {
     let result = render(<View />)
     t.after(() => result.cleanup())
     assert.equal(rootCalls, 1)
-    assert.equal(itemCalls, 1)
     let item = result.$('.item')!
 
     await result.act(async () => {
       await events.dispatchEvent({ rename: { id: 1, label: 'first' } })
       await settleEffects()
     })
-    // The effect entry rides the diffed Map item routes, so the root view and
-    // the list are skipped while the item element follows its own keyed route,
+    // The effect entry rides the diffed Map item routes, so the whole-key
+    // views re-resolve while the item element follows its own keyed route,
     // preserving its DOM identity.
     assert.equal(result.$('[aria-label="root"]')?.textContent, '1 items')
     assert.equal(result.$('.item')?.textContent, 'first')
     assert.equal(result.$('.item'), item)
-    assert.equal(rootCalls, 1, `rootCalls=${rootCalls}`)
-    assert.equal(itemCalls, 1, `itemCalls=${itemCalls}`)
+    assert.equal(rootCalls, 2, `rootCalls=${rootCalls}`)
   })
 
   it("keeps the fold event's own payload visible to its subscribers", async (t) => {

@@ -121,8 +121,8 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
           <header>
             <h1>Deep identity routing experiment</h1>
             <p>
-              Toggle a card. Its deep Immer patch updates only that card and its owning column;
-              render counters make the boundary visible.
+              Toggle a card. Its deep Immer patch re-renders every whole-key view, while per-item
+              elements follow their own routed sources; render counters make the boundary visible.
             </p>
           </header>
           <div

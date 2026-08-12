@@ -18,9 +18,9 @@ export function ListUpdatesPage() {
         })}
       >
         <header>
-          <h1>Fine-grained list updates vs re-render</h1>
+          <h1>Keyed list updates vs re-render</h1>
           <p>
-            Three workloads where evented list updates beat a plain re-render. Every section has an
+            Three workloads where keyed evented views beat a plain re-render. Every section has an
             evented/plain toggle and a DOM-mutation meter; the meter only sees DOM work, so also
             open the performance panel to watch the template execution that the plain re-render pays
             for on every update.
