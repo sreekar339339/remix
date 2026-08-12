@@ -203,12 +203,13 @@ type CustomEventsReactiveElementProps<
   [Key in keyof Props<Tag>]: Key extends string
     ? Key extends 'children' | 'key' | 'mix' | 'ref' | 'on' | `on${string}`
       ? Props<Tag>[Key]
-      : Props<Tag>[Key] |
-          CustomEventsReactiveProp<
-            Direct extends true ? Input : NoInfer<Input>,
-            Event,
-            Props<Tag>[Key]
-          >
+      :
+          | Props<Tag>[Key]
+          | CustomEventsReactiveProp<
+              Direct extends true ? Input : NoInfer<Input>,
+              Event,
+              Props<Tag>[Key]
+            >
     : Props<Tag>[Key]
 } & {
   [Key in `data-${string}`]?:
@@ -630,11 +631,13 @@ export type RememberedOnFunction = {
 }
 
 /** Remembered descriptor core: the root event, remembered and fold sub-sources, and write verbs. */
-export type RememberedDescriptorBase<Events extends EventDetails, Seeds extends EventDetails> =
-  CustomEventsBuilder<Events, Seeds> & {
-    dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
-    on: RememberedOnFunction
-  } & CustomEventsDescriptor<Events, Immutable<Seeds>>
+export type RememberedDescriptorBase<
+  Events extends EventDetails,
+  Seeds extends EventDetails,
+> = CustomEventsBuilder<Events, Seeds> & {
+  dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
+  on: RememberedOnFunction
+} & CustomEventsDescriptor<Events, Immutable<Seeds>>
 
 /**
  * A remembered descriptor: the root composite event (`eventSource={events}`)

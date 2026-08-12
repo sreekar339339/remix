@@ -330,7 +330,8 @@ function registerHost(
   runtime: CustomEventsRuntimeState,
   target: EventTarget,
   signal?: AbortSignal,
-) {  let unregisterTarget = registerDispatchTarget(runtime, target)
+) {
+  let unregisterTarget = registerDispatchTarget(runtime, target)
 
   if (isElement(target)) {
     runtime.hosts.set(target, (runtime.hosts.get(target) ?? 0) + 1)

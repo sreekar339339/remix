@@ -84,7 +84,11 @@ function customEventsOnMixin(
 ) {
   return createMixin<
     Element,
-    [runtime: CustomEventsRuntimeState, source: { type: string; path: readonly unknown[] } | undefined, listener: (event: Event) => void | Promise<unknown>]
+    [
+      runtime: CustomEventsRuntimeState,
+      source: { type: string; path: readonly unknown[] } | undefined,
+      listener: (event: Event) => void | Promise<unknown>,
+    ]
   >((handle) => (runtime, source, listener) => (
     <handle.element
       mix={ref((element, signal) => {
@@ -189,7 +193,7 @@ export function createCustomEventsDescriptor<
   }
 
   // The callable descriptor: invoking it builds a fresh event.
-  let create = ((...args: Array<unknown>) => {
+  let create = (...args: Array<unknown>) => {
     let [typeOrEvents, detailOrInit, maybeInit] = args as [
       string | readonly CustomEventsBatchItem<Events>[] | Record<string, unknown>,
       unknown?,
@@ -221,7 +225,7 @@ export function createCustomEventsDescriptor<
     }
 
     throw new TypeError('customEvents expects an event name, event object, or event array.')
-  })
+  }
 
   // The descriptor doubles as the wildcard event source: subscribing to it
   // matches every descriptor event. On a remembered descriptor the
@@ -323,7 +327,10 @@ export function createCustomEventsDescriptor<
         if (property === 'has' && current instanceof Set) return (value: unknown) => at(value)
         if (property === 'as') {
           return (value: unknown) =>
-            at(value, readRoot ? () => samePropertyKey(readPath(readRoot(), path), value) : undefined)
+            at(
+              value,
+              readRoot ? () => samePropertyKey(readPath(readRoot(), path), value) : undefined,
+            )
         }
         return at(property)
       },
