@@ -13,7 +13,7 @@ const storeOccurrenceSourceMarker: unique symbol = Symbol('storeOccurrenceSource
 
 /**
  * True when a source (or any member of a source array) belongs to a store:
- * store-held state sources and store occurrences both read value semantics.
+ * remembered state sources and remembered occurrences both read value semantics.
  */
 export type IsStateEventSource<Source> = Source extends readonly (infer Item)[]
   ? [true] extends [IsStateEventSource<Item>]
@@ -73,7 +73,7 @@ export type StateEventSource<Value, Type extends string, Detail = Value> = Event
             }
           : { as(value: Value): StateEventSource<boolean, Type, Value | null> })
 
-/** An occurrence of a store: value semantics, like held state sources. */
+/** An occurrence of a remembered descriptor: value semantics, like remembered sources. */
 type StoreOccurrenceSource<Value, Type extends string> = EventSource<Value, Type> & {
   readonly [storeOccurrenceSourceMarker]: true
 }
@@ -164,7 +164,7 @@ export function createEventSource(
   let protocol: EventSourceProtocol = {
     type,
     // On a store-backed descriptor every source yields detail-shaped input:
-    // held properties read their current value, while occurrences fill their
+    // remembered properties read their current value, while occurrences fill their
     // slot from the matched event and read undefined otherwise.
     ...(readRoot || stateBacked
       ? {

@@ -515,70 +515,70 @@ export type CustomEventsDescriptor<
     asHost: CustomEventsAsHost<Events, State>
   }
 
-/** How a declared effect event folds into the retained composite. */
-export type RetainedFold<Held extends EventDetails, Detail = unknown> = (
+/** How a declared fold event folds into the remembered composite. */
+export type RememberedFold<Held extends EventDetails, Detail = unknown> = (
   draft: Draft<Held>,
   detail: Detail,
 ) => void
 
 /**
- * The declared effect events of a retained descriptor, keyed by event name.
+ * The declared fold events of a remembered descriptor, keyed by event name.
  * Folds may narrow their detail parameter; the contextual type is `any` so
  * both annotated and unannotated folds assign.
  */
-export type RetainedFolds<Held extends EventDetails> = {
-  readonly [Name: string]: RetainedFold<Held, any>
+export type RememberedFolds<Held extends EventDetails> = {
+  readonly [Name: string]: RememberedFold<Held, any>
 }
 
 /**
  * Held seeds of a retained descriptor: data values keyed by event name, which
  * cannot overwrite the descriptor API or use native DOM event names.
  */
-export type RetainedSeeds = EventDetails & {
+export type RememberedSeeds = EventDetails & {
   readonly [Name in ReservedCustomEventsName | NativeDOMEventName]?: never
 }
 
-type RetainedFoldDetail<Folds, Name extends keyof Folds & string> = Folds[Name] extends (
-  held: any,
+type RememberedFoldDetail<Folds, Name extends keyof Folds & string> = Folds[Name] extends (
+  draft: any,
   detail: infer Detail,
 ) => any
   ? Detail
   : unknown
 
-/** The event map of a retained descriptor: held seeds and declared effect events. */
-export type RetainedEventsMap<
+/** The event map of a remembered descriptor: remembered seeds and declared fold events. */
+export type RememberedEventsMap<
   Seeds extends EventDetails,
-  Folds extends RetainedFolds<Seeds>,
+  Folds extends RememberedFolds<Seeds>,
 > = Immutable<Seeds> & {
-  [Name in keyof Folds & string]: RetainedFoldDetail<Folds, Name>
+  [Name in keyof Folds & string]: RememberedFoldDetail<Folds, Name>
 }
 
 /**
  * The write input of a retained descriptor: an event-named object of details
- * (held keys replace their slice, effect events fold it in, undeclared names
+ * (remembered keys replace their slice, fold events fold it in, undeclared names
  * fire occurrences) or a bare name for a detail-less occurrence. Batches use
  * `create([...])` with a native `dispatchEvent`.
  */
-export type RetainedEventInput<Seeds extends EventDetails> =
+export type RememberedEventInput<Seeds extends EventDetails> =
   | string
   | (Partial<Seeds> & Record<string, unknown>)
 
 /** Creates one fresh retained event from the write-input grammar. */
-export type RetainedCreate<Seeds extends EventDetails> = {
+export type RememberedCreate<Seeds extends EventDetails> = {
   (
-    input: RetainedEventInput<Seeds> | readonly (string | Record<string, unknown>)[],
+    input: RememberedEventInput<Seeds> | readonly (string | Record<string, unknown>)[],
     init?: CustomEventsInit,
   ): Event
 }
 
 /** Dispatches retained events on the descriptor itself. */
-export type RetainedDispatchEvent<Seeds extends EventDetails> = {
+export type RememberedDispatchEvent<Seeds extends EventDetails> = {
   (event: Event): boolean
-  (input: RetainedEventInput<Seeds>, init?: CustomEventsInit): Promise<void>
+  (input: RememberedEventInput<Seeds>, init?: CustomEventsInit): Promise<void>
 }
 
 /** Runs a mounted-element effect for every descriptor event, including implicit occurrences. */
-export type RetainedOnFunction = {
+export type RememberedOnFunction = {
   <HostElement extends Element = Element>(
     listener: (
       event: CustomEvent<unknown> & { readonly type: string; readonly currentTarget: HostElement },
@@ -586,18 +586,18 @@ export type RetainedOnFunction = {
   ): MixinDescriptor<HostElement, any>
 }
 
-/** Retained descriptor core: the root event, held and effect sub-sources, and write verbs. */
-export type RetainedDescriptorBase<Events extends EventDetails, Seeds extends EventDetails> = {
-  create: CustomEventsFactory<Events> & RetainedCreate<Seeds>
-  dispatchEvent: CustomEventsDispatchEvent<Events> & RetainedDispatchEvent<Seeds>
-  on: RetainedOnFunction
+/** Remembered descriptor core: the root event, remembered and fold sub-sources, and write verbs. */
+export type RememberedDescriptorBase<Events extends EventDetails, Seeds extends EventDetails> = {
+  create: CustomEventsFactory<Events> & RememberedCreate<Seeds>
+  dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
+  on: RememberedOnFunction
 } & CustomEventsDescriptor<Events, Immutable<Seeds>>
 
 /**
  * A retained descriptor: the root composite event (`eventSource={events}`)
- * whose detail folds in every held seed and effect event.
+ * whose detail folds in every remembered seed and fold event.
  */
-export type RetainedDescriptor<
+export type RememberedDescriptor<
   Seeds extends EventDetails,
-  Folds extends RetainedFolds<Seeds>,
-> = RetainedDescriptorBase<RetainedEventsMap<Seeds, Folds>, Seeds>
+  Folds extends RememberedFolds<Seeds>,
+> = RememberedDescriptorBase<RememberedEventsMap<Seeds, Folds>, Seeds>

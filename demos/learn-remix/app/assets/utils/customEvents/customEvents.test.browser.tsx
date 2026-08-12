@@ -747,13 +747,13 @@ describe('customEvents', () => {
     function Snapshot() {
       return () => (
         <evented.output eventSource={events} aria-label="snapshot">
-          {(value, latest) => {
-            seen.push([value, latest?.type])
+          {(detail, event) => {
+            seen.push([detail, event?.type])
             if (false) {
-              value satisfies { readonly count: number }
+              detail satisfies { readonly count: number }
             }
-            let last = latest?.type === 'countDrafted' ? ` raw:${latest.detail}` : ''
-            return `count:${value.count}${last}`
+            let last = event?.type === 'countDrafted' ? ` raw:${event.detail}` : ''
+            return `count:${detail.count}${last}`
           }}
         </evented.output>
       )
@@ -1545,7 +1545,7 @@ describe('customEvents', () => {
 })
 
 describe('retained customEvents', () => {
-  it('folds held replaces and effect events into the root composite', async (t) => {
+  it('folds remembered replaces and fold events into the root composite', async (t) => {
     let events = customEvents(
       { count: 0, label: 'idle' },
       {
@@ -1559,9 +1559,9 @@ describe('retained customEvents', () => {
     function View() {
       return () => (
         <evented.output eventSource={events} aria-label="root">
-          {(held, latest) => {
-            seen.push([held, latest?.type])
-            return `${held.label}:${held.count}`
+          {(detail, event) => {
+            seen.push([detail, event?.type])
+            return `${detail.label}:${detail.count}`
           }}
         </evented.output>
       )
@@ -1576,7 +1576,7 @@ describe('retained customEvents', () => {
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
-    // The effect entry notifies the root, then the affected held event folds.
+    // The effect entry notifies the root, then the affected remembered event folds.
     assert.deepEqual(seen[seen.length - 1], [{ count: 2, label: 'idle' }, 'count'])
 
     await result.act(async () => {
@@ -1593,7 +1593,7 @@ describe('retained customEvents', () => {
       events.value
       // @ts-expect-error - writes go through dispatch, not update.
       events.update
-      // @ts-expect-error - held details are typed by their seeds.
+      // @ts-expect-error - remembered details are typed by their seeds.
       events.dispatchEvent({ count: 'not-a-number' })
       // @ts-expect-error - seeds cannot overwrite the descriptor API.
       customEvents({ dispatchEvent: 1 })
@@ -1609,11 +1609,11 @@ describe('retained customEvents', () => {
     function View() {
       return () => (
         <evented.output eventSource={events} aria-label="root">
-          {(held, latest) => {
-            seen.push([held, latest?.type])
-            if (latest?.type === 'refreshRequested') return `refresh:${held.count}`
-            if (latest?.type === 'countDrafted') return `draft:${latest.detail}`
-            return `count:${held.count}`
+          {(detail, event) => {
+            seen.push([detail, event?.type])
+            if (event?.type === 'refreshRequested') return `refresh:${detail.count}`
+            if (event?.type === 'countDrafted') return `draft:${event.detail}`
+            return `count:${detail.count}`
           }}
         </evented.output>
       )
@@ -1657,9 +1657,9 @@ describe('retained customEvents', () => {
       return () => (
         <section>
           <evented.output eventSource={events} aria-label="root">
-            {(held) => {
+            {(detail) => {
               rootCalls++
-              return `${held.items.size} items`
+              return `${detail.items.size} items`
             }}
           </evented.output>
           <evented.list eventSource={events.items}>
@@ -1696,7 +1696,7 @@ describe('retained customEvents', () => {
     assert.equal(itemCalls, 1, `itemCalls=${itemCalls}`)
   })
 
-  it("keeps the effect event's own payload visible to its subscribers", async (t) => {
+  it("keeps the fold event's own payload visible to its subscribers", async (t) => {
     let events = customEvents(
       { elapsed: 0 },
       {

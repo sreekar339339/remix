@@ -38,7 +38,7 @@ type InternalEntryOptions = CustomEventsInit & {
   ops?: readonly CustomEventsEntryOp[]
 }
 
-type StateEventContext = {
+type RememberedEventContext = {
   owner: object
   getState(): EventDetails
   /** Folds a dispatched event into the retained composite; absent for pure descriptors. */
@@ -67,7 +67,7 @@ function getEventInit(init: CustomEventsInit | undefined): EventInit {
 export function createCustomEventsDescriptor<
   Events extends EventDetails,
   State extends EventDetails | never = never,
->(state?: StateEventContext, host?: EventTarget): CustomEventsDescriptor<Events, State> {
+>(state?: RememberedEventContext, host?: EventTarget): CustomEventsDescriptor<Events, State> {
   let runtime: CustomEventsRuntimeState | undefined
   let getRuntime = () => (runtime ??= createCustomEventsRuntimeState())
   let sourceOwner = state?.owner ?? {}
