@@ -188,43 +188,25 @@ export function createEventSource(
           createEffect(metadata, listener)
       }
 
+      let at = (segment: unknown, read?: () => unknown) =>
+        createEventSource(
+          owner,
+          type,
+          readRoot,
+          createEffect,
+          createSubscription,
+          stateBacked,
+          [...path, canonicalAddressSegment(segment)],
+          read,
+        )
       let current = readEventSource(metadata)
-      if (property === 'get' && current instanceof Map) {
-        return (key: unknown) =>
-          createEventSource(owner, type, readRoot, createEffect, createSubscription, stateBacked, [
-            ...path,
-            canonicalAddressSegment(key),
-          ])
-      }
-      if (property === 'has' && current instanceof Set) {
-        return (value: unknown) =>
-          createEventSource(owner, type, readRoot, createEffect, createSubscription, stateBacked, [
-            ...path,
-            canonicalAddressSegment(value),
-          ])
-      }
+      if (property === 'get' && current instanceof Map) return (key: unknown) => at(key)
+      if (property === 'has' && current instanceof Set) return (value: unknown) => at(value)
       if (property === 'as') {
         return (value: unknown) =>
-          createEventSource(
-            owner,
-            type,
-            readRoot,
-            createEffect,
-            createSubscription,
-            stateBacked,
-            [...path, canonicalAddressSegment(value)],
-            readRoot ? () => samePropertyKey(readPath(readRoot(), path), value) : undefined,
-          )
+          at(value, readRoot ? () => samePropertyKey(readPath(readRoot(), path), value) : undefined)
       }
-      return createEventSource(
-        owner,
-        type,
-        readRoot,
-        createEffect,
-        createSubscription,
-        stateBacked,
-        [...path, property],
-      )
+      return at(property)
     },
   })
 }

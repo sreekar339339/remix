@@ -104,45 +104,36 @@ export function createCustomEventsDescriptor<
     return isRecord(value) && (Object.hasOwn(value, 'detail') || Object.hasOwn(value, 'options'))
   }
 
-  function normalizeConfiguredBatch(configuredEvents: readonly CustomEventsBatchItem<Events>[]) {
-    return configuredEvents.flatMap((configuredEvent) => {
-      if (typeof configuredEvent === 'string') {
-        return resolveEntry(configuredEvent, null)
-      }
-
-      let eventEntries = Object.entries(configuredEvent)
-      if (eventEntries.length !== 1) {
-        throw new TypeError('Each configured customEvents batch entry must contain one event.')
-      }
-
-      let [type, rawValue] = eventEntries[0] as [string, unknown]
-      if (isEntryConfiguration(rawValue)) {
-        return resolveEntry(
-          type,
-          Object.hasOwn(rawValue, 'detail') ? rawValue.detail : null,
-          rawValue.options as InternalEntryOptions | undefined,
-        )
-      }
-      return resolveEntry(type, rawValue)
-    })
-  }
-
-  function normalizeEventObject(events: Record<string, unknown>) {
-    let entries: CustomEventsBatchRuntimeEntry[] = []
-    for (let [type, value] of Object.entries(events)) {
-      if (isEntryConfiguration(value)) {
-        entries.push(
-          ...resolveEntry(
-            type,
-            Object.hasOwn(value, 'detail') ? value.detail : null,
-            value.options as InternalEntryOptions | undefined,
-          ),
-        )
-      } else {
-        entries.push(...resolveEntry(type, value))
+  function entryDetail(value: unknown) {
+    if (isEntryConfiguration(value)) {
+      return {
+        detail: Object.hasOwn(value, 'detail') ? value.detail : null,
+        options: value.options as InternalEntryOptions | undefined,
       }
     }
-    return entries
+    return { detail: value }
+  }
+
+  function normalizeEntries(
+    entries: readonly (string | Record<string, unknown>)[],
+    singleKey = false,
+  ) {
+    let out: CustomEventsBatchRuntimeEntry[] = []
+    for (let entry of entries) {
+      if (typeof entry === 'string') {
+        out.push(...resolveEntry(entry, null))
+        continue
+      }
+      let objectEntries = Object.entries(entry)
+      if (singleKey && objectEntries.length !== 1) {
+        throw new TypeError('Each configured customEvents batch entry must contain one event.')
+      }
+      for (let [type, value] of objectEntries) {
+        let { detail, options } = entryDetail(value)
+        out.push(...resolveEntry(type, detail, options))
+      }
+    }
+    return out
   }
 
   let on = ((...args: unknown[]) => {
@@ -152,6 +143,17 @@ export function createCustomEventsDescriptor<
     }
     return customEventsOnMixin(getRuntime(), undefined, listener)
   }) as CustomEventsOnFunction<Events>
+
+  function createTransaction(entries: CustomEventsBatchRuntimeEntry[], init?: CustomEventsInit) {
+    init?.signal?.throwIfAborted()
+    return customEventsRuntime.createProductEvent(
+      getRuntime(),
+      CUSTOM_EVENTS_TRANSACTION,
+      undefined,
+      getEventInit(init),
+      entries,
+    )
+  }
 
   let create = ((...args: Array<unknown>) => {
     let [typeOrEvents, detailOrInit, maybeInit] = args as [
@@ -163,42 +165,25 @@ export function createCustomEventsDescriptor<
       let isOptionsOnly = args.length === 2 && isCustomEventsInit(detailOrInit)
       let detail = args.length === 1 || isOptionsOnly ? null : detailOrInit
       let init = isOptionsOnly ? (detailOrInit as CustomEventsInit) : maybeInit
-      let entries = resolveEntry(typeOrEvents, detail, init)
       return customEventsRuntime.createProductEvent(
         getRuntime(),
         typeOrEvents,
         detail,
         getEventInit(init),
-        entries,
+        resolveEntry(typeOrEvents, detail, init),
       )
     }
 
     if (Array.isArray(typeOrEvents)) {
-      let entries = normalizeConfiguredBatch(
-        typeOrEvents as readonly CustomEventsBatchItem<Events>[],
-      )
-      let init = detailOrInit as CustomEventsInit | undefined
-      init?.signal?.throwIfAborted()
-      return customEventsRuntime.createProductEvent(
-        getRuntime(),
-        CUSTOM_EVENTS_TRANSACTION,
-        undefined,
-        getEventInit(init),
-        entries,
+      return createTransaction(
+        normalizeEntries(typeOrEvents as readonly CustomEventsBatchItem<Events>[], true),
+        detailOrInit as CustomEventsInit | undefined,
       )
     }
 
     if (isRecord(typeOrEvents)) {
       let init = args.length >= 2 && isCustomEventsInit(detailOrInit) ? detailOrInit : undefined
-      init?.signal?.throwIfAborted()
-      let entries = normalizeEventObject(typeOrEvents)
-      return customEventsRuntime.createProductEvent(
-        getRuntime(),
-        CUSTOM_EVENTS_TRANSACTION,
-        undefined,
-        getEventInit(init),
-        entries,
-      )
+      return createTransaction(normalizeEntries([typeOrEvents]), init)
     }
 
     throw new TypeError('customEvents expects an event name, event object, or event array.')

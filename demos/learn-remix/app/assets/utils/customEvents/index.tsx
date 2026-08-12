@@ -14,6 +14,7 @@ import {
   type CustomEventsBatchRuntimeEntry,
   type CustomEventsEntryOp,
 } from './runtime.ts'
+import { reservedCustomEventsNames } from './types.ts'
 import type {
   CustomEventsDescriptor,
   CustomEventsDefinition,
@@ -76,14 +77,7 @@ function isRememberedDeclaration(value: unknown): value is EventDetails {
   )
 }
 
-const rememberedSeedNames = new Set<string>([
-  'create',
-  'on',
-  'asHost',
-  'dispatchEvent',
-  'addEventListener',
-  'removeEventListener',
-])
+const rememberedSeedNames = new Set<string>(reservedCustomEventsNames)
 
 type RememberedFoldFn<Held extends EventDetails> = (draft: Draft<Held>, detail: unknown) => void
 

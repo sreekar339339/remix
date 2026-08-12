@@ -45,13 +45,17 @@ export type NativeDOMEventName = Extract<
 
 type NativeNamesIn<Definition> = Extract<EventNames<Definition>, NativeDOMEventName>
 
-export type ReservedCustomEventsName =
-  | 'create'
-  | 'on'
-  | 'asHost'
-  | 'dispatchEvent'
-  | 'addEventListener'
-  | 'removeEventListener'
+/** Descriptor members that cannot be event names; the type derives from this constant. */
+export const reservedCustomEventsNames = [
+  'create',
+  'on',
+  'asHost',
+  'dispatchEvent',
+  'addEventListener',
+  'removeEventListener',
+] as const
+
+export type ReservedCustomEventsName = (typeof reservedCustomEventsNames)[number]
 type ReservedNamesIn<Definition> = Extract<EventNames<Definition>, ReservedCustomEventsName>
 
 type NativeEventNameError<Names extends string> = {
@@ -108,35 +112,36 @@ export type CustomEventsEventMap<Definition extends CustomEventsDefinition> = {
 
 type CustomEventsReactiveProp<Input, Event, Value> = (input: Input, event: Event) => Value
 
-/** Reactive props without `NoInfer`: callbacks may destructure union inputs. */
-type CustomEventsDirectReactiveElementProps<
+/**
+ * Reactive props for an evented-view; `Direct` skips `NoInfer` so callbacks
+ * may destructure union inputs (occurrence views).
+ */
+type CustomEventsReactiveElementProps<
   Input,
   Event,
   Tag extends keyof JSX.IntrinsicElements,
+  Direct extends boolean = false,
 > = {
   [Key in keyof Props<Tag>]: Key extends string
     ? Key extends 'children' | 'key' | 'mix' | 'ref' | 'on' | `on${string}`
       ? Props<Tag>[Key]
-      : Props<Tag>[Key] | CustomEventsReactiveProp<Input, Event, Props<Tag>[Key]>
+      :
+          | Props<Tag>[Key]
+          | CustomEventsReactiveProp<
+              Direct extends true ? Input : NoInfer<Input>,
+              Event,
+              Props<Tag>[Key]
+            >
     : Props<Tag>[Key]
 } & {
   [Key in `data-${string}`]?:
     | string
     | undefined
-    | CustomEventsReactiveProp<Input, Event, string | undefined>
-}
-
-type CustomEventsReactiveElementProps<Input, Event, Tag extends keyof JSX.IntrinsicElements> = {
-  [Key in keyof Props<Tag>]: Key extends string
-    ? Key extends 'children' | 'key' | 'mix' | 'ref' | 'on' | `on${string}`
-      ? Props<Tag>[Key]
-      : Props<Tag>[Key] | CustomEventsReactiveProp<NoInfer<Input>, Event, Props<Tag>[Key]>
-    : Props<Tag>[Key]
-} & {
-  [Key in `data-${string}`]?:
-    | string
-    | undefined
-    | CustomEventsReactiveProp<NoInfer<Input>, Event, string | undefined>
+    | CustomEventsReactiveProp<
+        Direct extends true ? Input : NoInfer<Input>,
+        Event,
+        string | undefined
+      >
 }
 
 type CustomEventsIntrinsicChildren<Tag extends keyof JSX.IntrinsicElements> =
@@ -207,20 +212,12 @@ type CustomEventsDefaultElementProps<
   Initialized
 >
 
-/** The value selected by a source: its payload for occurrences, its path value for state. */
-type CustomEventsSourceValue<Source> =
-  Source extends EventSource<infer Value, any, any> ? Value : never
-
-/**
- * The detail delivered to a state view. One source yields the selected value;
- * several sources yield a tuple index-aligned with `on`.
- */
+/** The detail selected by a source (or tuple of sources, index-aligned with `on`). */
 type CustomEventsSourceDetail<Source> = Source extends readonly unknown[]
-  ? { [Index in keyof Source]: CustomEventsSourceValue<Source[Index]> }
-  : CustomEventsSourceValue<Source>
-
-/** Input for an `on`-omitted state view: the whole snapshot, always. */
-type CustomEventsRememberedViewInput<State extends EventDetails> = State
+  ? { [Index in keyof Source]: CustomEventsSourceDetail<Source[Index]> }
+  : Source extends EventSource<infer Value, any, any>
+    ? Value
+    : never
 
 /** The matched event of a state wildcard view: any declared event or an implicit occurrence. */
 type CustomEventsWildcardEvent<Events extends EventDetails> =
@@ -258,21 +255,13 @@ type CustomEventsRememberedDefaultElementProps<
   State extends EventDetails,
   Tag extends keyof JSX.IntrinsicElements,
 > = Omit<
-  CustomEventsReactiveElementProps<
-    CustomEventsRememberedViewInput<State>,
-    CustomEventsWildcardEvent<Events>,
-    Tag
-  >,
+  CustomEventsReactiveElementProps<State, CustomEventsWildcardEvent<Events>, Tag>,
   'children'
 > & {
   eventSource: CustomEventsWildcardSource<Events, State>
   children?:
     | CustomEventsIntrinsicChildren<Tag>
-    | CustomEventsReactiveProp<
-        NoInfer<CustomEventsRememberedViewInput<State>>,
-        CustomEventsWildcardEvent<Events>,
-        RemixNode
-      >
+    | CustomEventsReactiveProp<NoInfer<State>, CustomEventsWildcardEvent<Events>, RemixNode>
 }
 
 type CustomEventsOccurrenceProps<
@@ -280,10 +269,11 @@ type CustomEventsOccurrenceProps<
   Tag extends keyof JSX.IntrinsicElements,
   Initialized extends boolean,
 > = Omit<
-  CustomEventsDirectReactiveElementProps<
+  CustomEventsReactiveElementProps<
     CustomEventsSourceDetail<Source> | (Initialized extends true ? never : undefined),
     CustomEventsSourceEvent<Source>,
-    Tag
+    Tag,
+    true
   >,
   'children'
 > & {
@@ -367,11 +357,11 @@ export type CustomEventsEventedViews<
  * a Map, Set, or array.
  */
 export type CustomEventsListItemTemplate<Source> =
-  CustomEventsSourceValue<Source> extends ReadonlyMap<infer Key, infer Item>
+  CustomEventsSourceDetail<Source> extends ReadonlyMap<infer Key, infer Item>
     ? (item: Item, key: Key) => RemixNode
-    : CustomEventsSourceValue<Source> extends ReadonlySet<infer Item>
+    : CustomEventsSourceDetail<Source> extends ReadonlySet<infer Item>
       ? (item: Item, key: Item) => RemixNode
-      : CustomEventsSourceValue<Source> extends readonly (infer Item)[]
+      : CustomEventsSourceDetail<Source> extends readonly (infer Item)[]
         ? (item: Item, key: number) => RemixNode
         : never
 
