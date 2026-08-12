@@ -101,10 +101,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           if (index < 0) return {}
           return {
             circles: new Map(
-              held.history.snapshots[index]!.entries().map(([id, circle]) => [
-                id,
-                { ...circle },
-              ]),
+              held.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
             ),
             editingCircleById: null,
             history: { ...held.history, index },
@@ -115,10 +112,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           if (index >= held.history.snapshots.length) return {}
           return {
             circles: new Map(
-              held.history.snapshots[index]!.entries().map(([id, circle]) => [
-                id,
-                { ...circle },
-              ]),
+              held.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
             ),
             editingCircleById: null,
             history: { ...held.history, index },

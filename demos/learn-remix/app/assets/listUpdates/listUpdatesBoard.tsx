@@ -485,7 +485,12 @@ export const ListUpdatesFilterBoard = clientEntry(
             </evented.list>
           ) : (
             <evented.div key="plain" eventSource={[events.visible, events.refresh]}>
-              {([visible]) => visible.values().map((item) => filterRow(item)).toArray()}
+              {([visible]) =>
+                visible
+                  .values()
+                  .map((item) => filterRow(item))
+                  .toArray()
+              }
             </evented.div>
           )}
         </div>
@@ -663,7 +668,12 @@ export const ListUpdatesFeedBoard = clientEntry(
             </evented.list>
           ) : (
             <evented.div key="plain" eventSource={[events.items, events.refresh]}>
-              {([items]) => items.values().map((item) => feedRow(item)).toArray()}
+              {([items]) =>
+                items
+                  .values()
+                  .map((item) => feedRow(item))
+                  .toArray()
+              }
             </evented.div>
           )}
         </div>

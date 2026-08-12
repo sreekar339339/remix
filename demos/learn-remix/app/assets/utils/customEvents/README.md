@@ -6,10 +6,13 @@ update an existing DOM view at the narrowest affected model address without
 splitting every repeated element into a component with its own state and
 `handle.update()` ceremony.
 
-The library is organized around five concepts:
+The library is organized around these concepts:
 
+- **Retained descriptor** — an event declaration whose root event's detail
+  folds in every held seed and effect event; the event-first way to keep
+  model values.
 - **Store** — an `EventTarget` retaining immutable state mutated through Immer
-  recipes; `state.value` reads the current snapshot.
+  recipes; the state-shaped addon for shared context.
 - **Event source** — a typed, addressable subscription handle for one event.
 - **Evented-view** — an intrinsic element (`evented.<tag>`) that subscribes
   to sources through the `eventSource` host prop and re-renders from matched
@@ -125,20 +128,69 @@ slot with the occurrence payload when that occurrence triggered the render and
 
 Evented-view props:
 
-| Prop             | Meaning                                                                                                                                                                                                                                      |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prop             | Meaning                                                                                                                                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `eventSource`    | A source, an array of sources, or the descriptor itself. The first callback argument is the selected value (one source), a tuple aligned with `eventSource` (several), or the whole snapshot/event union for the wildcard descriptor; the matched event is the second. |
-| `initial`        | A defined event to render before an occurrence first matches; callbacks receive it as the matched event. Store views need no `initial`.                                                                                                      |
-| `children`       | Static children, or a render function of the selected value and matched event.                                                                                                                                                               |
-| _reactive props_ | Any native prop may be a function of the selected value and matched event.                                                                                                                                                                   |
-| `mix`            | Mixins; use `source.on(...)` for element-owned effects.                                                                                                                                                                |
+| `initial`        | A defined event to render before an occurrence first matches; callbacks receive it as the matched event. Store views need no `initial`.                                                                                                                                |
+| `children`       | Static children, or a render function of the selected value and matched event.                                                                                                                                                                                         |
+| _reactive props_ | Any native prop may be a function of the selected value and matched event.                                                                                                                                                                                             |
+| `mix`            | Mixins; use `source.on(...)` for element-owned effects.                                                                                                                                                                                                                |
 
 The descriptor itself is a wildcard event source: passing it as `eventSource`
-subscribes the view to every descriptor event. On a store the snapshot is read
-for held events and occurrence payloads pass through raw. Because `evented.<tag>`
-is a string at runtime, an omitted `eventSource` does not imply a wildcard —
-state the wildcard explicitly with `eventSource={events}` (or
-`eventSource={store.events}`).
+subscribes the view to every descriptor event. On a retained descriptor or
+store the whole composite snapshot is read for every matched event, and the
+matched event rides along as the callback's second argument — occurrence
+payloads never replace the snapshot. Because `evented.<tag>` is a string at
+runtime, an omitted `eventSource` does not imply a wildcard — state the
+wildcard explicitly with `eventSource={events}` (or `eventSource={store.events}`).
+
+## Retained descriptors
+
+A retained descriptor is the event-first way to keep model values: no
+`state`, no `value`, no recipes. Declare **held seeds** (data) and **effect
+events** (folds) in the factory; the descriptor's root event's detail is the
+composite of every held seed:
+
+```tsx
+let events = customEvents(
+  { count: 0, label: 'idle' },
+  {
+    increment: (held, offset: number) => ({ count: held.count + offset }),
+  },
+)
+
+events.dispatch({ increment: 2 })        // held + effect events, one object
+events.dispatch('bookingConfirmed')      // bare name: an implicit occurrence
+events.dispatch({ startDate, returnDate }) // atomic multi-event
+
+<evented.div eventSource={events}>
+  {(held, latest) => `${held.label}:${held.count}`} // latest = matched event
+</evented.div>
+<evented.output eventSource={events.count}>
+  {(count) => `${count}`}
+</evented.output>
+```
+
+- **Held seeds** are data values keyed by event name. They cannot collide with
+  the descriptor API (`create`, `dispatch`, `on`, `asHost`) or native DOM
+  event names. Dispatching `{ seedName: value }` replaces that slice of the
+  composite.
+- **Effect events** are functions `(held, detail) => Partial<Held>` — how the
+  event folds into the composite. They read the current composite, so
+  state-dependent writes never go stale. Their output is diffed for patches:
+  Map item replaces keep keyed routing (one item re-renders), scalar writes
+  route by owner identity, and the effect event itself rides the same routes.
+- **Implicit occurrences** need no declaration: any name that is neither a
+  seed nor an effect event is an occurrence, dispatched with
+  `dispatch('name')` or `dispatch({ name: payload })`, and delivered to
+  wildcard views as `latest`.
+- **Reads are views only**: subscribe `eventSource={events}` (the whole
+  composite) or `eventSource={events.<seed>}` (one held value). Handlers live
+  inside a root view's render closure where the composite is in scope;
+  timers and async work dispatch pure events that effect events fold.
+- The descriptor registers its own host, so `dispatch` needs no target. The
+  explicit-target form (`dispatch(target, input)`) remains for hosted
+  elements.
 
 ### Descriptor methods
 
@@ -354,21 +406,23 @@ result.
 ### Whole-model wildcard view
 
 Pass the descriptor itself to `eventSource` to subscribe the view to every
-event. On a store it re-reads the whole state snapshot on mount and re-renders
-whenever any state property changes. Occurrence events still arrive raw. The
-render function's first argument is the state snapshot on state events and the
-occurrence payload otherwise:
+event. On a retained descriptor or store it re-reads the whole composite
+snapshot on mount and re-renders whenever the snapshot changes; the matched
+event is the callback's second argument. Occurrence events arrive as the
+matched event — the first argument is always the composite:
 
 ```tsx
 <evented.output eventSource={events}>
-  {(value) =>
-    typeof value === 'object' ? `${value.kind} from ${value.startDate}` : value
+  {(held, latest) =>
+    latest?.type === 'bookingConfirmed'
+      ? `You have booked a ${held.kind}.`
+      : `${held.kind} from ${held.startDate}`
   }
 </evented.output>
 ```
 
 The snapshot read needs no `initial` because a snapshot always exists. This
-makes the evented-view a live read-only view of the whole store — ideal for an
+makes the evented-view a live read-only view of the whole model — ideal for an
 element whose output depends on several properties at once, such as a progress
 bar ratio.
 

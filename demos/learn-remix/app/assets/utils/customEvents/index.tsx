@@ -156,9 +156,7 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
                 ...(previousValue !== undefined && previousValue !== null
                   ? [ownerAddress(previousValue)]
                   : []),
-                ...(nextValue !== undefined && nextValue !== null
-                  ? [ownerAddress(nextValue)]
-                  : []),
+                ...(nextValue !== undefined && nextValue !== null ? [ownerAddress(nextValue)] : []),
               ]
               ops = ['replace']
             }

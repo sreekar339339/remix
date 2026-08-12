@@ -567,10 +567,7 @@ export type RetainedOnFunction = {
 }
 
 /** Retained descriptor core: the root event, held and effect sub-sources, and write verbs. */
-export type RetainedDescriptorBase<
-  Events extends EventDetails,
-  Seeds extends EventDetails,
-> = {
+export type RetainedDescriptorBase<Events extends EventDetails, Seeds extends EventDetails> = {
   create: CustomEventsFactory<Events> & RetainedCreate<Seeds>
   dispatch: CustomEventsDispatch<Events> & RetainedDispatch<Seeds>
   on: RetainedOnFunction

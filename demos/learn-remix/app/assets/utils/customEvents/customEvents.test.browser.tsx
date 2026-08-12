@@ -1953,11 +1953,7 @@ describe('retained customEvents', () => {
             {(item) => {
               itemCalls++
               return (
-                <evented.div
-                  key={item.id}
-                  className="item"
-                  eventSource={events.items.get(item.id)}
-                >
+                <evented.div key={item.id} className="item" eventSource={events.items.get(item.id)}>
                   {(current) => current?.label ?? item.label}
                 </evented.div>
               )

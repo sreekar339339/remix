@@ -42,10 +42,7 @@ type StateEventContext = {
   owner: object
   getState(): EventDetails
   /** Folds a dispatched event into the retained composite; absent for pure descriptors. */
-  fold?(
-    type: string,
-    detail: unknown,
-  ): readonly CustomEventsBatchRuntimeEntry[] | undefined
+  fold?(type: string, detail: unknown): readonly CustomEventsBatchRuntimeEntry[] | undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -239,9 +236,7 @@ export function createCustomEventsDescriptor<
     if (target === undefined) {
       target = customEventsRuntime.defaultHost(getRuntime())
       if (target === undefined) {
-        throw new TypeError(
-          'customEvents dispatch without a target requires a registered host.',
-        )
+        throw new TypeError('customEvents dispatch without a target requires a registered host.')
       }
     }
     return customEventsRuntime.dispatch(getRuntime(), target, event)

@@ -3,7 +3,10 @@ import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss } from './styles.ts'
 
 export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisCounter() {
-  let events = customEvents({ count: 0 }, { increment: (held, offset: number) => ({ count: held.count + offset }) })
+  let events = customEvents(
+    { count: 0 },
+    { increment: (held, offset: number) => ({ count: held.count + offset }) },
+  )
   let incrementOffset = 1
   return () => (
     <>

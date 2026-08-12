@@ -154,9 +154,7 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                       defaultValue={([committed, draft]) =>
                         draft?.id === id ? draft.text : committed
                       }
-                      value={([committed, draft]) =>
-                        draft?.id === id ? draft.text : committed
-                      }
+                      value={([committed, draft]) => (draft?.id === id ? draft.text : committed)}
                       mix={[
                         cellCss,
                         events.focusTarget.as(id).on(({ currentTarget }) => {

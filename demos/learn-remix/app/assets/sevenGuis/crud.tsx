@@ -109,10 +109,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
         </select>
         <div eventSource={[events.draft, events.selectedId]} mix={css({ display: 'grid', gap: 8 })}>
           {(values) => {
-            let [draft, selectedId] = values as [
-              { name: string; surname: string },
-              number | null,
-            ]
+            let [draft, selectedId] = values as [{ name: string; surname: string }, number | null]
             return (
               <>
                 <label>
