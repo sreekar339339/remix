@@ -516,4 +516,8 @@ export const customEventsRuntime = {
   dispatch,
   subscribe,
   registerHost,
+  /** The descriptor's registered default host, if any. */
+  defaultHost(runtime: CustomEventsRuntimeState) {
+    return runtime.defaultHost
+  },
 }

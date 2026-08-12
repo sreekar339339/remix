@@ -4,7 +4,7 @@ import { on, ref } from 'remix/ui'
 import { render } from 'remix/ui/test'
 import { customEvents, evented } from './index.tsx'
 import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
-import type { CustomEventsOptions } from './types.ts'
+import type { CustomEventsOptions, EventDetails } from './types.ts'
 
 type TestEvents = {
   submitted: { id: string }
@@ -998,24 +998,23 @@ describe('customEvents', () => {
     assert.equal(listener.textContent, '2:1')
   })
 
-  it('renders the whole state snapshot through the wildcard source', async (t) => {
+  it('renders the whole composite through the wildcard source', async (t) => {
     let store = customEvents<{
       count: number
       countDrafted: number
     }>().store({ count: 0 })
-    let seen: unknown[] = []
+    let seen: Array<[{ count: number }, unknown]> = []
 
     function Snapshot() {
       return () => (
         <evented.output eventSource={store.events} aria-label="snapshot">
-          {(value) => {
-            seen.push(value)
+          {(value, latest) => {
+            seen.push([value, latest?.type])
             if (false) {
-              value satisfies number | { readonly count: number }
+              value satisfies { readonly count: number }
             }
-            return typeof value === 'object' && value !== null
-              ? `count:${value.count}`
-              : `raw:${value}`
+            let last = latest?.type === 'countDrafted' ? ` raw:${latest.detail}` : ''
+            return `count:${value.count}${last}`
           }}
         </evented.output>
       )
@@ -1025,7 +1024,9 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'count:0')
-    assert.deepEqual(seen[0], { count: 0 })
+    assert.equal(seen.length, 1)
+    assert.equal(seen[0]?.[0]?.count, 0)
+    assert.equal(seen[0]?.[1], undefined)
 
     await result.act(async () => {
       store.state.update((draft) => {
@@ -1034,14 +1035,16 @@ describe('customEvents', () => {
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'count:1')
-    assert.deepEqual(seen[seen.length - 1], { count: 1 })
+    assert.deepEqual(seen[seen.length - 1], [{ count: 1 }, 'count'])
 
     await result.act(async () => {
       store.host.dispatchEvent(store.events.create('countDrafted', 2))
       await settleEffects()
     })
-    assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'raw:2')
-    assert.equal(seen[seen.length - 1], 2)
+    // The wildcard reads the composite for every event; occurrences ride along
+    // as the matched event instead of replacing the input.
+    assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'count:1 raw:2')
+    assert.deepEqual(seen[seen.length - 1], [{ count: 1 }, 'countDrafted'])
   })
 
   it('creates an independent EventTarget host for each state model', () => {
@@ -1115,11 +1118,11 @@ describe('customEvents', () => {
       events.create('*')
       // @ts-expect-error - native DOM event names are reserved.
       customEvents<'click'>()
+      // @ts-expect-error - factory host registration has no abort lifecycle.
       customEvents<TestEvents>({
         host: new EventTarget(),
-        // @ts-expect-error - factory host registration has no abort lifecycle.
         signal: new AbortController().signal,
-      })
+      } as unknown)
       // @ts-expect-error - descriptor events are completed, non-cancelable facts.
       events.create('paid', { cancelable: true })
       // @ts-expect-error - awaitable dispatch preserves detailed-event typing.
@@ -1829,5 +1832,224 @@ describe('customEvents', () => {
     assert.equal(reachedParent, false)
     unregisterHost()
     unsubscribe()
+  })
+})
+
+describe('retained customEvents', () => {
+  it('folds held replaces and effect events into the root composite', async (t) => {
+    let events = customEvents(
+      { count: 0, label: 'idle' },
+      { inc: (held, amount: number) => ({ count: held.count + amount }) },
+    )
+    let seen: Array<[unknown, unknown]> = []
+
+    function View() {
+      return () => (
+        <evented.output eventSource={events} aria-label="root">
+          {(held, latest) => {
+            seen.push([held, latest?.type])
+            return `${held.label}:${held.count}`
+          }}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
+
+    await result.act(async () => {
+      await events.dispatch({ inc: 2 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
+    // The effect entry notifies the root, then the affected held event folds.
+    assert.deepEqual(seen[seen.length - 1], [{ count: 2, label: 'idle' }, 'count'])
+
+    await result.act(async () => {
+      await events.dispatch({ count: 5, label: 'ready' })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'ready:5')
+    assert.deepEqual(seen[seen.length - 1], [{ count: 5, label: 'ready' }, 'label'])
+
+    if (false) {
+      // @ts-expect-error - retained descriptors have no state namespace.
+      events.state
+      // @ts-expect-error - retained descriptors have no sync read.
+      events.value
+      // @ts-expect-error - writes go through dispatch, not update.
+      events.update
+      // @ts-expect-error - held details are typed by their seeds.
+      events.dispatch({ count: 'not-a-number' })
+      // @ts-expect-error - seeds cannot overwrite the descriptor API.
+      customEvents({ dispatch: 1 })
+      // @ts-expect-error - seeds cannot use native DOM event names.
+      customEvents({ click: false })
+    }
+  })
+
+  it('dispatches implicit occurrences with and without details', async (t) => {
+    let events = customEvents({ count: 0 })
+    let seen: Array<[unknown, unknown]> = []
+
+    function View() {
+      return () => (
+        <evented.output eventSource={events} aria-label="root">
+          {(held, latest) => {
+            seen.push([held, latest?.type])
+            if (latest?.type === 'refreshRequested') return `refresh:${held.count}`
+            if (latest?.type === 'countDrafted') return `draft:${latest.detail}`
+            return `count:${held.count}`
+          }}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'count:0')
+
+    await result.act(async () => {
+      await events.dispatch('refreshRequested')
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'refresh:0')
+    assert.deepEqual(seen[seen.length - 1], [{ count: 0 }, 'refreshRequested'])
+
+    await result.act(async () => {
+      await events.dispatch({ countDrafted: 42 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'draft:42')
+    assert.deepEqual(seen[seen.length - 1], [{ count: 0 }, 'countDrafted'])
+  })
+
+  it('runs effect folds atomically and routes patches fine-grained', async (t) => {
+    type Item = { id: number; label: string }
+    let events = customEvents(
+      { items: new Map<number, Item>([[1, { id: 1, label: 'one' }]]) },
+      {
+        rename: (held, { id, label }: { id: number; label: string }) => {
+          let item = held.items.get(id)
+          if (!item) return {}
+          return { items: new Map(held.items).set(id, { ...item, label }) }
+        },
+      },
+    )
+    let itemCalls = 0
+    let rootCalls = 0
+
+    function View() {
+      return () => (
+        <section>
+          <evented.output eventSource={events} aria-label="root">
+            {(held) => {
+              rootCalls++
+              return `${held.items.size} items`
+            }}
+          </evented.output>
+          <evented.list eventSource={events.items}>
+            {(item) => {
+              itemCalls++
+              return (
+                <evented.div
+                  key={item.id}
+                  className="item"
+                  eventSource={events.items.get(item.id)}
+                >
+                  {(current) => current?.label ?? item.label}
+                </evented.div>
+              )
+            }}
+          </evented.list>
+        </section>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(rootCalls, 1)
+    assert.equal(itemCalls, 1)
+    let item = result.$('.item')!
+
+    await result.act(async () => {
+      await events.dispatch({ rename: { id: 1, label: 'first' } })
+      await settleEffects()
+    })
+    // The effect entry notifies the root; the diffed Map item replace routes
+    // to the item element only, preserving its DOM identity.
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '1 items')
+    assert.equal(result.$('.item')?.textContent, 'first')
+    assert.equal(result.$('.item'), item)
+    assert.equal(rootCalls, 2, `rootCalls=${rootCalls}`)
+    assert.equal(itemCalls, 1, `itemCalls=${itemCalls}`)
+  })
+
+  it("keeps the effect event's own payload visible to its subscribers", async (t) => {
+    let events = customEvents(
+      { elapsed: 0 },
+      { tick: (held, delta: number) => ({ elapsed: held.elapsed + delta }) },
+    )
+    let seen: Array<[unknown, unknown]> = []
+
+    function View() {
+      return () => (
+        <evented.output eventSource={events.tick} aria-label="tick">
+          {(delta, latest) => {
+            seen.push([delta, latest?.type])
+            return delta === undefined ? '' : `${delta}`
+          }}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="tick"]')?.textContent, '')
+
+    await result.act(async () => {
+      await events.dispatch({ tick: 0.5 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="tick"]')?.textContent, '0.5')
+    assert.deepEqual(seen[seen.length - 1], [0.5, 'tick'])
+  })
+
+  it('folds null through the bare-name sugar for held events', async (t) => {
+    let events = customEvents({ kind: 'one-way' })
+    let seen: unknown[] = []
+
+    function View() {
+      return () => (
+        <evented.output eventSource={events.kind} aria-label="kind">
+          {(kind) => {
+            seen.push(kind)
+            return `${kind}`
+          }}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="kind"]')?.textContent, 'one-way')
+
+    await result.act(async () => {
+      await events.dispatch({ kind: 'return' })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="kind"]')?.textContent, 'return')
+  })
+
+  it('freezes retained seeds and rejects reserved names', () => {
+    let seeds = { count: 0 }
+    customEvents(seeds)
+    assert.throws(() => {
+      seeds.count = 1
+    })
+    assert.throws(() => {
+      customEvents({ create: 1 } as EventDetails)
+    }, /reserves the seed name/)
   })
 })

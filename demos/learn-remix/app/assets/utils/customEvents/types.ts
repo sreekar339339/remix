@@ -1,3 +1,4 @@
+import type { Immutable } from 'immer'
 import {
   type EVENT_SOURCE,
   type EventSourceProtocol,
@@ -175,8 +176,8 @@ type CustomEventsSourceEvent<Source> = Source extends readonly (infer Item)[]
 
 /**
  * The descriptor itself, used as the wildcard event source: subscribing to it
- * matches every descriptor event. On a store it reads the whole snapshot for
- * held events and passes occurrence payloads through raw.
+ * matches every descriptor event. On a retained descriptor or store it reads
+ * the whole composite snapshot for every matched event.
  */
 export type CustomEventsWildcardSource<
   Events extends EventDetails,
@@ -216,15 +217,8 @@ type CustomEventsSourceDetail<Source> = Source extends readonly unknown[]
   ? { [Index in keyof Source]: CustomEventsSourceValue<Source[Index]> }
   : CustomEventsSourceValue<Source>
 
-/** Payloads of the occurrence events not retained by the store. */
-type CustomEventsOccurrenceDetail<Events extends EventDetails, State extends EventDetails> = {
-  [Key in CustomEventsEventType<Events>]: Key extends keyof State & string ? never : Events[Key]
-}[CustomEventsEventType<Events>]
-
-/** Input for an `on`-omitted state view: the whole snapshot or one occurrence payload. */
-type CustomEventsStateViewInput<Events extends EventDetails, State extends EventDetails> =
-  | State
-  | CustomEventsOccurrenceDetail<Events, State>
+/** Input for an `on`-omitted state view: the whole snapshot, always. */
+type CustomEventsStateViewInput<State extends EventDetails> = State
 
 /** Evented-view on a state store: `eventSource` selects sources; the input is their value(s). */
 type CustomEventsStateElementProps<
@@ -257,18 +251,14 @@ type CustomEventsStateDefaultElementProps<
   State extends EventDetails,
   Tag extends keyof JSX.IntrinsicElements,
 > = Omit<
-  CustomEventsReactiveElementProps<
-    CustomEventsStateViewInput<Events, State>,
-    CustomEventsEventMap<Events>[CustomEventsEventType<Events>],
-    Tag
-  >,
+  CustomEventsReactiveElementProps<CustomEventsStateViewInput<State>, CustomEventsEventMap<Events>[CustomEventsEventType<Events>], Tag>,
   'children'
 > & {
   eventSource: CustomEventsWildcardSource<Events, State>
   children?:
     | CustomEventsIntrinsicChildren<Tag>
     | CustomEventsReactiveProp<
-        NoInfer<CustomEventsStateViewInput<Events, State>>,
+        NoInfer<CustomEventsStateViewInput<State>>,
         CustomEventsEventMap<Events>[CustomEventsEventType<Events>],
         RemixNode
       >
@@ -497,3 +487,86 @@ export type CustomEventsDescriptor<
     /** Makes an element act as a host for this descriptor. */
     asHost: MixinDescriptor<Element, any>
   }
+
+/** How a declared effect event folds into the retained composite. */
+export type RetainedFold<Held extends EventDetails, Detail = unknown> = (
+  held: Held,
+  detail: Detail,
+) => Partial<Held> | undefined
+
+/**
+ * The declared effect events of a retained descriptor, keyed by event name.
+ * Folds may narrow their detail parameter; the contextual type is `any` so
+ * both annotated and unannotated folds assign.
+ */
+export type RetainedFolds<Held extends EventDetails> = {
+  readonly [Name: string]: RetainedFold<Held, any>
+}
+
+/**
+ * Held seeds of a retained descriptor: data values keyed by event name, which
+ * cannot overwrite the descriptor API or use native DOM event names.
+ */
+export type RetainedSeeds<
+  Value extends EventDetails,
+  InvalidKeys extends PropertyKey = Extract<
+    keyof Value,
+    ReservedCustomEventsName | NativeDOMEventName
+  >,
+> = [InvalidKeys] extends [never]
+  ? Value
+  : Value & {
+      readonly __customEventsSeedsError: 'retained seeds cannot overwrite its API or use native DOM event names.'
+      readonly invalidKeys: InvalidKeys
+    }
+
+type RetainedFoldDetail<Folds, Name extends keyof Folds & string> = Folds[Name] extends (
+  held: any,
+  detail: infer Detail,
+) => any
+  ? Detail
+  : unknown
+
+/** The event map of a retained descriptor: held seeds and declared effect events. */
+export type RetainedEventsMap<
+  Seeds extends EventDetails,
+  Folds extends RetainedFolds<Seeds>,
+> = {
+  [Name in keyof Seeds & string]: Immutable<Seeds[Name]>
+} & {
+  [Name in keyof Folds & string]: RetainedFoldDetail<Folds, Name>
+}
+
+/**
+ * The write input of a retained descriptor: an event-named object of details
+ * (held keys replace their slice, effect events fold it in, undeclared names
+ * fire occurrences), a bare name for a detail-less occurrence, or an ordered
+ * list for same-name entries.
+ */
+export type RetainedEventInput<Seeds extends EventDetails> =
+  | string
+  | (Partial<Seeds> & Record<string, unknown>)
+  | readonly (string | Record<string, unknown>)[]
+
+/** Creates one fresh retained event from the write-input grammar. */
+export type RetainedCreate<Seeds extends EventDetails> = {
+  (input: RetainedEventInput<Seeds>, init?: CustomEventsInit): Event
+}
+
+/** Dispatches retained events, targeting the descriptor host when omitted. */
+export type RetainedDispatch<Seeds extends EventDetails> = {
+  (input: RetainedEventInput<Seeds>, init?: CustomEventsInit): Promise<void>
+  (target: EventTarget, input: RetainedEventInput<Seeds>, init?: CustomEventsInit): Promise<void>
+}
+
+/**
+ * A retained descriptor: the root composite event (`eventSource={events}`)
+ * whose detail folds in every held seed and effect event.
+ */
+export type RetainedDescriptor<
+  Seeds extends EventDetails,
+  Folds extends RetainedFolds<Seeds>,
+> = CustomEventsDescriptor<RetainedEventsMap<Seeds, Folds>, Immutable<Seeds>> & {
+  create: CustomEventsFactory<RetainedEventsMap<Seeds, Folds>> & RetainedCreate<Seeds>
+  dispatch: CustomEventsDispatch<RetainedEventsMap<Seeds, Folds>> & RetainedDispatch<Seeds>
+}

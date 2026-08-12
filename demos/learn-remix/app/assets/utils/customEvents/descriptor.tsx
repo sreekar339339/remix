@@ -1,4 +1,4 @@
-import { EVENT_SOURCE, ref, type EventSource, type EventSourceEvent } from 'remix/ui'
+import { EVENT_SOURCE, ref, type EventSource } from 'remix/ui'
 import {
   ALL_EVENTS,
   createCustomEventsRuntimeState,
@@ -6,7 +6,6 @@ import {
   type CustomEventsBatchRuntimeEntry,
   type CustomEventsRuntimeState,
   type CustomEventsEntryOp,
-  type EventAddress,
 } from './runtime.ts'
 import { customEventsOnMixin } from './remix.tsx'
 import { createEventSource } from './eventSources.ts'
@@ -42,14 +41,11 @@ type InternalEntryOptions = CustomEventsInit & {
 type StateEventContext = {
   owner: object
   getState(): EventDetails
-  /** Folds a held event's value into the snapshot; absent for pure descriptors. */
+  /** Folds a dispatched event into the retained composite; absent for pure descriptors. */
   fold?(
     type: string,
     detail: unknown,
-  ): {
-    detail: unknown
-    addresses?: readonly EventAddress[]
-  }
+  ): readonly CustomEventsBatchRuntimeEntry[] | undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,37 +75,39 @@ export function createCustomEventsDescriptor<
   let getRuntime = () => (runtime ??= createCustomEventsRuntimeState())
   let sourceOwner = state?.owner ?? {}
 
-  function createEntry(
+  function resolveEntry(
     type: string,
     detail: unknown,
     options?: InternalEntryOptions,
-  ): CustomEventsBatchRuntimeEntry {
+  ): CustomEventsBatchRuntimeEntry[] {
     options?.signal?.throwIfAborted()
     if (type === ALL_EVENTS) {
       throw new TypeError('customEvents reserves "*" for subscriptions.')
     }
-    if (options?.addresses === undefined && state?.fold && Object.hasOwn(state.getState(), type)) {
+    if (options?.addresses === undefined && state?.fold) {
       let folded = state.fold(type, detail)
-      return {
-        type,
-        detail: folded.detail,
-        ...(folded.addresses === undefined ? {} : { addresses: folded.addresses }),
-      }
+      if (folded !== undefined) return [...folded]
     }
     let addresses = options?.addresses
     let ops = options?.ops
-    return {
-      type,
-      detail,
-      ...(addresses === undefined ? {} : { addresses }),
-      ...(ops === undefined ? {} : { ops }),
-    }
+    return [
+      {
+        type,
+        detail,
+        ...(addresses === undefined ? {} : { addresses }),
+        ...(ops === undefined ? {} : { ops }),
+      },
+    ]
+  }
+
+  function isEntryConfiguration(value: unknown): value is Record<string, unknown> {
+    return isRecord(value) && (Object.hasOwn(value, 'detail') || Object.hasOwn(value, 'options'))
   }
 
   function normalizeConfiguredBatch(configuredEvents: readonly CustomEventsBatchItem<Events>[]) {
-    return configuredEvents.map((configuredEvent) => {
+    return configuredEvents.flatMap((configuredEvent) => {
       if (typeof configuredEvent === 'string') {
-        return createEntry(configuredEvent, null)
+        return resolveEntry(configuredEvent, null)
       }
 
       let eventEntries = Object.entries(configuredEvent)
@@ -117,17 +115,34 @@ export function createCustomEventsDescriptor<
         throw new TypeError('Each configured customEvents batch entry must contain one event.')
       }
 
-      let [[type, configuration]] = eventEntries
-      let config = configuration as {
-        detail?: unknown
-        options?: InternalEntryOptions
+      let [type, rawValue] = eventEntries[0] as [string, unknown]
+      if (isEntryConfiguration(rawValue)) {
+        return resolveEntry(
+          type,
+          Object.hasOwn(rawValue, 'detail') ? rawValue.detail : null,
+          rawValue.options as InternalEntryOptions | undefined,
+        )
       }
-      return createEntry(
-        type,
-        Object.hasOwn(config, 'detail') ? config.detail : null,
-        config.options,
-      )
+      return resolveEntry(type, rawValue)
     })
+  }
+
+  function normalizeEventObject(events: Record<string, unknown>) {
+    let entries: CustomEventsBatchRuntimeEntry[] = []
+    for (let [type, value] of Object.entries(events)) {
+      if (isEntryConfiguration(value)) {
+        entries.push(
+          ...resolveEntry(
+            type,
+            Object.hasOwn(value, 'detail') ? value.detail : null,
+            value.options as InternalEntryOptions | undefined,
+          ),
+        )
+      } else {
+        entries.push(...resolveEntry(type, value))
+      }
+    }
+    return entries
   }
 
   let on = ((...args: unknown[]) => {
@@ -140,7 +155,7 @@ export function createCustomEventsDescriptor<
 
   let create = ((...args: Array<unknown>) => {
     let [typeOrEvents, detailOrInit, maybeInit] = args as [
-      string | readonly CustomEventsBatchItem<Events>[],
+      string | readonly CustomEventsBatchItem<Events>[] | Record<string, unknown>,
       unknown?,
       CustomEventsInit?,
     ]
@@ -148,13 +163,13 @@ export function createCustomEventsDescriptor<
       let isOptionsOnly = args.length === 2 && isCustomEventsInit(detailOrInit)
       let detail = args.length === 1 || isOptionsOnly ? null : detailOrInit
       let init = isOptionsOnly ? (detailOrInit as CustomEventsInit) : maybeInit
-      let entry = createEntry(typeOrEvents, detail, init)
+      let entries = resolveEntry(typeOrEvents, detail, init)
       return customEventsRuntime.createProductEvent(
         getRuntime(),
         typeOrEvents,
         detail,
         getEventInit(init),
-        [entry],
+        entries,
       )
     }
 
@@ -173,23 +188,29 @@ export function createCustomEventsDescriptor<
       )
     }
 
-    throw new TypeError('customEvents expects an event name or event array.')
+    if (isRecord(typeOrEvents)) {
+      let init = args.length >= 2 && isCustomEventsInit(detailOrInit) ? detailOrInit : undefined
+      init?.signal?.throwIfAborted()
+      let entries = normalizeEventObject(typeOrEvents)
+      return customEventsRuntime.createProductEvent(
+        getRuntime(),
+        CUSTOM_EVENTS_TRANSACTION,
+        undefined,
+        getEventInit(init),
+        entries,
+      )
+    }
+
+    throw new TypeError('customEvents expects an event name, event object, or event array.')
   }) as CustomEventsFactory<Events>
 
   // The descriptor doubles as the wildcard event source: subscribing to it
-  // matches every descriptor event. On a store the snapshot is read for held
-  // events and occurrence payloads pass through raw.
+  // matches every descriptor event. On a retained descriptor or store the
+  // composite snapshot is read for every matched event.
   let wildcardSource: EventSource = {
     [EVENT_SOURCE]: {
       type: ALL_EVENTS,
-      ...(state
-        ? {
-            read: (trigger?: EventSourceEvent) =>
-              trigger && !Object.hasOwn(state.getState(), trigger.type)
-                ? trigger.detail
-                : state.getState(),
-          }
-        : {}),
+      ...(state ? { read: () => state.getState() } : {}),
       subscribe(subscriber, signal) {
         customEventsRuntime.subscribe(
           getRuntime(),
@@ -206,9 +227,23 @@ export function createCustomEventsDescriptor<
       },
     },
   }
-  let dispatch = ((target: EventTarget, ...args: unknown[]) => {
+  let dispatch = ((...args: unknown[]) => {
+    let target: EventTarget | undefined
+    let rest = args
+    if (args.length > 0 && args[0] instanceof EventTarget) {
+      target = args[0]
+      rest = args.slice(1)
+    }
     let createEvent = create as (...args: unknown[]) => Event
-    let event = createEvent(...args)
+    let event = createEvent(...rest)
+    if (target === undefined) {
+      target = customEventsRuntime.defaultHost(getRuntime())
+      if (target === undefined) {
+        throw new TypeError(
+          'customEvents dispatch without a target requires a registered host.',
+        )
+      }
+    }
     return customEventsRuntime.dispatch(getRuntime(), target, event)
   }) as CustomEventsDispatch<Events>
   let asHost = ref((target, signal) => {

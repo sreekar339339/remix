@@ -11,7 +11,11 @@ import {
 } from 'immer'
 import type { TypedEventTarget } from 'remix/ui'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
-import { canonicalAddressSegment, type CustomEventsEntryOp } from './runtime.ts'
+import {
+  canonicalAddressSegment,
+  type CustomEventsBatchRuntimeEntry,
+  type CustomEventsEntryOp,
+} from './runtime.ts'
 import type {
   CustomEventsDescriptor,
   CustomEventsDefinition,
@@ -23,6 +27,9 @@ import type {
   NativeDOMEventName,
   NormalizeCustomEventsDefinition,
   ReservedCustomEventsName,
+  RetainedDescriptor,
+  RetainedFolds,
+  RetainedSeeds,
 } from './types.ts'
 import { isPropertyKey } from './eventSources.ts'
 export type { CustomEventsEventMap } from './types.ts'
@@ -58,8 +65,28 @@ type DescriptorWithStore<Events extends EventDetails> = CustomEventsDescriptor<E
 export function customEvents<Definition extends CustomEventsDefinition = never>(
   ...args: CustomEventsFactoryArgs<Definition>
 ): DescriptorWithStore<NormalizeCustomEventsDefinition<Definition>>
-export function customEvents(options?: unknown): unknown {
-  let descriptorOptions = options as CustomEventsOptions | undefined
+/**
+ * Creates a retained descriptor: a root composite event whose detail folds in
+ * every held seed and effect event declared here.
+ *
+ * `customEvents({ count: 0, label: 'idle' }, { inc: (held, n) => ({ count: held.count + n }) })`
+ */
+export function customEvents<Seeds extends EventDetails>(
+  seeds: RetainedSeeds<Seeds>,
+  folds?: undefined,
+): RetainedDescriptor<Seeds, never>
+export function customEvents<
+  Seeds extends EventDetails,
+  Folds extends RetainedFolds<Seeds>,
+>(
+  seeds: RetainedSeeds<Seeds>,
+  folds: Folds,
+): RetainedDescriptor<Seeds, Folds>
+export function customEvents(first?: unknown, foldsArg?: unknown): unknown {
+  if (isRetainedDeclaration(first)) {
+    return createRetained(first, foldsArg as RetainedFolds<EventDetails> | undefined)
+  }
+  let descriptorOptions = first as CustomEventsOptions | undefined
   let descriptor = createCustomEventsDescriptor(descriptorOptions)
   return Object.assign(descriptor, {
     store(value: EventDetails) {
@@ -69,6 +96,96 @@ export function customEvents(options?: unknown): unknown {
       return createStore(value)
     },
   })
+}
+
+function isRetainedDeclaration(value: unknown): value is EventDetails {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).some((key) => key !== 'host')
+  )
+}
+
+const reservedSeedNames = new Set<string>(['create', 'dispatch', 'on', 'asHost', 'store'])
+
+type RetainedFoldFn<Held extends EventDetails> = (
+  held: Held,
+  detail: unknown,
+) => Partial<Held> | undefined
+
+/** Creates a retained descriptor from held seeds and declared effect events. */
+function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<Seeds>>(
+  seeds: Seeds,
+  folds?: Folds,
+): RetainedDescriptor<Seeds, Folds> {
+  for (let name of Object.keys(seeds)) {
+    if (name === '*' || reservedSeedNames.has(name)) {
+      throw new TypeError(`customEvents reserves the seed name "${name}".`)
+    }
+  }
+  let snapshot = freeze(seeds, true) as EventDetails
+  let target = new EventTarget()
+  let foldFns = new Map<string, RetainedFoldFn<Seeds>>()
+  if (folds !== undefined) {
+    for (let [name, fold] of Object.entries(folds)) {
+      foldFns.set(name, fold as RetainedFoldFn<Seeds>)
+    }
+  }
+
+  function foldEntry(type: string, detail: unknown) {
+    let foldFn = foldFns.get(type)
+    if (foldFn) {
+      let entries: CustomEventsBatchRuntimeEntry[] = [{ type, detail }]
+      let partial = foldFn(snapshot as Seeds, detail)
+      if (partial !== undefined && Object.keys(partial).length > 0) {
+        let nextSnapshot = produce(snapshot, (draft) => {
+          Object.assign(draft as EventDetails, partial)
+        })
+        let keyPatches = new Map<string, Patch[]>()
+        for (let key of Object.keys(partial)) {
+          let patches = diffKey(snapshot[key], (nextSnapshot as EventDetails)[key]).map(
+            (patch) => ({ ...patch, path: [key, ...patch.path] }),
+          )
+          if (patches.length > 0) keyPatches.set(key, patches)
+        }
+        if (keyPatches.size > 0) {
+          for (let [key, patches] of keyPatches) {
+            let { addresses, ops } = normalizePatches(snapshot, nextSnapshot, patches)
+            entries.push({
+              type: key,
+              detail: (nextSnapshot as EventDetails)[key],
+              addresses,
+              ops,
+            })
+          }
+          snapshot = nextSnapshot
+        }
+      }
+      return entries
+    }
+
+    if (Object.hasOwn(snapshot, type)) {
+      let nextSnapshot = produce(snapshot, (draft) => {
+        ;(draft as EventDetails)[type] = detail
+      })
+      snapshot = nextSnapshot
+      return [
+        {
+          type,
+          detail: (nextSnapshot as EventDetails)[type],
+          addresses: [[]] as readonly (readonly unknown[])[],
+        },
+      ]
+    }
+    return undefined
+  }
+
+  let events = createCustomEventsDescriptor<EventDetails, EventDetails>(
+    { host: target },
+    { owner: target, getState: () => snapshot, fold: foldEntry },
+  )
+  return events as unknown as RetainedDescriptor<Seeds, Folds>
 }
 
 type StateInput<
@@ -211,6 +328,50 @@ function isPrimitive(value: unknown) {
   return value === null || typeof value !== 'object'
 }
 
+/** Diff-style patches for one held key, with Map/Set item granularity. */
+function diffKey(previous: unknown, next: unknown): Patch[] {
+  let segment = (value: unknown) => value as string | number
+  if (previous instanceof Map && next instanceof Map) {
+    let patches: Patch[] = []
+    for (let [key, prevValue] of previous) {
+      if (next.has(key)) {
+        if (next.get(key) !== prevValue) {
+          patches.push({ op: 'replace', path: [segment(key)] })
+        }
+      } else {
+        patches.push({ op: 'remove', path: [segment(key)] })
+      }
+    }
+    for (let [key, value] of next) {
+      if (!previous.has(key)) {
+        patches.push({ op: 'add', path: [segment(key)], value })
+      }
+    }
+    return patches
+  }
+  if (previous instanceof Set && next instanceof Set) {
+    let patches: Patch[] = []
+    for (let value of previous) {
+      if (!next.has(value)) patches.push({ op: 'remove', path: [segment(value)] })
+    }
+    for (let value of next) {
+      if (!previous.has(value)) {
+        patches.push({ op: 'add', path: [segment(value)], value })
+      }
+    }
+    return patches
+  }
+  if (Array.isArray(previous) && Array.isArray(next)) {
+    if (previous.length !== next.length) return [{ op: 'replace', path: [] }]
+    let patches: Patch[] = []
+    for (let index = 0; index < previous.length; index++) {
+      if (previous[index] !== next[index]) patches.push({ op: 'replace', path: [index] })
+    }
+    return patches
+  }
+  return previous === next ? [] : [{ op: 'replace', path: [] }]
+}
+
 function ownerAddress(value: unknown): readonly unknown[] {
   return [canonicalAddressSegment(value)]
 }
@@ -220,14 +381,18 @@ function createStore(initialState: EventDetails) {
   let target = new EventTarget()
 
   function foldKey(type: string, detail: unknown) {
+    if (!Object.hasOwn(snapshot, type)) return undefined
     let nextSnapshot = produce(snapshot, (draft) => {
       ;(draft as EventDetails)[type] = detail
     })
     snapshot = nextSnapshot
-    return {
-      detail: nextSnapshot[type],
-      addresses: [[]] as readonly (readonly unknown[])[],
-    }
+    return [
+      {
+        type,
+        detail: nextSnapshot[type],
+        addresses: [[]] as readonly (readonly unknown[])[],
+      },
+    ]
   }
 
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>(
