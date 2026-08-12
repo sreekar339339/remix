@@ -4,7 +4,7 @@ import { on, ref } from 'remix/ui'
 import { render } from 'remix/ui/test'
 import { customEvents, evented } from './index.tsx'
 import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
-import type { CustomEventsOptions, EventDetails } from './types.ts'
+import type { EventDetails } from './types.ts'
 
 type TestEvents = {
   submitted: { id: string }
@@ -12,8 +12,8 @@ type TestEvents = {
   focusRequested: null
 }
 
-function createEvents(options?: CustomEventsOptions) {
-  return customEvents<TestEvents>(options)
+function createEvents() {
+  return customEvents<TestEvents>()
 }
 
 async function settleEffects() {
@@ -31,7 +31,7 @@ describe('customEvents', () => {
 
     function AliasView() {
       return () => (
-        <section mix={events.asHost}>
+        <section mix={events.asHost()}>
           <evented.output
             eventSource={events.submitted}
             aria-label="typed"
@@ -1065,14 +1065,6 @@ describe('customEvents', () => {
     assert.equal(second.state.value.count, 10)
     assert.equal(firstCalls, 1)
     assert.equal(secondCalls, 0)
-
-    assert.throws(
-      () =>
-        customEvents<{ count: number }>({ host: new EventTarget() }).store({
-          count: 0,
-        }),
-      /supplies its own EventTarget host/,
-    )
   })
 
   it('creates typed local-name events', () => {
@@ -1118,15 +1110,10 @@ describe('customEvents', () => {
       events.create('*')
       // @ts-expect-error - native DOM event names are reserved.
       customEvents<'click'>()
-      // @ts-expect-error - factory host registration has no abort lifecycle.
-      customEvents<TestEvents>({
-        host: new EventTarget(),
-        signal: new AbortController().signal,
-      } as unknown)
       // @ts-expect-error - descriptor events are completed, non-cancelable facts.
       events.create('paid', { cancelable: true })
-      // @ts-expect-error - awaitable dispatch preserves detailed-event typing.
-      events.dispatch(new EventTarget(), 'submitted')
+      // @ts-expect-error - dispatchEvent is self-only; target.dispatchEvent(events.create(...)) for hosted.
+      events.dispatchEvent(new EventTarget(), 'submitted')
       // @ts-expect-error - customEvents effects do not expose reentry signals.
       events.paid.on((_event, _signal) => {})
       events.on((event) => {
@@ -1169,7 +1156,7 @@ describe('customEvents', () => {
 
     function CollidingEventNames() {
       return () => (
-        <section mix={events.asHost}>
+        <section mix={events.asHost()}>
           <evented.output eventSource={events.name} aria-label="name">
             {(value, event) => event?.type}
           </evented.output>
@@ -1191,7 +1178,7 @@ describe('customEvents', () => {
     let section = result.$('section') as HTMLElement
 
     await result.act(async () => {
-      await events.dispatch(section, ['name', 'length', 'bind', 'toString'])
+      section.dispatchEvent(events.create(['name', 'length', 'bind', 'toString']))
     })
 
     for (let type of ['name', 'length', 'bind', 'toString']) {
@@ -1204,7 +1191,7 @@ describe('customEvents', () => {
 
     function Checkout() {
       return () => (
-        <section mix={events.asHost}>
+        <section mix={events.asHost()}>
           <button
             aria-label="submit"
             mix={on('click', ({ currentTarget }) => {
@@ -1251,7 +1238,7 @@ describe('customEvents', () => {
 
     function Confirmation() {
       return () => (
-        <section mix={events.asHost} aria-label="confirmation-host">
+        <section mix={events.asHost()} aria-label="confirmation-host">
           <evented.output
             eventSource={events.submitted}
             hidden={(order, event) => order === undefined}
@@ -1300,7 +1287,7 @@ describe('customEvents', () => {
           aria-label="source"
           data-action={(value, event) => event?.type}
           mix={[
-            events.asHost,
+            events.asHost(),
             on('focusout', ({ currentTarget }) => {
               currentTarget.dataset.actionSeenOnFocusout = currentTarget.dataset.action ?? 'missing'
             }),
@@ -1337,7 +1324,7 @@ describe('customEvents', () => {
 
     function Orders() {
       return () => (
-        <section mix={events.asHost}>
+        <section mix={events.asHost()}>
           <button
             aria-label="update"
             mix={on('click', ({ currentTarget }) => {
@@ -1377,22 +1364,23 @@ describe('customEvents', () => {
     assert.equal(second.dataset.effect, 'submitted')
     assert.equal(result.$('[aria-label="all"]')?.textContent, 'submitted')
 
-    await result.act(async () => {
-      await events.dispatch(
-        result.$('section') as HTMLElement,
-        [
-          {
-            submitted: {
-              detail: { id: 'first-again' },
+    await result.act(() => {
+      ;(result.$('section') as HTMLElement).dispatchEvent(
+        events.create(
+          [
+            {
+              submitted: {
+                detail: { id: 'first-again' },
+              },
             },
-          },
-          {
-            submitted: {
-              detail: { id: 'second' },
+            {
+              submitted: {
+                detail: { id: 'second' },
+              },
             },
-          },
-        ],
-        { composed: true },
+          ],
+          { composed: true },
+        ),
       )
     })
 
@@ -1433,7 +1421,7 @@ describe('customEvents', () => {
               })}
             />
           </section>
-          <section mix={events.asHost}>
+          <section mix={events.asHost()}>
             <button
               aria-label="hosted-source"
               mix={on('click', ({ currentTarget }) => {
@@ -1484,13 +1472,13 @@ describe('customEvents', () => {
       return () => (
         <section
           mix={[
-            events.asHost,
+            events.asHost(),
             events.submitted.on(({ currentTarget, detail }) => {
               currentTarget.dataset.latest = detail.id
             }),
           ]}
         >
-          <form mix={events.asHost}>
+          <form mix={events.asHost()}>
             <button
               aria-label="local"
               mix={on('click', ({ currentTarget }) => {
@@ -1500,14 +1488,15 @@ describe('customEvents', () => {
             <button
               aria-label="composed"
               mix={on('click', ({ currentTarget }) => {
-                events.dispatch(
-                  currentTarget,
-                  [
-                    {
-                      submitted: { detail: { id: 'composed' } },
-                    },
-                  ],
-                  { composed: true },
+                currentTarget.dispatchEvent(
+                  events.create(
+                    [
+                      {
+                        submitted: { detail: { id: 'composed' } },
+                      },
+                    ],
+                    { composed: true },
+                  ),
                 )
               })}
             />
@@ -1535,7 +1524,7 @@ describe('customEvents', () => {
 
     function Transaction() {
       return () => (
-        <section mix={events.asHost}>
+        <section mix={events.asHost()}>
           <button
             aria-label="dispatch"
             mix={ref((button) => {
@@ -1560,31 +1549,34 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
 
     await result.act(() =>
-      events.dispatch(dispatchTarget, [
-        {
-          submitted: {
-            detail: { id: 'batched' },
+      dispatchTarget.dispatchEvent(
+        events.create([
+          {
+            submitted: {
+              detail: { id: 'batched' },
+            },
           },
-        },
-        'paid',
-      ]),
+          'paid',
+        ]),
+      ),
     )
+    await settleEffects()
 
     assert.equal(result.$('[aria-label="view"]')?.textContent, 'paid:1')
     assert.deepEqual(effects, ['submitted:paid:1', 'paid:paid:1'])
   })
 
-  it('mirrors batch entries only on configured domain EventTargets', async () => {
+  it('mirrors batch entries only on a bridged domain EventTarget', async () => {
     let domain = new EventTarget()
-    let events = createEvents({ host: domain })
+    let events = createEvents().asHost(domain)
     let nativeCalls: string[] = []
     domain.addEventListener('submitted', (event) => {
       nativeCalls.push(`submitted:${(event as CustomEvent<{ id: string }>).detail.id}`)
     })
     domain.addEventListener('paid', () => nativeCalls.push('paid'))
 
-    await events.dispatch(domain, [{ submitted: { detail: { id: 'batch' } } }, 'paid'])
-    await events.dispatch(domain, ['paid', 'paid'])
+    domain.dispatchEvent(events.create([{ submitted: { detail: { id: 'batch' } } }, 'paid']))
+    domain.dispatchEvent(events.create(['paid', 'paid']))
 
     assert.deepEqual(nativeCalls, ['submitted:batch', 'paid', 'paid', 'paid'])
   })
@@ -1597,7 +1589,7 @@ describe('customEvents', () => {
         <input
           aria-label="input"
           mix={[
-            events.asHost,
+            events.asHost(),
             on('input', ({ currentTarget }) => {
               currentTarget.dispatchEvent(events.create('paid'))
             }),
@@ -1863,7 +1855,7 @@ describe('retained customEvents', () => {
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
 
     await result.act(async () => {
-      await events.dispatch({ inc: 2 })
+      await events.dispatchEvent({ inc: 2 })
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
@@ -1871,7 +1863,7 @@ describe('retained customEvents', () => {
     assert.deepEqual(seen[seen.length - 1], [{ count: 2, label: 'idle' }, 'count'])
 
     await result.act(async () => {
-      await events.dispatch({ count: 5, label: 'ready' })
+      await events.dispatchEvent({ count: 5, label: 'ready' })
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'ready:5')
@@ -1885,9 +1877,9 @@ describe('retained customEvents', () => {
       // @ts-expect-error - writes go through dispatch, not update.
       events.update
       // @ts-expect-error - held details are typed by their seeds.
-      events.dispatch({ count: 'not-a-number' })
+      events.dispatchEvent({ count: 'not-a-number' })
       // @ts-expect-error - seeds cannot overwrite the descriptor API.
-      customEvents({ dispatch: 1 })
+      customEvents({ dispatchEvent: 1 })
       // @ts-expect-error - seeds cannot use native DOM event names.
       customEvents({ click: false })
     }
@@ -1915,14 +1907,14 @@ describe('retained customEvents', () => {
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'count:0')
 
     await result.act(async () => {
-      await events.dispatch('refreshRequested')
+      await events.dispatchEvent('refreshRequested')
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'refresh:0')
     assert.deepEqual(seen[seen.length - 1], [{ count: 0 }, 'refreshRequested'])
 
     await result.act(async () => {
-      await events.dispatch({ countDrafted: 42 })
+      await events.dispatchEvent({ countDrafted: 42 })
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'draft:42')
@@ -1974,7 +1966,7 @@ describe('retained customEvents', () => {
     let item = result.$('.item')!
 
     await result.act(async () => {
-      await events.dispatch({ rename: { id: 1, label: 'first' } })
+      await events.dispatchEvent({ rename: { id: 1, label: 'first' } })
       await settleEffects()
     })
     // The effect entry rides the diffed Map item routes, so the root view and
@@ -2014,7 +2006,7 @@ describe('retained customEvents', () => {
     assert.equal(result.$('[aria-label="tick"]')?.textContent, '')
 
     await result.act(async () => {
-      await events.dispatch({ tick: 0.5 })
+      await events.dispatchEvent({ tick: 0.5 })
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="tick"]')?.textContent, '0.5')
@@ -2041,7 +2033,7 @@ describe('retained customEvents', () => {
     assert.equal(result.$('[aria-label="kind"]')?.textContent, 'one-way')
 
     await result.act(async () => {
-      await events.dispatch({ kind: 'return' })
+      await events.dispatchEvent({ kind: 'return' })
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="kind"]')?.textContent, 'return')

@@ -251,7 +251,8 @@ function createProductEvent(
 
 function dispatch(runtime: CustomEventsRuntimeState, target: EventTarget, event: Event) {
   let metadata = runtime.eventMetadata.get(event)
-  target.dispatchEvent(event)
+  // Bypass the descriptor's own dispatchEvent override to avoid recursion.
+  EventTarget.prototype.dispatchEvent.call(target, event)
   return metadata?.completion ?? Promise.resolve()
 }
 
@@ -451,7 +452,8 @@ function process(runtime: CustomEventsRuntimeState, event: Event) {
   }
   if (metadata.transaction && originTarget === runtime.defaultHost) {
     for (let entry of metadata.entries) {
-      originTarget.dispatchEvent(
+      EventTarget.prototype.dispatchEvent.call(
+        originTarget,
         new CustomEvent(entry.type, {
           bubbles: event.bubbles,
           cancelable: false,

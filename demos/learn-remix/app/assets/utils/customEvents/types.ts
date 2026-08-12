@@ -44,7 +44,14 @@ export type NativeDOMEventName = Extract<
 
 type NativeNamesIn<Definition> = Extract<EventNames<Definition>, NativeDOMEventName>
 
-export type ReservedCustomEventsName = 'create' | 'dispatch' | 'on' | 'asHost' | 'store'
+export type ReservedCustomEventsName =
+  | 'create'
+  | 'on'
+  | 'asHost'
+  | 'dispatchEvent'
+  | 'addEventListener'
+  | 'removeEventListener'
+  | 'store'
 type ReservedNamesIn<Definition> = Extract<EventNames<Definition>, ReservedCustomEventsName>
 
 type NativeEventNameError<Names extends string> = {
@@ -54,7 +61,7 @@ type NativeEventNameError<Names extends string> = {
 
 export type CustomEventsFactoryArgs<Definition> = [NativeNamesIn<Definition>] extends [never]
   ? [ReservedNamesIn<Definition>] extends [never]
-    ? [options?: CustomEventsOptions]
+    ? []
     : [
         error: {
           readonly __customEventsReservedNameError: 'customEvents names cannot overwrite its API.'
@@ -85,11 +92,6 @@ export type CustomEventsInit = Omit<EventInit, 'cancelable'> & {
   cancelable?: never
   /** Throws the signal's abort reason when it is already aborted. */
   signal?: AbortSignal
-}
-
-export type CustomEventsOptions = {
-  /** Immediately registers a domain `EventTarget` as the default host. */
-  host?: EventTarget
 }
 
 export type CustomEventsEventType<Definition extends CustomEventsDefinition> = Exclude<
@@ -436,28 +438,33 @@ type CustomEventsSingleOperation<
 }
 
 /** Call grammar for an ordered transaction: one shared carrier and commit. */
-type CustomEventsBatchOperation<
-  Events extends EventDetails,
-  Prefix extends unknown[],
-  Async extends boolean,
-> = {
+type CustomEventsBatchOperation<Events extends EventDetails, Prefix extends unknown[]> = {
   <const Entries extends NonEmptyArray<CustomEventsBatchItem<Events>>>(
     ...args: [...Prefix, entries: Entries, init?: CustomEventsInit]
-  ): CustomEventsResult<Events, never, Async>
+  ): Event
 }
 
 export type CustomEventsFactory<Events extends EventDetails> = CustomEventsSingleOperation<
   Events,
   [],
   false
->
-
-export type CustomEventsDispatch<Events extends EventDetails> = CustomEventsSingleOperation<
-  Events,
-  [target: EventTarget],
-  true
 > &
-  CustomEventsBatchOperation<Events, [target: EventTarget], true>
+  CustomEventsBatchOperation<Events, []>
+
+/**
+ * The unified dispatch surface of a descriptor, which is itself an
+ * `EventTarget`: dispatching a native `Event` fires it on the descriptor
+ * (returning `boolean`), while an event-named input (a bare name or an object
+ * of details) dispatches on the descriptor and resolves after view updates
+ * and effects settle.
+ */
+export type CustomEventsDispatchEvent<Events extends EventDetails = EventDetails> = {
+  (event: Event): boolean
+  (
+    input: string | (Partial<Events> & Record<string, unknown>),
+    init?: CustomEventsInit,
+  ): Promise<void>
+}
 
 export type CustomEventsListenerEvent<
   Events extends EventDetails,
@@ -482,6 +489,15 @@ export type CustomEventsOnFunction<Events extends EventDetails> = {
   ): MixinDescriptor<HostElement, any>
 }
 
+/** Element-host mixin factory and domain-target bridge. */
+export type CustomEventsAsHost<
+  Events extends EventDetails,
+  State extends EventDetails | never = never,
+> = {
+  (): MixinDescriptor<Element, any>
+  (target: EventTarget): CustomEventsDescriptor<Events, State>
+}
+
 export type CustomEventsDescriptor<
   Events extends EventDetails,
   State extends EventDetails | never = never,
@@ -489,12 +505,12 @@ export type CustomEventsDescriptor<
   EventSources<Events, State> & {
     /** Creates one fresh event. */
     create: CustomEventsFactory<Events>
-    /** Dispatches and resolves after view updates and effects settle. */
-    dispatch: CustomEventsDispatch<Events>
+    /** Dispatches a native event or an event-named input on the descriptor. */
+    dispatchEvent: CustomEventsDispatchEvent<Events>
     /** Runs a mounted-element effect for every descriptor event. */
     on: CustomEventsOnFunction<Events>
-    /** Makes an element act as a host for this descriptor. */
-    asHost: MixinDescriptor<Element, any>
+    /** Registers an element host (mixin) or a domain `EventTarget` (bridge). */
+    asHost: CustomEventsAsHost<Events, State>
   }
 
 /** How a declared effect event folds into the retained composite. */
@@ -538,23 +554,25 @@ export type RetainedEventsMap<
 /**
  * The write input of a retained descriptor: an event-named object of details
  * (held keys replace their slice, effect events fold it in, undeclared names
- * fire occurrences), a bare name for a detail-less occurrence, or an ordered
- * list for same-name entries.
+ * fire occurrences) or a bare name for a detail-less occurrence. Batches use
+ * `create([...])` with a native `dispatchEvent`.
  */
 export type RetainedEventInput<Seeds extends EventDetails> =
   | string
   | (Partial<Seeds> & Record<string, unknown>)
-  | readonly (string | Record<string, unknown>)[]
 
 /** Creates one fresh retained event from the write-input grammar. */
 export type RetainedCreate<Seeds extends EventDetails> = {
-  (input: RetainedEventInput<Seeds>, init?: CustomEventsInit): Event
+  (
+    input: RetainedEventInput<Seeds> | readonly (string | Record<string, unknown>)[],
+    init?: CustomEventsInit,
+  ): Event
 }
 
-/** Dispatches retained events, targeting the descriptor host when omitted. */
-export type RetainedDispatch<Seeds extends EventDetails> = {
+/** Dispatches retained events on the descriptor itself. */
+export type RetainedDispatchEvent<Seeds extends EventDetails> = {
+  (event: Event): boolean
   (input: RetainedEventInput<Seeds>, init?: CustomEventsInit): Promise<void>
-  (target: EventTarget, input: RetainedEventInput<Seeds>, init?: CustomEventsInit): Promise<void>
 }
 
 /** Runs a mounted-element effect for every descriptor event, including implicit occurrences. */
@@ -569,7 +587,7 @@ export type RetainedOnFunction = {
 /** Retained descriptor core: the root event, held and effect sub-sources, and write verbs. */
 export type RetainedDescriptorBase<Events extends EventDetails, Seeds extends EventDetails> = {
   create: CustomEventsFactory<Events> & RetainedCreate<Seeds>
-  dispatch: CustomEventsDispatch<Events> & RetainedDispatch<Seeds>
+  dispatchEvent: CustomEventsDispatchEvent<Events> & RetainedDispatchEvent<Seeds>
   on: RetainedOnFunction
 } & CustomEventsDescriptor<Events, Immutable<Seeds>>
 

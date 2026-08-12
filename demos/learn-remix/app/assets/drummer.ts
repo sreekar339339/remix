@@ -12,7 +12,7 @@ type DrummerEvents = {
 export class Drummer extends TypedEventTarget<CustomEventsEventMap<DrummerEvents>> {
   #isPlaying = false
   #tempoBpm = 90
-  events = customEvents<DrummerEvents>({ host: this })
+  events = customEvents<DrummerEvents>().asHost(this)
 
   constructor() {
     super()

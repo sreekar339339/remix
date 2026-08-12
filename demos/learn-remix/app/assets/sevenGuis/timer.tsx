@@ -25,7 +25,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
             let now = performance.now()
             let delta = (now - last) / 1000
             last = now
-            events.dispatch({ tick: delta })
+            events.dispatchEvent({ tick: delta })
           }, 100)
           signal.addEventListener('abort', () => window.clearInterval(id), {
             once: true,
@@ -55,7 +55,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
           mix={[
             inputCss,
             on('input', ({ currentTarget }) => {
-              events.dispatch({ setDuration: currentTarget.valueAsNumber })
+              events.dispatchEvent({ setDuration: currentTarget.valueAsNumber })
             }),
           ]}
         />
@@ -68,7 +68,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
         mix={[
           buttonCss,
           on('click', () => {
-            events.dispatch({ elapsed: 0 })
+            events.dispatchEvent({ elapsed: 0 })
           }),
         ]}
       >

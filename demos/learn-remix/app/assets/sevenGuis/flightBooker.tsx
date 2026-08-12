@@ -62,7 +62,7 @@ export const SevenGuisFlightBooker = clientEntry(
               mix={[
                 inputCss,
                 on('change', ({ currentTarget }) => {
-                  events.dispatch({ kind: currentTarget.value as FlightKind })
+                  events.dispatchEvent({ kind: currentTarget.value as FlightKind })
                 }),
               ]}
             >
@@ -77,7 +77,7 @@ export const SevenGuisFlightBooker = clientEntry(
                 mix={[
                   inputCss,
                   on('input', ({ currentTarget }) => {
-                    events.dispatch({ startDate: currentTarget.value })
+                    events.dispatchEvent({ startDate: currentTarget.value })
                   }),
                 ]}
               />
@@ -89,7 +89,7 @@ export const SevenGuisFlightBooker = clientEntry(
                 mix={[
                   inputCss,
                   on('input', ({ currentTarget }) => {
-                    events.dispatch({ returnDate: currentTarget.value })
+                    events.dispatchEvent({ returnDate: currentTarget.value })
                   }),
                 ]}
               />
@@ -105,7 +105,7 @@ export const SevenGuisFlightBooker = clientEntry(
                     startDate: flight.startDate,
                     returnDate: flight.returnDate,
                   }
-                  events.dispatch('bookingConfirmed')
+                  events.dispatchEvent('bookingConfirmed')
                 }),
               ]}
             >

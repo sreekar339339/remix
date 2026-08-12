@@ -16,7 +16,7 @@ export const Counter = clientEntry(import.meta.url, function Counter(handle) {
       <button
         mix={[
           on('click', () => {
-            events.dispatch('increment')
+            events.dispatchEvent('increment')
           }),
         ]}
       >

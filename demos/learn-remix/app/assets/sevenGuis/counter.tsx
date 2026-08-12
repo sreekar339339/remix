@@ -18,7 +18,7 @@ export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisC
         mix={[
           buttonCss,
           on('click', () => {
-            events.dispatch({ increment: incrementOffset })
+            events.dispatchEvent({ increment: incrementOffset })
           }),
         ]}
       >

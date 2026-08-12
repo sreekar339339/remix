@@ -121,7 +121,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             mix={[
               buttonCss,
               on('click', () => {
-                events.dispatch('undo')
+                events.dispatchEvent('undo')
               }),
             ]}
           >
@@ -134,7 +134,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             mix={[
               buttonCss,
               on('click', () => {
-                events.dispatch('redo')
+                events.dispatchEvent('redo')
               }),
             ]}
           >
@@ -154,7 +154,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             on('click', ({ currentTarget, clientX, clientY }) => {
               let point = getCanvasPoint(currentTarget, clientX, clientY)
               if (!point) return
-              events.dispatch({ addCircle: point })
+              events.dispatchEvent({ addCircle: point })
             }),
           ]}
         >
@@ -176,7 +176,7 @@ export const SevenGuisCircleDrawer = clientEntry(
                   }),
                   on('contextmenu', (event) => {
                     event.preventDefault()
-                    events.dispatch({ openEditor: id })
+                    events.dispatchEvent({ openEditor: id })
                   }),
                 ]}
               />
@@ -190,7 +190,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             rowCss,
             on('submit', (event) => {
               event.preventDefault()
-              events.dispatch('closeEditor')
+              events.dispatchEvent('closeEditor')
             }),
           ]}
         >
@@ -207,7 +207,7 @@ export const SevenGuisCircleDrawer = clientEntry(
               mix={[
                 inputCss,
                 on('input', ({ currentTarget }) => {
-                  events.dispatch({ setDiameter: currentTarget.valueAsNumber })
+                  events.dispatchEvent({ setDiameter: currentTarget.valueAsNumber })
                 }),
               ]}
             />

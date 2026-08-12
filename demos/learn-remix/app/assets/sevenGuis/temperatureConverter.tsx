@@ -33,7 +33,7 @@ export const SevenGuisTemperatureConverter = clientEntry(
                 let value = currentTarget.value
                 let number = parseTemperature(value)
                 if (number === undefined) return
-                events.dispatch({
+                events.dispatchEvent({
                   celsius: value,
                   fahrenheit: formatTemperature(number * (9 / 5) + 32),
                 })
@@ -51,7 +51,7 @@ export const SevenGuisTemperatureConverter = clientEntry(
                 let value = currentTarget.value
                 let number = parseTemperature(value)
                 if (number === undefined) return
-                events.dispatch({
+                events.dispatchEvent({
                   celsius: formatTemperature((number - 32) * (5 / 9)),
                   fahrenheit: value,
                 })

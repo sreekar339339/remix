@@ -23,7 +23,7 @@ export const TodoList = clientEntry(
 
 export function _TodoList(handle: Handle<{ todos: Todo[] }>) {
   return () => (
-    <div mix={[events.asHost, events.on(({ type, detail }) => console.log(type, detail))]}>
+    <div mix={[events.asHost(), events.on(({ type, detail }) => console.log(type, detail))]}>
       <AddTodo />
       <Frame
         name="TodoItems"

@@ -178,7 +178,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                                 mix={[
                                   buttonCss,
                                   on('click', () => {
-                                    events.dispatch({
+                                    events.dispatchEvent({
                                       toggleUrgency: { columnId, cardId },
                                     })
                                   }),

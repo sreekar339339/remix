@@ -10,9 +10,9 @@ import {
 import { customEventsOnMixin } from './remix.tsx'
 import { createEventSource } from './eventSources.ts'
 import {
-  type CustomEventsOptions,
+  type CustomEventsAsHost,
   type CustomEventsBatchItem,
-  type CustomEventsDispatch,
+  type CustomEventsDispatchEvent,
   type CustomEventsFactory,
   type CustomEventsDescriptor,
   type CustomEventsInit,
@@ -67,10 +67,14 @@ function getEventInit(init: CustomEventsInit | undefined): EventInit {
 export function createCustomEventsDescriptor<
   Events extends EventDetails,
   State extends EventDetails | never = never,
->(options?: CustomEventsOptions, state?: StateEventContext): CustomEventsDescriptor<Events, State> {
+>(state?: StateEventContext, host?: EventTarget): CustomEventsDescriptor<Events, State> {
   let runtime: CustomEventsRuntimeState | undefined
   let getRuntime = () => (runtime ??= createCustomEventsRuntimeState())
   let sourceOwner = state?.owner ?? {}
+  // The descriptor is itself an EventTarget: native listeners attach to it and
+  // target-less writes dispatch on it. A domain `host` registers an external
+  // target as the channel instead.
+  let base = new EventTarget()
 
   function resolveEntry(
     type: string,
@@ -224,43 +228,57 @@ export function createCustomEventsDescriptor<
       },
     },
   }
-  let dispatch = ((...args: unknown[]) => {
-    let target: EventTarget | undefined
-    let rest = args
-    if (args.length > 0 && args[0] instanceof EventTarget) {
-      target = args[0]
-      rest = args.slice(1)
+  // Unified dispatch: a native `Event` fires on the descriptor (boolean); an
+  // event-named input dispatches on the default host and resolves after views
+  // and effects settle (Promise). Internal dispatches bypass the override via
+  // EventTarget.prototype so product events never recurse.
+  let eventsProxy: object
+  let dispatchEvent = ((...args: unknown[]) => {
+    let first = args[0]
+    if (first instanceof Event) {
+      return EventTarget.prototype.dispatchEvent.call(base, first)
     }
     let createEvent = create as (...args: unknown[]) => Event
-    let event = createEvent(...rest)
+    let event = createEvent(first, args[1], args[2])
+    let target = customEventsRuntime.defaultHost(getRuntime())
     if (target === undefined) {
-      target = customEventsRuntime.defaultHost(getRuntime())
-      if (target === undefined) {
-        throw new TypeError('customEvents dispatch without a target requires a registered host.')
-      }
+      throw new TypeError('customEvents dispatchEvent requires a registered host.')
     }
     return customEventsRuntime.dispatch(getRuntime(), target, event)
-  }) as CustomEventsDispatch<Events>
-  let asHost = ref((target, signal) => {
+  }) as CustomEventsDispatchEvent
+  let hostMixin = ref((target, signal) => {
     customEventsRuntime.registerHost(getRuntime(), target, signal)
   })
-  let descriptorTarget = Object.assign(Object.create(null), {
+  let asHost = ((target?: EventTarget) => {
+    if (target === undefined) return hostMixin
+    customEventsRuntime.registerHost(getRuntime(), target)
+    return eventsProxy
+  }) as CustomEventsAsHost<Events, State>
+  let descriptorTarget = Object.assign(base, {
     create,
-    dispatch,
+    dispatchEvent,
     on,
     asHost,
   })
-  if (options?.host) {
-    customEventsRuntime.registerHost(getRuntime(), options.host)
-  }
+  customEventsRuntime.registerHost(getRuntime(), host ?? base)
 
   let sources = new Map<string, object>()
-  return new Proxy(descriptorTarget, {
+  // The proxy resolves the wildcard protocol, the descriptor's own members,
+  // and the native EventTarget channel methods; every other name (including
+  // Object.prototype members) creates an event source.
+  let proxy = new Proxy(descriptorTarget, {
     get(target, property, receiver) {
       if (property === EVENT_SOURCE) {
         return wildcardSource[EVENT_SOURCE]
       }
-      if (Reflect.has(target, property)) {
+      if (
+        property === 'addEventListener' ||
+        property === 'removeEventListener' ||
+        property === 'dispatchEvent'
+      ) {
+        return Reflect.get(target, property, receiver)
+      }
+      if (Object.hasOwn(target, property)) {
         return Reflect.get(target, property, receiver)
       }
       if (typeof property !== 'string') return undefined
@@ -295,5 +313,7 @@ export function createCustomEventsDescriptor<
       }
       return source
     },
-  }) as unknown as CustomEventsDescriptor<Events, State>
+  })
+  eventsProxy = proxy
+  return proxy as unknown as CustomEventsDescriptor<Events, State>
 }

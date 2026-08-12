@@ -67,7 +67,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
           mix={[
             inputCss,
             on('input', ({ currentTarget }) => {
-              events.dispatch({ prefix: currentTarget.value })
+              events.dispatchEvent({ prefix: currentTarget.value })
             }),
           ]}
         />
@@ -90,7 +90,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
           mix={[
             inputCss,
             on('change', ({ currentTarget }) => {
-              events.dispatch({ selectPerson: Number(currentTarget.value) })
+              events.dispatchEvent({ selectPerson: Number(currentTarget.value) })
             }),
           ]}
         >
@@ -116,7 +116,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       inputCss,
                       on('input', ({ currentTarget }) => {
-                        events.dispatch({ draft: { ...draft, name: currentTarget.value } })
+                        events.dispatchEvent({ draft: { ...draft, name: currentTarget.value } })
                       }),
                     ]}
                   />
@@ -129,7 +129,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       inputCss,
                       on('input', ({ currentTarget }) => {
-                        events.dispatch({ draft: { ...draft, surname: currentTarget.value } })
+                        events.dispatchEvent({ draft: { ...draft, surname: currentTarget.value } })
                       }),
                     ]}
                   />
@@ -141,7 +141,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       buttonCss,
                       on('click', () => {
-                        events.dispatch('create')
+                        events.dispatchEvent('create')
                       }),
                     ]}
                   >
@@ -153,7 +153,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       buttonCss,
                       on('click', () => {
-                        events.dispatch('update')
+                        events.dispatchEvent('update')
                       }),
                     ]}
                   >
@@ -165,7 +165,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       buttonCss,
                       on('click', () => {
-                        events.dispatch('delete')
+                        events.dispatchEvent('delete')
                       }),
                     ]}
                   >

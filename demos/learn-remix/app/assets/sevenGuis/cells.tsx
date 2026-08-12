@@ -156,23 +156,23 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                           currentTarget.focus()
                         }),
                         on('blur', ({ currentTarget }) => {
-                          events.dispatch({
+                          events.dispatchEvent({
                             commitCell: { id, text: currentTarget.value },
                           })
                         }),
                         on('focus', ({ currentTarget }) => {
-                          events.dispatch({ beginEdit: id })
+                          events.dispatchEvent({ beginEdit: id })
                           currentTarget.select()
                         }),
                         on('input', ({ currentTarget }) => {
-                          events.dispatch({ draftCell: { id, text: currentTarget.value } })
+                          events.dispatchEvent({ draftCell: { id, text: currentTarget.value } })
                         }),
                         on('keydown', (event) => {
                           if (!isCellNavigationShortcut(event)) return
                           let nextId = adjacentCellId(column, row, event.key)
                           if (nextId === undefined) return
                           event.preventDefault()
-                          events.dispatch({ focusTarget: nextId })
+                          events.dispatchEvent({ focusTarget: nextId })
                         }),
                       ]}
                     />

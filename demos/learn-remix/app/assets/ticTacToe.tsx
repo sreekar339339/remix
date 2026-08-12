@@ -100,13 +100,13 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
           on('click', ({ target }) => {
             if (!(target instanceof HTMLElement)) return
             let cellId = Number(target.dataset.idx)
-            events.dispatch({ place: cellId })
+            events.dispatchEvent({ place: cellId })
           }),
           on('keydown', ({ key, target }) => {
             if (!isArrowKey(key)) return
             if (!(target instanceof HTMLElement)) return
             let cellId = Number(target.dataset.idx)
-            events.dispatch({
+            events.dispatchEvent({
               moveFocus: { cellId, increment: arrowKeyIdxIncrementMap[key] },
             })
           }),
@@ -149,10 +149,10 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
             currentTarget.focus()
           }),
           on('click', () => {
-            events.dispatch('reset')
+            events.dispatchEvent('reset')
           }),
           ref(() => {
-            events.dispatch({ focusTarget: 0 })
+            events.dispatchEvent({ focusTarget: 0 })
           }),
         ]}
       >

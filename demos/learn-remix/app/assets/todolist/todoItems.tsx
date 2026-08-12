@@ -135,7 +135,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
     <ul mix={[todoListCss, on('submit', onSubmit)]}>
       {handle.props.todos.map(({ id, completed, text }) => (
         <li key={id} mix={todoItemCss}>
-          <form method="POST" action={routes.todolist.todos.action.href()} mix={events.asHost}>
+          <form method="POST" action={routes.todolist.todos.action.href()} mix={events.asHost()}>
             <evented.button
               eventSource={events}
               mix={[todoActionButtonCss, deleteTodoButtonCss]}
@@ -152,7 +152,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
             eventSource={events}
             data-action={(_, event) => event?.type}
             mix={[
-              events.asHost,
+              events.asHost(),
               events.actionErrored.on(({ currentTarget }) => {
                 currentTarget.reset()
               }),
@@ -175,7 +175,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
               class={(_, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
             />
           </evented.form>
-          <form method="POST" action={routes.todolist.todos.action.href()} mix={events.asHost}>
+          <form method="POST" action={routes.todolist.todos.action.href()} mix={events.asHost()}>
             <input hidden name="completed" value={String(!completed)} />
             <input hidden name="id" value={id} />
             <evented.button

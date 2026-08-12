@@ -42,7 +42,7 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
                 },
               }),
               on('click', () => {
-                events.dispatch({ selectedId: item.id })
+                events.dispatchEvent({ selectedId: item.id })
               }),
             ]}
           >

@@ -10,7 +10,7 @@ export const SearchBooksWithFrame = clientEntry(
     let initialEvent = events.create(query ? 'querySubmitted' : 'queryEmpty')
 
     return () => (
-      <div mix={events.asHost}>
+      <div mix={events.asHost()}>
         <form
           action={routes.searchBooks.books.href()}
           mix={[

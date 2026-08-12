@@ -22,7 +22,6 @@ import type {
   CustomEventsEventedViews,
   CustomEventsFactoryArgs,
   CustomEventsEventMap,
-  CustomEventsOptions,
   EventDetails,
   NativeDOMEventName,
   NormalizeCustomEventsDefinition,
@@ -70,7 +69,7 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
  * Creates a retained descriptor: a root composite event whose detail folds in
  * every held seed and effect event declared here.
  *
- * `customEvents({ count: 0, label: 'idle' }, { inc: (held, n) => ({ count: held.count + n }) })`
+ * `customEvents({ count: 0, label: 'idle' }, { inc: (draft, n) => { draft.count += n } })`
  */
 export function customEvents<Seeds extends RetainedSeeds>(
   seeds: Seeds,
@@ -83,13 +82,9 @@ export function customEvents(first?: unknown, foldsArg?: unknown): unknown {
   if (isRetainedDeclaration(first)) {
     return createRetained(first, foldsArg as RetainedFolds<EventDetails> | undefined)
   }
-  let descriptorOptions = first as CustomEventsOptions | undefined
-  let descriptor = createCustomEventsDescriptor(descriptorOptions)
+  let descriptor = createCustomEventsDescriptor()
   return Object.assign(descriptor, {
     store(value: EventDetails) {
-      if (descriptorOptions?.host) {
-        throw new TypeError('customEvents store() supplies its own EventTarget host.')
-      }
       return createStore(value)
     },
   })
@@ -100,11 +95,19 @@ function isRetainedDeclaration(value: unknown): value is EventDetails {
     value !== null &&
     typeof value === 'object' &&
     !Array.isArray(value) &&
-    Object.keys(value).some((key) => key !== 'host')
+    Object.keys(value).length > 0
   )
 }
 
-const reservedSeedNames = new Set<string>(['create', 'dispatch', 'on', 'asHost', 'store'])
+const reservedSeedNames = new Set<string>([
+  'create',
+  'on',
+  'asHost',
+  'dispatchEvent',
+  'addEventListener',
+  'removeEventListener',
+  'store',
+])
 
 type RetainedFoldFn<Held extends EventDetails> = (draft: Draft<Held>, detail: unknown) => void
 
@@ -119,7 +122,7 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
     }
   }
   let snapshot = freeze(seeds, true) as EventDetails
-  let target = new EventTarget()
+  let owner = {}
   let foldFns = new Map<string, RetainedFoldFn<Seeds>>()
   if (folds !== undefined) {
     for (let [name, fold] of Object.entries(folds)) {
@@ -163,10 +166,11 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
     return undefined
   }
 
-  let events = createCustomEventsDescriptor<EventDetails, EventDetails>(
-    { host: target },
-    { owner: target, getState: () => snapshot, fold: foldEntry },
-  )
+  let events = createCustomEventsDescriptor<EventDetails, EventDetails>({
+    owner,
+    getState: () => snapshot,
+    fold: foldEntry,
+  })
   return events as unknown as RetainedDescriptor<Seeds, Folds>
 }
 
@@ -361,8 +365,8 @@ function createStore(initialState: EventDetails) {
   }
 
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>(
-    { host: target },
     { owner: target, getState: () => snapshot, fold: foldKey },
+    target,
   )
   let state = {
     get value() {

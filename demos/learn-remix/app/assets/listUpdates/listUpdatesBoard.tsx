@@ -381,7 +381,7 @@ export const ListUpdatesFilterBoard = clientEntry(
     let mode: 'evented' | 'plain' = 'evented'
     let query = ''
     let sort: SortKey = 'id'
-    let commit = (payload: Record<string, unknown>) => events.dispatch(payload as never)
+    let commit = (payload: Record<string, unknown>) => events.dispatchEvent(payload)
     let meter = installMeter(commit, handle.signal)
     let workflow = makeWorkflow({ dispatch: commit, handle, getMode: () => mode })
     let benchmarker = makeBenchmarker({
@@ -546,7 +546,7 @@ export const ListUpdatesFeedBoard = clientEntry(
     let mode: 'evented' | 'plain' = 'evented'
     let running = false
     let batch = 10
-    let commit = (payload: Record<string, unknown>) => events.dispatch(payload as never)
+    let commit = (payload: Record<string, unknown>) => events.dispatchEvent(payload)
     let meter = installMeter(commit, handle.signal)
     let workflow = makeWorkflow({ dispatch: commit, handle, getMode: () => mode })
 
@@ -734,7 +734,7 @@ export const ListUpdatesHeavyBoard = clientEntry(
     let mode: 'evented' | 'plain' = 'evented'
     let churning = false
     let churnPerTick = 20
-    let commit = (payload: Record<string, unknown>) => events.dispatch(payload as never)
+    let commit = (payload: Record<string, unknown>) => events.dispatchEvent(payload)
     let meter = installMeter(commit, handle.signal)
     let workflow = makeWorkflow({ dispatch: commit, handle, getMode: () => mode })
 
