@@ -55,19 +55,6 @@ export interface HostProps<eventTarget extends EventTarget> {
 }
 
 /**
- * Props accepted by the virtual `list` element: an event-driven keyed list
- * that renders one template per collection item. The element has no DOM node
- * of its own; children render into its parent.
- */
-export type ListProps<eventTarget extends EventTarget = HTMLElement> = Omit<
-  HostProps<eventTarget>,
-  'children'
-> & {
-  /** Per-item template; called with each collection item and its key. */
-  children?: (item: unknown, key: unknown) => RemixNode
-}
-
-/**
  * Value wrapper used by host prop types that participate in tracked updates.
  */
 export type Trackable<T> = T

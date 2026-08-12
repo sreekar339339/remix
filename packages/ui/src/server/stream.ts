@@ -438,10 +438,6 @@ function buildSegment(node: RemixNode, context: RenderContext, frameState: SsrFr
         return buildHeadElementSegment(tag, props, context, frameState)
       }
 
-      if (tag === 'list') {
-        return buildListElementSegment(props, context, frameState)
-      }
-
       return buildElementSegment(tag, props, context, frameState)
     }
 
@@ -510,35 +506,6 @@ function buildFrameSegment(
   }
 
   return seg
-}
-
-// A <list> renders its per-item template into its parent's markup without an
-// element wrapper. Subscriptions are client-side, so the server resolves the
-// initial event input only.
-function buildListElementSegment(
-  props: any,
-  context: RenderContext,
-  frameState: SsrFrameState,
-): Segment {
-  let sources = resolveEventSourceProtocols(props.eventSource)
-  let detail = computeInitialEventInput(sources, props.initial)
-  if (detail == null) return staticSeg('')
-  let template = props.children as (item: unknown, key: unknown) => RemixNode
-  let parts: Segment[] = []
-  if (detail instanceof Map) {
-    for (let [key, item] of detail) {
-      parts.push(buildSegment(template(item, key), context, frameState))
-    }
-  } else if (detail instanceof Set) {
-    for (let item of detail) {
-      parts.push(buildSegment(template(item, item), context, frameState))
-    }
-  } else if (Array.isArray(detail)) {
-    for (let index = 0; index < detail.length; index++) {
-      parts.push(buildSegment(template(detail[index], index), context, frameState))
-    }
-  }
-  return compositeSeg(parts)
 }
 
 function buildElementSegment(

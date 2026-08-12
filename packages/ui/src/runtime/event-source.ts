@@ -1,9 +1,4 @@
-import type {
-  CommittedHostNode,
-  CommittedListNode,
-  ReconcileContext,
-  VNodeParent,
-} from './vnode.ts'
+import type { CommittedHostNode, ReconcileContext } from './vnode.ts'
 
 /**
  * Brand symbol marking an object as an event source consumable by the
@@ -28,9 +23,8 @@ export type EventSourceEvent = {
  */
 export interface EventSourceSubscriber {
   /**
-   * Element that owns the subscription. Keyed list elements have no DOM node
-   * and pass the nearest host element instead; sources that need element
-   * scope treat an absent element as scope-less.
+   * Element that owns the subscription. Sources that need element scope treat
+   * an absent element as scope-less.
    */
   element: Element | undefined
   /**
@@ -281,92 +275,4 @@ export function subscribeEventedHostNode(
       state.controller.signal,
     )
   }
-}
-
-/**
- * State owned by a committed keyed list element.
- */
-export type EventedListState = {
-  /** Validated source protocols extracted from the `eventSource` prop. */
-  sources: EventSourceProtocol[]
-  /** Current callback input; re-computed on every matched event. */
-  input: unknown
-  /** Raw props with the per-item template children still intact. */
-  rawProps: Record<string, unknown>
-  /** The per-item template child. */
-  rawTemplate: unknown
-  /** The matched event, kept so updates can read its structural routes. */
-  lastEvent?: EventSourceEvent
-  /** Reconcile context captured at setup, used by event-driven updates. */
-  context: ReconcileContext
-  /** Live committed vnode, assigned on every commit after setup. */
-  node?: CommittedListNode
-  /** Subscription lifetime; aborted when the element is removed. */
-  controller: AbortController
-  /** Whether an update is already queued with the scheduler. */
-  pending: boolean
-  /** Resolvers waiting for the next committed update. */
-  waiters: Array<() => void>
-}
-
-/**
- * Creates the evented state for a mounting keyed list element.
- * @param sources Validated source protocols.
- * @param rawProps Raw props with the template children intact.
- * @param initial The `initial` prop value.
- * @param context Reconcile context for event-driven updates.
- * @returns The new evented list state.
- */
-export function createEventedListState(
-  sources: EventSourceProtocol[],
-  rawProps: Record<string, unknown>,
-  initial: unknown,
-  context: ReconcileContext,
-): EventedListState {
-  return {
-    sources,
-    input: computeInitialEventInput(sources, initial),
-    rawProps,
-    rawTemplate: rawProps.children,
-    context,
-    controller: new AbortController(),
-    pending: false,
-    waiters: [],
-  }
-}
-
-/**
- * Subscribes a keyed list element to its event source. Each notification
- * updates the callback input and the last matched event, then returns a
- * promise settled after the element update commits.
- * @param state Evented list state.
- * @param update Schedules an element update; resolves after the commit.
- */
-export function subscribeEventedListNode(
-  state: EventedListState,
-  update: () => Promise<void>,
-): void {
-  let element = findHostElementFor(state.node)
-  for (let source of state.sources) {
-    source.subscribe(
-      {
-        element,
-        notify(event) {
-          state.input = computeNotifyEventInput(state.sources, event)
-          state.lastEvent = event
-          return update()
-        },
-      },
-      state.controller.signal,
-    )
-  }
-}
-
-function findHostElementFor(node: CommittedListNode | undefined): Element | undefined {
-  let current: VNodeParent | undefined = node?._parent
-  while (current) {
-    if (current.kind === 'host') return current._dom
-    current = '_parent' in current ? current._parent : undefined
-  }
-  return undefined
 }

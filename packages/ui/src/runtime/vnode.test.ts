@@ -28,10 +28,7 @@ function expectType<condition extends true>(): void {}
 describe('VNode lifecycle types', () => {
   it('keeps node-kind resources on their owning variants', () => {
     expectType<
-      Equal<
-        VNodeInput['kind'],
-        'empty' | 'text' | 'fragment' | 'host' | 'component' | 'frame' | 'list'
-      >
+      Equal<VNodeInput['kind'], 'empty' | 'text' | 'fragment' | 'host' | 'component' | 'frame'>
     >()
     expectType<Equal<HostNode['props']['children'], RemixNode | undefined>>()
     expectType<Equal<HostNode['props']['innerHTML'], string | undefined>>()
