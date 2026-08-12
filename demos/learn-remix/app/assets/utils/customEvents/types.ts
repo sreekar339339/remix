@@ -8,12 +8,6 @@ import {
   type RemixNode,
   type TypedEventTarget,
 } from 'remix/ui'
-import type {
-  EventSource,
-  EventSources,
-  IsRememberedEventSource,
-  RememberedEventSource,
-} from './eventSources.ts'
 
 export type EventDetails = Record<string, unknown>
 
@@ -47,7 +41,6 @@ type NativeNamesIn<Definition> = Extract<EventNames<Definition>, NativeDOMEventN
 
 /** Descriptor members that cannot be event names; the type derives from this constant. */
 export const reservedCustomEventsNames = [
-  'create',
   'on',
   'asHost',
   'dispatchEvent',
@@ -110,6 +103,91 @@ export type CustomEventsEventMap<Definition extends CustomEventsDefinition> = {
   > & { readonly type: Type }
 }
 
+// Type-only source markers; the runtime metadata symbol lives in the descriptor.
+declare const eventSourceMetadata: unique symbol
+declare const rememberedEventSourceMarker: unique symbol
+declare const occurrenceSourceMarker: unique symbol
+
+type EventSourceListener<Value, Type extends string, Host extends Element> = (
+  event: CustomEvent<Value> & {
+    readonly type: Type
+    readonly currentTarget: Host
+  },
+) => void | Promise<unknown>
+
+export type EventSourceMetadata<Value = unknown, Type extends string = string> = {
+  type: Type
+  path: readonly unknown[]
+  read?: () => Value
+}
+
+export type EventSource<Value, Type extends string, Detail = Value> = {
+  readonly [EVENT_SOURCE]: EventSourceProtocol
+  readonly [eventSourceMetadata]: EventSourceMetadata<Value, Type>
+  on<Host extends Element = Element>(
+    listener: EventSourceListener<Detail, Type, Host>,
+  ): MixinDescriptor<Host, any>
+}
+
+type Defined<Value> = Exclude<Value, null | undefined>
+type PreserveMissing<Parent, Value> =
+  Extract<Parent, null | undefined> extends never ? Value : Value | undefined
+
+export type RememberedEventSource<Value, Type extends string, Detail = Value> = EventSource<
+  Value,
+  Type,
+  Detail
+> & { readonly [rememberedEventSourceMarker]: true } & (Defined<Value> extends ReadonlyMap<
+    infer Key,
+    infer Item
+  >
+    ? { get(key: Key): RememberedEventSource<Item | undefined, Type> }
+    : Defined<Value> extends ReadonlySet<infer Item>
+      ? { has(value: Item): RememberedEventSource<boolean, Type> }
+      : Defined<Value> extends readonly (infer Item)[]
+        ? { readonly [index: number]: RememberedEventSource<Item | undefined, Type> }
+        : Defined<Value> extends object
+          ? {
+              readonly [Key in keyof Defined<Value>]: RememberedEventSource<
+                PreserveMissing<Value, Defined<Value>[Key]>,
+                Type
+              >
+            }
+          : { as(value: Value): RememberedEventSource<boolean, Type, Value | null> })
+
+/** An occurrence of a remembered descriptor: value semantics, like remembered sources. */
+type OccurrenceEventSource<Value, Type extends string> = EventSource<Value, Type> & {
+  readonly [occurrenceSourceMarker]: true
+}
+
+export type EventSources<
+  Events extends EventDetails,
+  State extends EventDetails | never = never,
+> = [State] extends [never]
+  ? {
+      readonly [Type in keyof Events & string]: EventSource<Events[Type], Type>
+    }
+  : {
+      readonly [Type in keyof Events & string]: Type extends keyof State & string
+        ? RememberedEventSource<State[Type], Type>
+        : OccurrenceEventSource<Events[Type], Type>
+    }
+
+/**
+ * True when a source (or any member of a source array) belongs to a
+ * remembered descriptor: remembered sources and occurrences both read value
+ * semantics.
+ */
+export type IsRememberedEventSource<Source> = Source extends readonly (infer Item)[]
+  ? [true] extends [IsRememberedEventSource<Item>]
+    ? true
+    : false
+  : Source extends
+        | { readonly [rememberedEventSourceMarker]: true }
+        | { readonly [occurrenceSourceMarker]: true }
+    ? true
+    : false
+
 type CustomEventsReactiveProp<Input, Event, Value> = (input: Input, event: Event) => Value
 
 /**
@@ -125,13 +203,12 @@ type CustomEventsReactiveElementProps<
   [Key in keyof Props<Tag>]: Key extends string
     ? Key extends 'children' | 'key' | 'mix' | 'ref' | 'on' | `on${string}`
       ? Props<Tag>[Key]
-      :
-          | Props<Tag>[Key]
-          | CustomEventsReactiveProp<
-              Direct extends true ? Input : NoInfer<Input>,
-              Event,
-              Props<Tag>[Key]
-            >
+      : Props<Tag>[Key] |
+          CustomEventsReactiveProp<
+            Direct extends true ? Input : NoInfer<Input>,
+            Event,
+            Props<Tag>[Key]
+          >
     : Props<Tag>[Key]
 } & {
   [Key in `data-${string}`]?:
@@ -147,31 +224,28 @@ type CustomEventsReactiveElementProps<
 type CustomEventsIntrinsicChildren<Tag extends keyof JSX.IntrinsicElements> =
   Props<Tag> extends { children?: infer Children } ? Children : RemixNode
 
-/** Props for an intrinsic element driven by one descriptor event. */
-type CustomEventsElementProps<On, Input, Event, Tag extends keyof JSX.IntrinsicElements> = Omit<
-  CustomEventsReactiveElementProps<Input, Event, Tag>,
-  'children'
+/**
+ * Shared props of every evented-view. Occurrence aliases pass `undefined`
+ * inputs before a first match; `Initialized` gates the `initial` prop;
+ * `Direct` skips `NoInfer` for union inputs.
+ */
+type CustomEventsViewProps<
+  On,
+  Input,
+  Event,
+  Tag extends keyof JSX.IntrinsicElements,
+  Initial,
+  Initialized extends boolean,
+  Direct extends boolean = false,
+> = Omit<
+  CustomEventsReactiveElementProps<Input, Event, Tag, Direct>,
+  'children' | 'eventSource'
 > & {
   eventSource: On
   children?:
     | CustomEventsIntrinsicChildren<Tag>
-    | CustomEventsReactiveProp<NoInfer<Input>, Event, RemixNode>
-}
-
-type CustomEventsInputProps<
-  On,
-  Input,
-  Event,
-  Initial,
-  Tag extends keyof JSX.IntrinsicElements,
-  Initialized extends boolean,
-> = CustomEventsElementProps<
-  On,
-  Input | (Initialized extends true ? never : undefined),
-  Event,
-  Tag
-> &
-  (Initialized extends true ? { initial: Initial } : { initial?: never })
+    | CustomEventsReactiveProp<Direct extends true ? Input : NoInfer<Input>, Event, RemixNode>
+} & (Initialized extends true ? { initial: Initial } : { initial?: never })
 
 type SourceSelection<Source> = Source | readonly Source[]
 
@@ -183,8 +257,8 @@ type CustomEventsSourceEvent<Source> = Source extends readonly (infer Item)[]
 
 /**
  * The descriptor itself, used as the wildcard event source: subscribing to it
- * matches every descriptor event. On a remembered descriptor it reads
- * the whole composite snapshot for every matched event.
+ * matches every descriptor event. On a remembered descriptor it reads the
+ * whole composite for every matched event.
  */
 export type CustomEventsWildcardSource<
   Events extends EventDetails,
@@ -192,25 +266,6 @@ export type CustomEventsWildcardSource<
 > = {
   readonly [EVENT_SOURCE]: EventSourceProtocol & { readonly type: '*' }
 }
-
-/**
- * Props for a default evented-view that subscribes to every descriptor event
- * through the wildcard source. Occurrence views receive the matched event's
- * payload and render their `initial` event before one first matches;
- * remembered views read the composite instead.
- */
-type CustomEventsDefaultElementProps<
-  Events extends EventDetails,
-  Tag extends keyof JSX.IntrinsicElements,
-  Initialized extends boolean,
-> = CustomEventsInputProps<
-  CustomEventsWildcardSource<Events>,
-  Events[CustomEventsEventType<Events>],
-  CustomEventsEventMap<Events>[CustomEventsEventType<Events>],
-  CustomEventsEventMap<Events>[CustomEventsEventType<Events>],
-  Tag,
-  Initialized
->
 
 /** The detail selected by a source (or tuple of sources, index-aligned with `on`). */
 type CustomEventsSourceDetail<Source> = Source extends readonly unknown[]
@@ -224,68 +279,63 @@ type CustomEventsWildcardEvent<Events extends EventDetails> =
   | CustomEventsEventMap<Events>[CustomEventsEventType<Events>]
   | (CustomEvent<unknown> & { readonly type: string })
 
+/** Default `eventSource`-omitted element on an occurrence descriptor: subscribes to every event. */
+type CustomEventsDefaultElementProps<
+  Events extends EventDetails,
+  Tag extends keyof JSX.IntrinsicElements,
+  Initialized extends boolean,
+> = CustomEventsViewProps<
+  CustomEventsWildcardSource<Events>,
+  Events[CustomEventsEventType<Events>] | (Initialized extends true ? never : undefined),
+  CustomEventsEventMap<Events>[CustomEventsEventType<Events>],
+  Tag,
+  CustomEventsEventMap<Events>[CustomEventsEventType<Events>],
+  Initialized
+>
+
+/** Default `eventSource`-omitted element on a remembered descriptor: subscribes to every event. */
+type CustomEventsRememberedDefaultElementProps<
+  Events extends EventDetails,
+  State extends EventDetails,
+  Tag extends keyof JSX.IntrinsicElements,
+> = CustomEventsViewProps<
+  CustomEventsWildcardSource<Events, State>,
+  State,
+  CustomEventsWildcardEvent<Events>,
+  Tag,
+  never,
+  false
+>
+
 /** Evented-view on a remembered descriptor: `eventSource` selects sources; the input is their value(s). */
 type CustomEventsRememberedElementProps<
   Events extends EventDetails,
   State extends EventDetails,
   Tag extends keyof JSX.IntrinsicElements,
   Source,
-> = Omit<
-  CustomEventsReactiveElementProps<
-    CustomEventsSourceDetail<Source>,
-    CustomEventsSourceEvent<Source>,
-    Tag
-  >,
-  'children' | 'eventSource'
-> & {
-  eventSource: Source
-  initial?: never
-  children?:
-    | CustomEventsIntrinsicChildren<Tag>
-    | CustomEventsReactiveProp<
-        NoInfer<CustomEventsSourceDetail<Source>>,
-        CustomEventsSourceEvent<Source>,
-        RemixNode
-      >
-}
+> = CustomEventsViewProps<
+  Source,
+  CustomEventsSourceDetail<Source>,
+  CustomEventsSourceEvent<Source>,
+  Tag,
+  never,
+  false
+>
 
-/** Default `eventSource`-omitted element for a remembered descriptor: subscribes to every event. */
-type CustomEventsRememberedDefaultElementProps<
-  Events extends EventDetails,
-  State extends EventDetails,
-  Tag extends keyof JSX.IntrinsicElements,
-> = Omit<
-  CustomEventsReactiveElementProps<State, CustomEventsWildcardEvent<Events>, Tag>,
-  'children'
-> & {
-  eventSource: CustomEventsWildcardSource<Events, State>
-  children?:
-    | CustomEventsIntrinsicChildren<Tag>
-    | CustomEventsReactiveProp<NoInfer<State>, CustomEventsWildcardEvent<Events>, RemixNode>
-}
-
+/** Evented-view on an occurrence source: the input is the payload, `undefined` before a match. */
 type CustomEventsOccurrenceProps<
   Source,
   Tag extends keyof JSX.IntrinsicElements,
   Initialized extends boolean,
-> = Omit<
-  CustomEventsReactiveElementProps<
-    CustomEventsSourceDetail<Source> | (Initialized extends true ? never : undefined),
-    CustomEventsSourceEvent<Source>,
-    Tag,
-    true
-  >,
-  'children'
-> & {
-  eventSource: Source
-  children?:
-    | CustomEventsIntrinsicChildren<Tag>
-    | CustomEventsReactiveProp<
-        CustomEventsSourceDetail<Source> | (Initialized extends true ? never : undefined),
-        CustomEventsSourceEvent<Source>,
-        RemixNode
-      >
-} & (Initialized extends true ? { initial: CustomEventsSourceEvent<Source> } : { initial?: never })
+> = CustomEventsViewProps<
+  Source,
+  CustomEventsSourceDetail<Source> | (Initialized extends true ? never : undefined),
+  CustomEventsSourceEvent<Source>,
+  Tag,
+  CustomEventsSourceEvent<Source>,
+  Initialized,
+  true
+>
 
 /**
  * Event-aware intrinsic element that re-renders from matched events. The type
@@ -442,6 +492,18 @@ export type CustomEventsFactory<Events extends EventDetails> = CustomEventsSingl
   CustomEventsBatchOperation<Events, []>
 
 /**
+ * The descriptor is callable: invoking it builds a fresh event (typed
+ * positional details, event-named object, or batch entries) for manual
+ * dispatch on any target.
+ */
+export type CustomEventsBuilder<
+  Events extends EventDetails,
+  Input extends EventDetails = Events,
+> = CustomEventsFactory<Events> & {
+  (input: Partial<Input> & Record<string, unknown>, init?: CustomEventsInit): Event
+}
+
+/**
  * The unified dispatch surface of a descriptor, which is itself an
  * `EventTarget`: dispatching a native `Event` fires it on the descriptor
  * (returning `boolean`), while an event-named input (a bare name or an object
@@ -491,11 +553,10 @@ export type CustomEventsAsHost<
 export type CustomEventsDescriptor<
   Events extends EventDetails,
   State extends EventDetails | never = never,
-> = CustomEventsWildcardSource<Events, State> &
+> = CustomEventsBuilder<Events> &
+  CustomEventsWildcardSource<Events, State> &
   EventSources<Events, State> &
   TypedEventTarget<CustomEventsEventMap<Events>> & {
-    /** Creates one fresh event. */
-    create: CustomEventsFactory<Events>
     /** Dispatches a native event or an event-named input on the descriptor. */
     dispatchEvent: CustomEventsDispatchEvent<Events>
     /** Runs a mounted-element effect for every descriptor event. */
@@ -504,7 +565,7 @@ export type CustomEventsDescriptor<
     asHost: CustomEventsAsHost<Events, State>
   }
 
-/** How a declared fold event folds into the remembered composite. */
+/** How a declared effect event folds into the remembered composite. */
 export type RememberedFold<Held extends EventDetails, Detail = unknown> = (
   draft: Draft<Held>,
   detail: Detail,
@@ -520,8 +581,9 @@ export type RememberedFolds<Held extends EventDetails> = {
 }
 
 /**
- * Remembered seeds of a remembered descriptor: data values keyed by event name, which
- * cannot overwrite the descriptor API or use native DOM event names.
+ * Remembered seeds of a remembered descriptor: data values keyed by event
+ * name, which cannot overwrite the descriptor API or use native DOM event
+ * names.
  */
 export type RememberedSeeds = EventDetails & {
   readonly [Name in ReservedCustomEventsName | NativeDOMEventName]?: never
@@ -544,21 +606,13 @@ export type RememberedEventsMap<
 
 /**
  * The write input of a remembered descriptor: an event-named object of details
- * (remembered keys replace their slice, fold events fold it in, undeclared names
- * fire occurrences) or a bare name for a detail-less occurrence. Batches use
- * `create([...])` with a native `dispatchEvent`.
+ * (remembered keys replace their slice, fold events fold it in, undeclared
+ * names fire occurrences) or a bare name for a detail-less occurrence. Batches
+ * use the callable descriptor with a native `dispatchEvent`.
  */
 export type RememberedEventInput<Seeds extends EventDetails> =
   | string
   | (Partial<Seeds> & Record<string, unknown>)
-
-/** Creates one fresh remembered event from the write-input grammar. */
-export type RememberedCreate<Seeds extends EventDetails> = {
-  (
-    input: RememberedEventInput<Seeds> | readonly (string | Record<string, unknown>)[],
-    init?: CustomEventsInit,
-  ): Event
-}
 
 /** Dispatches remembered events on the descriptor itself. */
 export type RememberedDispatchEvent<Seeds extends EventDetails> = {
@@ -576,11 +630,11 @@ export type RememberedOnFunction = {
 }
 
 /** Remembered descriptor core: the root event, remembered and fold sub-sources, and write verbs. */
-export type RememberedDescriptorBase<Events extends EventDetails, Seeds extends EventDetails> = {
-  create: CustomEventsFactory<Events> & RememberedCreate<Seeds>
-  dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
-  on: RememberedOnFunction
-} & CustomEventsDescriptor<Events, Immutable<Seeds>>
+export type RememberedDescriptorBase<Events extends EventDetails, Seeds extends EventDetails> =
+  CustomEventsBuilder<Events, Seeds> & {
+    dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
+    on: RememberedOnFunction
+  } & CustomEventsDescriptor<Events, Immutable<Seeds>>
 
 /**
  * A remembered descriptor: the root composite event (`eventSource={events}`)

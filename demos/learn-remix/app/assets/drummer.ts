@@ -28,19 +28,19 @@ export class Drummer extends TypedEventTarget<CustomEventsEventMap<DrummerEvents
 
   setTempo(bpm: number) {
     this.#tempoBpm = Math.max(30, Math.min(300, Math.floor(bpm || 90)))
-    this.dispatchEvent(this.events.create('tempoSet', this.#tempoBpm))
+    this.dispatchEvent(this.events('tempoSet', this.#tempoBpm))
   }
 
   play(bpm = this.#tempoBpm) {
     this.setTempo(bpm)
     if (this.#isPlaying) return
     this.#isPlaying = true
-    this.dispatchEvent(this.events.create('playbackStarted', this.#tempoBpm))
+    this.dispatchEvent(this.events('playbackStarted', this.#tempoBpm))
   }
 
   stop() {
     if (!this.#isPlaying) return
     this.#isPlaying = false
-    this.dispatchEvent(this.events.create('playbackStopped', this.#tempoBpm))
+    this.dispatchEvent(this.events('playbackStopped', this.#tempoBpm))
   }
 }

@@ -53,7 +53,7 @@ describe('customEvents', () => {
 
     assert.equal(typed.textContent, '')
     await result.act(async () => {
-      typed.dispatchEvent(events.create('submitted', { id: 'order-1' }))
+      typed.dispatchEvent(events('submitted', { id: 'order-1' }))
       await settleEffects()
     })
     assert.equal(typed.dataset.id, 'order-1')
@@ -704,7 +704,7 @@ describe('customEvents', () => {
                 drafts++
               }),
               on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create('countDrafted', 1))
+                currentTarget.dispatchEvent(events('countDrafted', 1))
               }),
             ]}
           />
@@ -787,9 +787,9 @@ describe('customEvents', () => {
   it('creates typed local-name events', () => {
     let events = createEvents()
     let otherEvents = createEvents()
-    let first = events.create('submitted', { id: 'first' })
-    let second = events.create('submitted', { id: 'second' })
-    let signal = events.create('paid')
+    let first = events('submitted', { id: 'first' })
+    let second = events('submitted', { id: 'second' })
+    let signal = events('paid')
 
     assert.equal(first.detail.id, 'first')
     assert.equal(signal.detail, null)
@@ -799,7 +799,7 @@ describe('customEvents', () => {
     assert.equal(first.cancelable, false)
     first.preventDefault()
     assert.equal(first.defaultPrevented, false)
-    assert.equal(otherEvents.create('submitted', { id: 'other' }).type, 'submitted')
+    assert.equal(otherEvents('submitted', { id: 'other' }).type, 'submitted')
     let target = new EventTarget()
     let observed = false
     target.addEventListener('submitted', () => {
@@ -808,7 +808,7 @@ describe('customEvents', () => {
     assert.equal(target.dispatchEvent(first), true)
     assert.equal(observed, true)
 
-    let createWithEventInit = events.create as unknown as (
+    let createWithEventInit = events as unknown as (
       type: 'submitted',
       detail: { id: string },
       init: EventInit,
@@ -820,16 +820,16 @@ describe('customEvents', () => {
 
     if (false) {
       // @ts-expect-error - detailed events require detail.
-      events.create('submitted')
+      events('submitted')
       // @ts-expect-error - signal events do not accept detail.
-      events.create('paid', 'unexpected')
+      events('paid', 'unexpected')
       // @ts-expect-error - `*` is reserved for subscriptions.
-      events.create('*')
+      events('*')
       // @ts-expect-error - native DOM event names are reserved.
       customEvents<'click'>()
       // @ts-expect-error - descriptor events are completed, non-cancelable facts.
-      events.create('paid', { cancelable: true })
-      // @ts-expect-error - dispatchEvent is self-only; target.dispatchEvent(events.create(...)) for hosted.
+      events('paid', { cancelable: true })
+      // @ts-expect-error - dispatchEvent is self-only; target.dispatchEvent(events(...)) for hosted.
       events.dispatchEvent(new EventTarget(), 'submitted')
       // @ts-expect-error - customEvents effects do not expose reentry signals.
       events.paid.on((_event, _signal) => {})
@@ -855,7 +855,7 @@ describe('customEvents', () => {
     let reason = new Error('stale transition')
     controller.abort(reason)
 
-    let factories = [() => events.create('paid', { signal: controller.signal })]
+    let factories = [() => events('paid', { signal: controller.signal })]
 
     for (let createEvent of factories) {
       let thrown: unknown
@@ -895,7 +895,7 @@ describe('customEvents', () => {
     let section = result.$('section') as HTMLElement
 
     await result.act(async () => {
-      section.dispatchEvent(events.create(['name', 'length', 'bind', 'toString']))
+      section.dispatchEvent(events(['name', 'length', 'bind', 'toString']))
     })
 
     for (let type of ['name', 'length', 'bind', 'toString']) {
@@ -912,14 +912,14 @@ describe('customEvents', () => {
           <button
             aria-label="submit"
             mix={on('click', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events.create('submitted', { id: 'order-1' }))
+              currentTarget.dispatchEvent(events('submitted', { id: 'order-1' }))
             })}
           >
             Submit
           </button>
           <evented.form
             eventSource={events.submitted}
-            initial={events.create('submitted', { id: 'idle' })}
+            initial={events('submitted', { id: 'idle' })}
             aria-label="form"
             class={(order, event) => (order.id === 'idle' ? '' : 'pending')}
             aria-busy={(order, event) => order.id !== 'idle'}
@@ -965,7 +965,7 @@ describe('customEvents', () => {
           </evented.output>
           <evented.output
             eventSource={events.submitted}
-            initial={events.create('submitted', { id: 'initial' })}
+            initial={events('submitted', { id: 'initial' })}
             hidden={(order, event) => order.id === 'hidden'}
             aria-label="initial-confirmation"
           >
@@ -986,10 +986,10 @@ describe('customEvents', () => {
     assert.equal(initialConfirmation.hidden, false)
     assert.equal(initialConfirmation.textContent, 'initial')
 
-    await result.act(() => host.dispatchEvent(events.create('paid')))
+    await result.act(() => host.dispatchEvent(events('paid')))
     assert.equal(confirmation.hidden, true)
 
-    await result.act(() => host.dispatchEvent(events.create('submitted', { id: 'order-1' })))
+    await result.act(() => host.dispatchEvent(events('submitted', { id: 'order-1' })))
     assert.equal(confirmation.hidden, false)
     assert.equal(confirmation.textContent, 'order-1')
   })
@@ -1026,7 +1026,7 @@ describe('customEvents', () => {
     input.focus()
 
     await result.act(async () => {
-      form.dispatchEvent(events.create('submitted', { id: 'order-1' }))
+      form.dispatchEvent(events('submitted', { id: 'order-1' }))
       await settleEffects()
     })
 
@@ -1037,7 +1037,7 @@ describe('customEvents', () => {
 
   it('broadcasts named groups and wildcards to every listener', async (t) => {
     let events = createEvents()
-    let initialOutcome = events.create('paid')
+    let initialOutcome = events('paid')
 
     function Orders() {
       return () => (
@@ -1045,7 +1045,7 @@ describe('customEvents', () => {
           <button
             aria-label="update"
             mix={on('click', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events.create('submitted', { id: 'first' }))
+              currentTarget.dispatchEvent(events('submitted', { id: 'first' }))
             })}
           />
           {['first', 'second'].map((id) => (
@@ -1083,7 +1083,7 @@ describe('customEvents', () => {
 
     await result.act(() => {
       ;(result.$('section') as HTMLElement).dispatchEvent(
-        events.create(
+        events(
           [
             {
               submitted: {
@@ -1120,7 +1120,7 @@ describe('customEvents', () => {
                 currentTarget.dataset.received = 'true'
               }),
               on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create('paid', { bubbles: false }))
+                currentTarget.dispatchEvent(events('paid', { bubbles: false }))
               }),
             ]}
           />
@@ -1128,7 +1128,7 @@ describe('customEvents', () => {
             <button
               aria-label="unhosted-source"
               mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create('paid'))
+                currentTarget.dispatchEvent(events('paid'))
               })}
             />
             <output
@@ -1142,7 +1142,7 @@ describe('customEvents', () => {
             <button
               aria-label="hosted-source"
               mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create('paid'))
+                currentTarget.dispatchEvent(events('paid'))
               })}
             />
             <output
@@ -1199,14 +1199,14 @@ describe('customEvents', () => {
             <button
               aria-label="local"
               mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create('submitted', { id: 'local' }))
+                currentTarget.dispatchEvent(events('submitted', { id: 'local' }))
               })}
             />
             <button
               aria-label="composed"
               mix={on('click', ({ currentTarget }) => {
                 currentTarget.dispatchEvent(
-                  events.create(
+                  events(
                     [
                       {
                         submitted: { detail: { id: 'composed' } },
@@ -1267,7 +1267,7 @@ describe('customEvents', () => {
 
     await result.act(() =>
       dispatchTarget.dispatchEvent(
-        events.create([
+        events([
           {
             submitted: {
               detail: { id: 'batched' },
@@ -1292,8 +1292,8 @@ describe('customEvents', () => {
     })
     domain.addEventListener('paid', () => nativeCalls.push('paid'))
 
-    domain.dispatchEvent(events.create([{ submitted: { detail: { id: 'batch' } } }, 'paid']))
-    domain.dispatchEvent(events.create(['paid', 'paid']))
+    domain.dispatchEvent(events([{ submitted: { detail: { id: 'batch' } } }, 'paid']))
+    domain.dispatchEvent(events(['paid', 'paid']))
 
     assert.deepEqual(nativeCalls, ['submitted:batch', 'paid', 'paid', 'paid'])
   })
@@ -1308,7 +1308,7 @@ describe('customEvents', () => {
           mix={[
             events.asHost(),
             on('input', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events.create('paid'))
+              currentTarget.dispatchEvent(events('paid'))
             }),
             events.paid.on(({ currentTarget }) => {
               currentTarget.dataset.ready = 'true'
@@ -1763,7 +1763,7 @@ describe('remembered customEvents', () => {
       seeds.count = 1
     })
     assert.throws(() => {
-      customEvents({ create: 1 } as EventDetails)
+      customEvents({ on: 1 } as EventDetails)
     }, /reserves the seed name/)
   })
 })

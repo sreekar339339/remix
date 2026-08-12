@@ -113,7 +113,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
     let opts = { composed: true }
     let actionDetail = getTodoActionDetail(formData)
     try {
-      form.dispatchEvent(events.create('actionSubmitted', actionDetail, opts))
+      form.dispatchEvent(events('actionSubmitted', actionDetail, opts))
       // await new Promise((res, rej) => setTimeout(rej, 25000, new Error('laude lag gaye')));
       let resp = await fetch(form.action, {
         method: 'POST',
@@ -125,9 +125,9 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
         })
       }
       await handle.frame.reload()
-      form.dispatchEvent(events.create('actionSucceeded', actionDetail, opts))
+      form.dispatchEvent(events('actionSucceeded', actionDetail, opts))
     } catch (error) {
-      form.dispatchEvent(events.create('actionErrored', { error: error as Error }, opts))
+      form.dispatchEvent(events('actionErrored', { error: error as Error }, opts))
     }
   }
 
@@ -180,7 +180,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
             <input hidden name="id" value={id} />
             <evented.button
               eventSource={events}
-              initial={events.create('actionSucceeded', { completed })}
+              initial={events('actionSucceeded', { completed })}
               disabled={(_, event) => event.type === 'actionSubmitted'}
               class={(_, event) => (event.type === 'actionSubmitted' ? 'pending' : '')}
               mix={[todoActionButtonCss, completeTodoButtonCss]}

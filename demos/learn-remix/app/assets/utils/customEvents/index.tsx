@@ -11,6 +11,7 @@ import {
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
 import {
   canonicalAddressSegment,
+  isPropertyKey,
   type CustomEventsBatchRuntimeEntry,
   type CustomEventsEntryOp,
 } from './runtime.ts'
@@ -28,7 +29,6 @@ import type {
   RememberedFolds,
   RememberedSeeds,
 } from './types.ts'
-import { isPropertyKey } from './eventSources.ts'
 export type { CustomEventsEventMap } from './types.ts'
 
 enablePatches()
@@ -92,7 +92,6 @@ function createRemembered<Seeds extends EventDetails, Folds extends RememberedFo
     }
   }
   let snapshot = freeze(seeds, true) as EventDetails
-  let owner = {}
   let foldFns = new Map<string, RememberedFoldFn<Seeds>>()
   if (folds !== undefined) {
     for (let [name, fold] of Object.entries(folds)) {
@@ -137,7 +136,6 @@ function createRemembered<Seeds extends EventDetails, Folds extends RememberedFo
   }
 
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>({
-    owner,
     getState: () => snapshot,
     fold: foldEntry,
   })

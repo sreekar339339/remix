@@ -1,4 +1,4 @@
-import { EVENT_ROUTES } from 'remix/ui'
+import { EVENT_ROUTES, type EventSourceSubscriber } from 'remix/ui'
 
 export const ALL_EVENTS = '*'
 
@@ -58,6 +58,40 @@ export function canonicalAddressSegment(value: unknown) {
     : typeof value === 'string' || typeof value === 'number'
       ? String(value)
       : value
+}
+
+export function isPropertyKey(value: unknown): value is PropertyKey {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'symbol'
+}
+
+export function samePropertyKey(left: unknown, right: unknown) {
+  return (
+    Object.is(left, right) ||
+    (isPropertyKey(left) &&
+      isPropertyKey(right) &&
+      typeof left !== 'symbol' &&
+      typeof right !== 'symbol' &&
+      String(left) === String(right))
+  )
+}
+
+export function readPath(value: unknown, path: readonly unknown[]) {
+  for (let segment of path) {
+    if (value instanceof Map) {
+      if (value.has(segment)) {
+        value = value.get(segment)
+      } else {
+        value = value.entries().find(([key]) => samePropertyKey(key, segment))?.[1]
+      }
+    } else if (value instanceof Set) {
+      value = value.values().some((item) => samePropertyKey(item, segment))
+    } else if (Array.isArray(value)) {
+      value = value[Number(segment)]
+    } else {
+      value = value == null ? undefined : Reflect.get(Object(value), segment as PropertyKey)
+    }
+  }
+  return value
 }
 
 function isElement(value: unknown): value is Element {
@@ -296,8 +330,7 @@ function registerHost(
   runtime: CustomEventsRuntimeState,
   target: EventTarget,
   signal?: AbortSignal,
-) {
-  let unregisterTarget = registerDispatchTarget(runtime, target)
+) {  let unregisterTarget = registerDispatchTarget(runtime, target)
 
   if (isElement(target)) {
     runtime.hosts.set(target, (runtime.hosts.get(target) ?? 0) + 1)
@@ -522,4 +555,27 @@ export const customEventsRuntime = {
   defaultHost(runtime: CustomEventsRuntimeState) {
     return runtime.defaultHost
   },
+}
+
+/** Registers an evented-view subscription, shared by wildcard and sub-sources. */
+export function subscribeView(
+  runtime: CustomEventsRuntimeState,
+  subscriber: EventSourceSubscriber,
+  signal: AbortSignal,
+  eventTypes: ReadonlySet<string> | null,
+  addresses: ReadonlyMap<string, EventAddress> | undefined,
+) {
+  customEventsRuntime.subscribe(
+    runtime,
+    'view',
+    {
+      element: subscriber.element,
+      eventTypes,
+      ...(addresses === undefined ? {} : { addresses }),
+      notify(event) {
+        return subscriber.notify(event)
+      },
+    },
+    signal,
+  )
 }

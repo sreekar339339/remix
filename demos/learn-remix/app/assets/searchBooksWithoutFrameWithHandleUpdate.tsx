@@ -37,7 +37,7 @@ async function fetchBooks(query: string, input: HTMLInputElement, signal: AbortS
     let json = await response.json()
     if (!('docs' in json)) {
       input.dispatchEvent(
-        events.create('booksNotFound', { reason: { other: json.detail[0].msg } }, options),
+        events('booksNotFound', { reason: { other: json.detail[0].msg } }, options),
       )
       return
     }
@@ -45,11 +45,11 @@ async function fetchBooks(query: string, input: HTMLInputElement, signal: AbortS
     let books = json.docs as Array<Book>
     input.dispatchEvent(
       books.length
-        ? events.create('booksFound', books, options)
-        : events.create('booksNotFound', { reason: 'emptyList' }, options),
+        ? events('booksFound', books, options)
+        : events('booksNotFound', { reason: 'emptyList' }, options),
     )
   } catch (error) {
-    input.dispatchEvent(events.create('errorOccurred', error as Error, options))
+    input.dispatchEvent(events('errorOccurred', error as Error, options))
   }
 }
 
@@ -88,8 +88,8 @@ export const SearchBooksWithoutFrameWithHandleUpdate = clientEntry(
   function SearchBooksWithoutFrameWithHandleUpdate(handle: Handle<{ initialQuery: string }>) {
     let initialQuery = handle.props.initialQuery.trim()
     let currentEvent: SearchEvent = initialQuery
-      ? events.create('querySubmitted', { query: initialQuery })
-      : events.create('queryEmpty')
+      ? events('querySubmitted', { query: initialQuery })
+      : events('queryEmpty')
     let interacted = false
 
     return () => (
@@ -105,10 +105,10 @@ export const SearchBooksWithoutFrameWithHandleUpdate = clientEntry(
               on('input', ({ currentTarget }, signal) => {
                 let query = currentTarget.value.trim()
                 if (!query) {
-                  currentTarget.dispatchEvent(events.create('queryEmpty'))
+                  currentTarget.dispatchEvent(events('queryEmpty'))
                   return
                 }
-                currentTarget.dispatchEvent(events.create('querySubmitted', { query }))
+                currentTarget.dispatchEvent(events('querySubmitted', { query }))
                 fetchBooks(query, currentTarget, signal)
               }),
               events.on(async (event) => {

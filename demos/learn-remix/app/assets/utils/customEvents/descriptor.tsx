@@ -1,27 +1,41 @@
-import { EVENT_SOURCE, ref, type EventSource } from 'remix/ui'
+import {
+  EVENT_SOURCE,
+  createMixin,
+  ref,
+  type EventSource,
+  type EventSourceEvent,
+  type EventSourceProtocol,
+} from 'remix/ui'
 import {
   ALL_EVENTS,
+  canonicalAddressSegment,
+  createCurrentTargetEvent,
   createCustomEventsRuntimeState,
   customEventsRuntime,
+  isPropertyKey,
+  readPath,
+  samePropertyKey,
+  subscribeView,
   type CustomEventsBatchRuntimeEntry,
-  type CustomEventsRuntimeState,
   type CustomEventsEntryOp,
+  type CustomEventsRuntimeState,
+  type EventAddress,
 } from './runtime.ts'
-import { customEventsOnMixin } from './remix.tsx'
-import { createEventSource } from './eventSources.ts'
-import {
-  type CustomEventsAsHost,
-  type CustomEventsBatchItem,
-  type CustomEventsDispatchEvent,
-  type CustomEventsFactory,
-  type CustomEventsDescriptor,
-  type CustomEventsInit,
-  type CustomEventsOnFunction,
-  type EventDetails,
+import type {
+  CustomEventsAsHost,
+  CustomEventsBatchItem,
+  CustomEventsDescriptor,
+  CustomEventsDispatchEvent,
+  CustomEventsInit,
+  CustomEventsOnFunction,
+  EventDetails,
+  EventSourceMetadata,
 } from './types.ts'
 
 const CUSTOM_EVENTS_TRANSACTION = '$transaction'
 const customEventsInitKeys = new Set(['bubbles', 'composed', 'signal'])
+// Runtime twin of the type-only marker; the source proxy exposes its metadata.
+const eventSourceMetadata = Symbol('eventSource')
 
 // Evented-view namespace: `evented.<tag>` resolves to the tag string itself, so
 // JSX creates a host element directly with no component runtime layer. The
@@ -39,7 +53,6 @@ type InternalEntryOptions = CustomEventsInit & {
 }
 
 type RememberedEventContext = {
-  owner: object
   getState(): EventDetails
   /** Folds a dispatched event into the remembered composite; absent for pure descriptors. */
   fold?(type: string, detail: unknown): readonly CustomEventsBatchRuntimeEntry[] | undefined
@@ -64,13 +77,41 @@ function getEventInit(init: CustomEventsInit | undefined): EventInit {
   }
 }
 
+function customEventsOnMixin(
+  runtime: CustomEventsRuntimeState,
+  source: { type: string; path: readonly unknown[] } | undefined,
+  listener: (event: Event) => void | Promise<unknown>,
+) {
+  return createMixin<
+    Element,
+    [runtime: CustomEventsRuntimeState, source: { type: string; path: readonly unknown[] } | undefined, listener: (event: Event) => void | Promise<unknown>]
+  >((handle) => (runtime, source, listener) => (
+    <handle.element
+      mix={ref((element, signal) => {
+        customEventsRuntime.subscribe(
+          runtime,
+          'effect',
+          {
+            element,
+            eventTypes: source ? new Set([source.type]) : null,
+            ...(source ? { addresses: new Map([[source.type, source.path]]) } : {}),
+            notify(event) {
+              return listener(createCurrentTargetEvent(event, element))
+            },
+          },
+          signal,
+        )
+      })}
+    />
+  ))(runtime, source, listener)
+}
+
 export function createCustomEventsDescriptor<
   Events extends EventDetails,
   State extends EventDetails | never = never,
 >(state?: RememberedEventContext): CustomEventsDescriptor<Events, State> {
   let runtime: CustomEventsRuntimeState | undefined
   let getRuntime = () => (runtime ??= createCustomEventsRuntimeState())
-  let sourceOwner = state?.owner ?? {}
   // The descriptor is itself an EventTarget: native listeners attach to it and
   // target-less writes dispatch on it.
   let base = new EventTarget()
@@ -136,14 +177,6 @@ export function createCustomEventsDescriptor<
     return out
   }
 
-  let on = ((...args: unknown[]) => {
-    let listener = args[0] as ((event: Event) => void | Promise<unknown>) | undefined
-    if (!listener) {
-      throw new TypeError('customEvents on() requires an event listener.')
-    }
-    return customEventsOnMixin(getRuntime(), undefined, listener)
-  }) as CustomEventsOnFunction<Events>
-
   function createTransaction(entries: CustomEventsBatchRuntimeEntry[], init?: CustomEventsInit) {
     init?.signal?.throwIfAborted()
     return customEventsRuntime.createProductEvent(
@@ -155,6 +188,7 @@ export function createCustomEventsDescriptor<
     )
   }
 
+  // The callable descriptor: invoking it builds a fresh event.
   let create = ((...args: Array<unknown>) => {
     let [typeOrEvents, detailOrInit, maybeInit] = args as [
       string | readonly CustomEventsBatchItem<Events>[] | Record<string, unknown>,
@@ -187,28 +221,17 @@ export function createCustomEventsDescriptor<
     }
 
     throw new TypeError('customEvents expects an event name, event object, or event array.')
-  }) as CustomEventsFactory<Events>
+  })
 
   // The descriptor doubles as the wildcard event source: subscribing to it
   // matches every descriptor event. On a remembered descriptor the
-  // composite snapshot is read for every matched event.
+  // composite is read for every matched event.
   let wildcardSource: EventSource = {
     [EVENT_SOURCE]: {
       type: ALL_EVENTS,
       ...(state ? { read: () => state.getState() } : {}),
       subscribe(subscriber, signal) {
-        customEventsRuntime.subscribe(
-          getRuntime(),
-          'view',
-          {
-            element: subscriber.element,
-            eventTypes: null,
-            notify(event) {
-              return subscriber.notify(event)
-            },
-          },
-          signal,
-        )
+        subscribeView(getRuntime(), subscriber, signal, null, undefined)
       },
     },
   }
@@ -222,8 +245,7 @@ export function createCustomEventsDescriptor<
     if (first instanceof Event) {
       return EventTarget.prototype.dispatchEvent.call(base, first)
     }
-    let createEvent = create as (...args: unknown[]) => Event
-    let event = createEvent(first, args[1], args[2])
+    let event = create(first, args[1], args[2]) as Event
     let target = customEventsRuntime.defaultHost(getRuntime())
     if (target === undefined) {
       throw new TypeError('customEvents dispatchEvent requires a registered host.')
@@ -238,32 +260,87 @@ export function createCustomEventsDescriptor<
     customEventsRuntime.registerHost(getRuntime(), target)
     return eventsProxy
   }) as CustomEventsAsHost<Events, State>
-  let descriptorTarget = Object.assign(base, {
-    create,
-    dispatchEvent,
-    on,
-    asHost,
-  })
+  let on = ((...args: unknown[]) => {
+    let listener = args[0] as ((event: Event) => void | Promise<unknown>) | undefined
+    if (!listener) {
+      throw new TypeError('customEvents on() requires an event listener.')
+    }
+    return customEventsOnMixin(getRuntime(), undefined, listener)
+  }) as CustomEventsOnFunction<Events>
+
+  // The descriptor's own members and native EventTarget channel ride on the
+  // callable target; every other name (including Function and Object
+  // prototype members) creates an event source.
+  let descriptorTarget = Object.assign(create, { dispatchEvent, on, asHost })
   customEventsRuntime.registerHost(getRuntime(), base)
 
+  let createSource = (
+    type: string,
+    readRoot: (() => unknown) | undefined,
+    path: readonly unknown[] = [],
+    read?: () => unknown,
+  ): object => {
+    let metadata: EventSourceMetadata = {
+      type,
+      path,
+      ...(readRoot ? { read: read ?? (() => readPath(readRoot(), path)) } : {}),
+    }
+    let protocol: EventSourceProtocol = {
+      type,
+      // On a remembered descriptor every source yields detail-shaped input:
+      // remembered properties read their current value, while occurrences fill
+      // their slot from the matched event and read undefined otherwise.
+      ...(readRoot || state
+        ? {
+            read: metadata.read
+              ? () => metadata.read!()
+              : (trigger?: EventSourceEvent) =>
+                  trigger && trigger.type === type ? trigger.detail : undefined,
+          }
+        : {}),
+      subscribe(subscriber, signal) {
+        subscribeView(
+          getRuntime(),
+          subscriber,
+          signal,
+          new Set([metadata.type]),
+          new Map([[metadata.type, metadata.path]]),
+        )
+      },
+    }
+    return new Proxy(Object.create(null), {
+      get(_, property) {
+        if (property === EVENT_SOURCE) return protocol
+        if (property === eventSourceMetadata) return metadata
+        if (property === 'on') {
+          return (listener: (event: Event) => void | Promise<unknown>) =>
+            customEventsOnMixin(getRuntime(), metadata, listener)
+        }
+        let at = (segment: unknown, read?: () => unknown) =>
+          createSource(type, readRoot, [...path, canonicalAddressSegment(segment)], read)
+        let current = metadata.read?.()
+        if (property === 'get' && current instanceof Map) return (key: unknown) => at(key)
+        if (property === 'has' && current instanceof Set) return (value: unknown) => at(value)
+        if (property === 'as') {
+          return (value: unknown) =>
+            at(value, readRoot ? () => samePropertyKey(readPath(readRoot(), path), value) : undefined)
+        }
+        return at(property)
+      },
+    })
+  }
+
   let sources = new Map<string, object>()
-  // The proxy resolves the wildcard protocol, the descriptor's own members,
-  // and the native EventTarget channel methods; every other name (including
-  // Object.prototype members) creates an event source.
   let proxy = new Proxy(descriptorTarget, {
     get(target, property, receiver) {
       if (property === EVENT_SOURCE) {
         return wildcardSource[EVENT_SOURCE]
       }
-      if (
-        property === 'addEventListener' ||
-        property === 'removeEventListener' ||
-        property === 'dispatchEvent'
-      ) {
-        return Reflect.get(target, property, target).bind(target)
+      if (property === 'addEventListener' || property === 'removeEventListener') {
+        return Reflect.get(EventTarget.prototype, property, base).bind(base)
       }
-      if (Object.hasOwn(target, property)) {
-        return Reflect.get(target, property, receiver)
+      if (property === 'dispatchEvent' || property === 'on' || property === 'asHost') {
+        return Reflect.get(target, property, target)
       }
       if (typeof property !== 'string') return undefined
       let source = sources.get(property)
@@ -272,30 +349,13 @@ export function createCustomEventsDescriptor<
           state && Object.hasOwn(state.getState(), property)
             ? () => state.getState()[property]
             : undefined
-        source = createEventSource(
-          sourceOwner,
-          property,
-          readRoot,
-          (metadata, listener) => customEventsOnMixin(getRuntime(), metadata, listener),
-          (metadata, subscriber, signal) =>
-            customEventsRuntime.subscribe(
-              getRuntime(),
-              'view',
-              {
-                element: subscriber.element,
-                eventTypes: new Set([metadata.type]),
-                addresses: new Map([[metadata.type, metadata.path]]),
-                notify(event) {
-                  return subscriber.notify(event)
-                },
-              },
-              signal,
-            ),
-          state !== undefined,
-        )
+        source = createSource(property, readRoot)
         sources.set(property, source)
       }
       return source
+    },
+    construct() {
+      throw new TypeError('customEvents descriptors are not constructors.')
     },
   })
   eventsProxy = proxy

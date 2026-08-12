@@ -34,17 +34,17 @@ async function fetchBooks(query: string, input: HTMLInputElement, signal: AbortS
     let json = await response.json()
     if (!('docs' in json)) {
       return input.dispatchEvent(
-        events.create('booksNotFound', { reason: { other: json.detail[0].msg } }, opts),
+        events('booksNotFound', { reason: { other: json.detail[0].msg } }, opts),
       )
     }
     let books = json.docs as Array<Book>
     input.dispatchEvent(
       books.length
-        ? events.create('booksFound', books, opts)
-        : events.create('booksNotFound', { reason: 'emptyList' }, opts),
+        ? events('booksFound', books, opts)
+        : events('booksNotFound', { reason: 'emptyList' }, opts),
     )
   } catch (error) {
-    input.dispatchEvent(events.create('errorOccurred', error as Error, opts))
+    input.dispatchEvent(events('errorOccurred', error as Error, opts))
   } finally {
   }
 }
@@ -54,8 +54,8 @@ export const SearchBooksWithoutFrame = clientEntry(
   function SearchBooksWithoutFrame(handle: Handle<{ initialQuery: string }>) {
     let initialQuery = handle.props.initialQuery.trim()
     let initialEvent = initialQuery
-      ? events.create('querySubmitted', { query: initialQuery })
-      : events.create('queryEmpty')
+      ? events('querySubmitted', { query: initialQuery })
+      : events('queryEmpty')
     let interacted = false
 
     return () => (
@@ -73,8 +73,8 @@ export const SearchBooksWithoutFrame = clientEntry(
               on('input', ({ currentTarget }, signal) => {
                 interacted = true
                 let query = currentTarget.value.trim()
-                if (!query) return void currentTarget.dispatchEvent(events.create('queryEmpty'))
-                currentTarget.dispatchEvent(events.create('querySubmitted', { query }))
+                if (!query) return void currentTarget.dispatchEvent(events('queryEmpty'))
+                currentTarget.dispatchEvent(events('querySubmitted', { query }))
                 fetchBooks(query, currentTarget, signal)
               }),
               events.on(({ currentTarget, type }) => {

@@ -13,7 +13,7 @@ export function AddTodo(handle: Handle<Props<'form'>>) {
     formData.set('redirectTo', 'none')
     let opts = { composed: true, signal }
     try {
-      form.dispatchEvent(events.create('actionSubmitted', null, opts))
+      form.dispatchEvent(events('actionSubmitted', null, opts))
       // await new Promise((res, rej) => setTimeout(rej, 2000, new Error('laude lag gaye')));
       let resp = await fetch(new URL(form.action), {
         method: 'POST',
@@ -26,9 +26,9 @@ export function AddTodo(handle: Handle<Props<'form'>>) {
         })
       }
       await handle.frames.get('TodoItems')!.reload()
-      form.dispatchEvent(events.create('actionSucceeded', null, opts))
+      form.dispatchEvent(events('actionSucceeded', null, opts))
     } catch (error) {
-      form.dispatchEvent(events.create('actionErrored', { error: error as Error }, opts))
+      form.dispatchEvent(events('actionErrored', { error: error as Error }, opts))
     }
   }
 
