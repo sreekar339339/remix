@@ -41,7 +41,7 @@ type InternalEntryOptions = CustomEventsInit & {
 type RememberedEventContext = {
   owner: object
   getState(): EventDetails
-  /** Folds a dispatched event into the retained composite; absent for pure descriptors. */
+  /** Folds a dispatched event into the remembered composite; absent for pure descriptors. */
   fold?(type: string, detail: unknown): readonly CustomEventsBatchRuntimeEntry[] | undefined
 }
 
@@ -67,13 +67,12 @@ function getEventInit(init: CustomEventsInit | undefined): EventInit {
 export function createCustomEventsDescriptor<
   Events extends EventDetails,
   State extends EventDetails | never = never,
->(state?: RememberedEventContext, host?: EventTarget): CustomEventsDescriptor<Events, State> {
+>(state?: RememberedEventContext): CustomEventsDescriptor<Events, State> {
   let runtime: CustomEventsRuntimeState | undefined
   let getRuntime = () => (runtime ??= createCustomEventsRuntimeState())
   let sourceOwner = state?.owner ?? {}
   // The descriptor is itself an EventTarget: native listeners attach to it and
-  // target-less writes dispatch on it. A domain `host` registers an external
-  // target as the channel instead.
+  // target-less writes dispatch on it.
   let base = new EventTarget()
 
   function resolveEntry(
@@ -206,7 +205,7 @@ export function createCustomEventsDescriptor<
   }) as CustomEventsFactory<Events>
 
   // The descriptor doubles as the wildcard event source: subscribing to it
-  // matches every descriptor event. On a retained descriptor or store the
+  // matches every descriptor event. On a remembered descriptor the
   // composite snapshot is read for every matched event.
   let wildcardSource: EventSource = {
     [EVENT_SOURCE]: {
@@ -260,7 +259,7 @@ export function createCustomEventsDescriptor<
     on,
     asHost,
   })
-  customEventsRuntime.registerHost(getRuntime(), host ?? base)
+  customEventsRuntime.registerHost(getRuntime(), base)
 
   let sources = new Map<string, object>()
   // The proxy resolves the wildcard protocol, the descriptor's own members,

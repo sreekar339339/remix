@@ -8,20 +8,21 @@ import {
 import { canonicalAddressSegment } from './runtime.ts'
 
 const eventSourceMetadata: unique symbol = Symbol('eventSource')
-export const stateEventSourceMarker: unique symbol = Symbol('stateEventSource')
-const storeOccurrenceSourceMarker: unique symbol = Symbol('storeOccurrenceSource')
+export const rememberedEventSourceMarker: unique symbol = Symbol('stateEventSource')
+const occurrenceSourceMarker: unique symbol = Symbol('occurrenceSource')
 
 /**
- * True when a source (or any member of a source array) belongs to a store:
- * remembered state sources and remembered occurrences both read value semantics.
+ * True when a source (or any member of a source array) belongs to a
+ * remembered descriptor: remembered sources and occurrences both read value
+ * semantics.
  */
-export type IsStateEventSource<Source> = Source extends readonly (infer Item)[]
-  ? [true] extends [IsStateEventSource<Item>]
+export type IsRememberedEventSource<Source> = Source extends readonly (infer Item)[]
+  ? [true] extends [IsRememberedEventSource<Item>]
     ? true
     : false
   : Source extends
-        | { readonly [stateEventSourceMarker]: true }
-        | { readonly [storeOccurrenceSourceMarker]: true }
+        | { readonly [rememberedEventSourceMarker]: true }
+        | { readonly [occurrenceSourceMarker]: true }
     ? true
     : false
 
@@ -51,31 +52,31 @@ type Defined<Value> = Exclude<Value, null | undefined>
 type PreserveMissing<Parent, Value> =
   Extract<Parent, null | undefined> extends never ? Value : Value | undefined
 
-export type StateEventSource<Value, Type extends string, Detail = Value> = EventSource<
+export type RememberedEventSource<Value, Type extends string, Detail = Value> = EventSource<
   Value,
   Type,
   Detail
-> & { readonly [stateEventSourceMarker]: true } & (Defined<Value> extends ReadonlyMap<
+> & { readonly [rememberedEventSourceMarker]: true } & (Defined<Value> extends ReadonlyMap<
     infer Key,
     infer Item
   >
-    ? { get(key: Key): StateEventSource<Item | undefined, Type> }
+    ? { get(key: Key): RememberedEventSource<Item | undefined, Type> }
     : Defined<Value> extends ReadonlySet<infer Item>
-      ? { has(value: Item): StateEventSource<boolean, Type> }
+      ? { has(value: Item): RememberedEventSource<boolean, Type> }
       : Defined<Value> extends readonly (infer Item)[]
-        ? { readonly [index: number]: StateEventSource<Item | undefined, Type> }
+        ? { readonly [index: number]: RememberedEventSource<Item | undefined, Type> }
         : Defined<Value> extends object
           ? {
-              readonly [Key in keyof Defined<Value>]: StateEventSource<
+              readonly [Key in keyof Defined<Value>]: RememberedEventSource<
                 PreserveMissing<Value, Defined<Value>[Key]>,
                 Type
               >
             }
-          : { as(value: Value): StateEventSource<boolean, Type, Value | null> })
+          : { as(value: Value): RememberedEventSource<boolean, Type, Value | null> })
 
 /** An occurrence of a remembered descriptor: value semantics, like remembered sources. */
 type StoreOccurrenceSource<Value, Type extends string> = EventSource<Value, Type> & {
-  readonly [storeOccurrenceSourceMarker]: true
+  readonly [occurrenceSourceMarker]: true
 }
 
 export type EventSources<
@@ -87,7 +88,7 @@ export type EventSources<
     }
   : {
       readonly [Type in keyof Events & string]: Type extends keyof State & string
-        ? StateEventSource<State[Type], Type>
+        ? RememberedEventSource<State[Type], Type>
         : StoreOccurrenceSource<Events[Type], Type>
     }
 
@@ -163,7 +164,7 @@ export function createEventSource(
   }
   let protocol: EventSourceProtocol = {
     type,
-    // On a store-backed descriptor every source yields detail-shaped input:
+    // On a remembered descriptor every source yields detail-shaped input:
     // remembered properties read their current value, while occurrences fill their
     // slot from the matched event and read undefined otherwise.
     ...(readRoot || stateBacked

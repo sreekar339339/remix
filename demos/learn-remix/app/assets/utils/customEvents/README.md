@@ -12,7 +12,7 @@ The library is organized around these concepts:
   declaration whose root event's detail folds in every remembered seed and
   fold event. The descriptor is itself an `EventTarget`.
 - **Occurrence descriptor** — `customEvents<Definition>()`: a typed
-  vocabulary of transient events with no retained model.
+  vocabulary of transient events with no remembered model.
 - **Event source** — a typed, addressable subscription handle for one event.
 - **Evented-view** — an intrinsic element (`evented.<tag>`) that subscribes
   to sources through the `eventSource` host prop and re-renders from matched
@@ -55,7 +55,7 @@ native listeners.
 
 ### Occurrence descriptors — `customEvents<Definition>()`
 
-A typed vocabulary of transient events with no retained model:
+A typed vocabulary of transient events with no remembered model:
 
 ```ts
 const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
@@ -277,7 +277,7 @@ first argument is always the whole composite; the matched event is the second:
 
 ### Occurrence vocabulary
 
-Occurrences are transient events with no retained slice — any name that is
+Occurrences are transient events with no remembered slice — any name that is
 neither a seed nor a fold event. Subscribe a wildcard view to a descriptor to
 see them all:
 

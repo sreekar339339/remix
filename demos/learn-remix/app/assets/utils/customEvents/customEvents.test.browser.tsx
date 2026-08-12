@@ -139,7 +139,7 @@ describe('customEvents', () => {
     assert.equal(positionEvents, 3)
   })
 
-  it('renders keyed children from a retained descriptor without component updates', async (t) => {
+  it('renders keyed children from a remembered descriptor without component updates', async (t) => {
     let events = customEvents(
       {
         circles: new Map<number, { id: number; x: number; r: number }>([
@@ -209,7 +209,7 @@ describe('customEvents', () => {
       await settleEffects()
     })
     // Whole-key replaces reconcile the keyed diff: removed circles unmount,
-    // retained circles keep their DOM node.
+    // remembered circles keep their DOM node.
     assert.equal(circles().length, 1)
     assert.equal(circles()[0], first)
     assert.equal((circles()[0] as SVGCircleElement).getAttribute('r'), '3')
@@ -1544,7 +1544,7 @@ describe('customEvents', () => {
   })
 })
 
-describe('retained customEvents', () => {
+describe('remembered customEvents', () => {
   it('folds remembered replaces and fold events into the root composite', async (t) => {
     let events = customEvents(
       { count: 0, label: 'idle' },
@@ -1587,9 +1587,9 @@ describe('retained customEvents', () => {
     assert.deepEqual(seen[seen.length - 1], [{ count: 5, label: 'ready' }, 'label'])
 
     if (false) {
-      // @ts-expect-error - retained descriptors have no state namespace.
+      // @ts-expect-error - remembered descriptors have no state namespace.
       events.state
-      // @ts-expect-error - retained descriptors have no sync read.
+      // @ts-expect-error - remembered descriptors have no sync read.
       events.value
       // @ts-expect-error - writes go through dispatch, not update.
       events.update
@@ -1730,7 +1730,7 @@ describe('retained customEvents', () => {
     assert.deepEqual(seen[seen.length - 1], [0.5, 'tick'])
   })
 
-  it('folds null through the bare-name sugar for held events', async (t) => {
+  it('folds null through the bare-name sugar for remembered events', async (t) => {
     let events = customEvents({ kind: 'one-way' })
     let seen: unknown[] = []
 
@@ -1756,7 +1756,7 @@ describe('retained customEvents', () => {
     assert.equal(result.$('[aria-label="kind"]')?.textContent, 'return')
   })
 
-  it('freezes retained seeds and rejects reserved names', () => {
+  it('freezes remembered seeds and rejects reserved names', () => {
     let seeds = { count: 0 }
     customEvents(seeds)
     assert.throws(() => {

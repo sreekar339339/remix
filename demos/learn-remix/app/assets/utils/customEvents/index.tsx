@@ -6,7 +6,6 @@ import {
   freeze,
   type Immutable,
   type Patch,
-  produce,
   produceWithPatches,
 } from 'immer'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
@@ -37,7 +36,7 @@ enableMapSet()
 /**
  * Event-aware intrinsic elements for any descriptor: `evented.<tag>` resolves
  * to the tag string itself at runtime, while the source props infer the event
- * map from the descriptor or store passed as `eventSource`.
+ * map from the descriptor passed as `eventSource`.
  */
 export const evented = customEventsEvented as unknown as CustomEventsEventedViews<
   EventDetails,
@@ -49,8 +48,8 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
   ...args: CustomEventsFactoryArgs<Definition>
 ): CustomEventsDescriptor<NormalizeCustomEventsDefinition<Definition>>
 /**
- * Creates a retained descriptor: a root composite event whose detail folds in
- * every held seed and effect event declared here.
+ * Creates a remembered descriptor: a root composite event whose detail folds in
+ * every remembered seed and fold event declared here.
  *
  * `customEvents({ count: 0, label: 'idle' }, { inc: (draft, n) => { draft.count += n } })`
  */
@@ -62,13 +61,13 @@ export function customEvents<Seeds extends RememberedSeeds, Folds extends Rememb
   folds: Folds,
 ): RememberedDescriptor<Seeds, Folds>
 export function customEvents(first?: unknown, foldsArg?: unknown): unknown {
-  if (isRetainedDeclaration(first)) {
+  if (isRememberedDeclaration(first)) {
     return createRemembered(first, foldsArg as RememberedFolds<EventDetails> | undefined)
   }
   return createCustomEventsDescriptor()
 }
 
-function isRetainedDeclaration(value: unknown): value is EventDetails {
+function isRememberedDeclaration(value: unknown): value is EventDetails {
   return (
     value !== null &&
     typeof value === 'object' &&
@@ -77,7 +76,7 @@ function isRetainedDeclaration(value: unknown): value is EventDetails {
   )
 }
 
-const reservedSeedNames = new Set<string>([
+const rememberedSeedNames = new Set<string>([
   'create',
   'on',
   'asHost',
@@ -88,13 +87,13 @@ const reservedSeedNames = new Set<string>([
 
 type RememberedFoldFn<Held extends EventDetails> = (draft: Draft<Held>, detail: unknown) => void
 
-/** Creates a retained descriptor from initial details and declared fold events. */
+/** Creates a remembered descriptor from initial details and declared fold events. */
 function createRemembered<Seeds extends EventDetails, Folds extends RememberedFolds<Seeds>>(
   seeds: Seeds,
   folds?: Folds,
 ): RememberedDescriptor<Seeds, Folds> {
   for (let name of Object.keys(seeds)) {
-    if (name === '*' || reservedSeedNames.has(name)) {
+    if (name === '*' || rememberedSeedNames.has(name)) {
       throw new TypeError(`customEvents reserves the seed name "${name}".`)
     }
   }

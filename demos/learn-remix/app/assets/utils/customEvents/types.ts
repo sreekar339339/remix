@@ -11,8 +11,8 @@ import {
 import type {
   EventSource,
   EventSources,
-  IsStateEventSource,
-  StateEventSource,
+  IsRememberedEventSource,
+  RememberedEventSource,
 } from './eventSources.ts'
 
 export type EventDetails = Record<string, unknown>
@@ -52,7 +52,6 @@ export type ReservedCustomEventsName =
   | 'dispatchEvent'
   | 'addEventListener'
   | 'removeEventListener'
-  | 'store'
 type ReservedNamesIn<Definition> = Extract<EventNames<Definition>, ReservedCustomEventsName>
 
 type NativeEventNameError<Names extends string> = {
@@ -179,7 +178,7 @@ type CustomEventsSourceEvent<Source> = Source extends readonly (infer Item)[]
 
 /**
  * The descriptor itself, used as the wildcard event source: subscribing to it
- * matches every descriptor event. On a retained descriptor or store it reads
+ * matches every descriptor event. On a remembered descriptor it reads
  * the whole composite snapshot for every matched event.
  */
 export type CustomEventsWildcardSource<
@@ -192,8 +191,8 @@ export type CustomEventsWildcardSource<
 /**
  * Props for a default evented-view that subscribes to every descriptor event
  * through the wildcard source. Occurrence views receive the matched event's
- * payload and render their `initial` event before one first matches; store
- * views read the snapshot instead.
+ * payload and render their `initial` event before one first matches;
+ * remembered views read the composite instead.
  */
 type CustomEventsDefaultElementProps<
   Events extends EventDetails,
@@ -221,15 +220,15 @@ type CustomEventsSourceDetail<Source> = Source extends readonly unknown[]
   : CustomEventsSourceValue<Source>
 
 /** Input for an `on`-omitted state view: the whole snapshot, always. */
-type CustomEventsStateViewInput<State extends EventDetails> = State
+type CustomEventsRememberedViewInput<State extends EventDetails> = State
 
 /** The matched event of a state wildcard view: any declared event or an implicit occurrence. */
 type CustomEventsWildcardEvent<Events extends EventDetails> =
   | CustomEventsEventMap<Events>[CustomEventsEventType<Events>]
   | (CustomEvent<unknown> & { readonly type: string })
 
-/** Evented-view on a state store: `eventSource` selects sources; the input is their value(s). */
-type CustomEventsStateElementProps<
+/** Evented-view on a remembered descriptor: `eventSource` selects sources; the input is their value(s). */
+type CustomEventsRememberedElementProps<
   Events extends EventDetails,
   State extends EventDetails,
   Tag extends keyof JSX.IntrinsicElements,
@@ -253,14 +252,14 @@ type CustomEventsStateElementProps<
       >
 }
 
-/** Default `eventSource`-omitted element for a state store: subscribes to every event. */
-type CustomEventsStateDefaultElementProps<
+/** Default `eventSource`-omitted element for a remembered descriptor: subscribes to every event. */
+type CustomEventsRememberedDefaultElementProps<
   Events extends EventDetails,
   State extends EventDetails,
   Tag extends keyof JSX.IntrinsicElements,
 > = Omit<
   CustomEventsReactiveElementProps<
-    CustomEventsStateViewInput<State>,
+    CustomEventsRememberedViewInput<State>,
     CustomEventsWildcardEvent<Events>,
     Tag
   >,
@@ -270,7 +269,7 @@ type CustomEventsStateDefaultElementProps<
   children?:
     | CustomEventsIntrinsicChildren<Tag>
     | CustomEventsReactiveProp<
-        NoInfer<CustomEventsStateViewInput<State>>,
+        NoInfer<CustomEventsRememberedViewInput<State>>,
         CustomEventsWildcardEvent<Events>,
         RemixNode
       >
@@ -306,9 +305,9 @@ type CustomEventsOccurrenceProps<
  *
  * The wildcard overloads infer the event map from the `eventSource` descriptor
  * itself, so the shared top-level `evented` value stays fully typed for every
- * descriptor and store without binding at the property-access site. Explicit
- * sources resolve to value semantics when they come from a store (state
- * sources) and event semantics otherwise.
+ * descriptor without binding at the property-access site. Explicit sources
+ * resolve to value semantics when they come from a remembered descriptor and
+ * event semantics otherwise.
  */
 export type CustomEventsEventedView<
   Events extends EventDetails,
@@ -323,7 +322,7 @@ export type CustomEventsEventedView<
       >
         ? [ViewState] extends [never]
           ? CustomEventsDefaultElementProps<ViewEvents, Tag, true>
-          : CustomEventsStateDefaultElementProps<ViewEvents, ViewState, Tag>
+          : CustomEventsRememberedDefaultElementProps<ViewEvents, ViewState, Tag>
         : never),
     ): RemixNode
     <const Source extends CustomEventsWildcardSource<EventDetails>>(
@@ -333,21 +332,21 @@ export type CustomEventsEventedView<
       >
         ? [ViewState] extends [never]
           ? CustomEventsDefaultElementProps<ViewEvents, Tag, false>
-          : CustomEventsStateDefaultElementProps<ViewEvents, ViewState, Tag>
+          : CustomEventsRememberedDefaultElementProps<ViewEvents, ViewState, Tag>
         : never),
     ): RemixNode
     <const Source extends SourceSelection<EventSource<any, any, any>>>(
-      props: IsStateEventSource<Source> extends true
-        ? CustomEventsStateElementProps<never, never, Tag, Source>
+      props: IsRememberedEventSource<Source> extends true
+        ? CustomEventsRememberedElementProps<never, never, Tag, Source>
         : never,
     ): RemixNode
     <const Source extends SourceSelection<EventSource<any, any, any>>>(
-      props: IsStateEventSource<Source> extends true
+      props: IsRememberedEventSource<Source> extends true
         ? never
         : CustomEventsOccurrenceProps<Source, Tag, true>,
     ): RemixNode
     <const Source extends SourceSelection<EventSource<any, any, any>>>(
-      props: IsStateEventSource<Source> extends true
+      props: IsRememberedEventSource<Source> extends true
         ? never
         : CustomEventsOccurrenceProps<Source, Tag, false>,
     ): RemixNode
@@ -388,8 +387,8 @@ type CustomEventsEventedListView<
 > = 'list' &
   GenericJSXComponent & {
     <const Source extends SourceSelection<EventSource<any, any, any>>>(
-      props: IsStateEventSource<Source> extends true
-        ? Omit<CustomEventsStateElementProps<never, never, 'list', Source>, 'children'> & {
+      props: IsRememberedEventSource<Source> extends true
+        ? Omit<CustomEventsRememberedElementProps<never, never, 'list', Source>, 'children'> & {
             children?: CustomEventsListItemTemplate<Source>
           }
         : never,
@@ -531,7 +530,7 @@ export type RememberedFolds<Held extends EventDetails> = {
 }
 
 /**
- * Held seeds of a retained descriptor: data values keyed by event name, which
+ * Remembered seeds of a remembered descriptor: data values keyed by event name, which
  * cannot overwrite the descriptor API or use native DOM event names.
  */
 export type RememberedSeeds = EventDetails & {
@@ -554,7 +553,7 @@ export type RememberedEventsMap<
 }
 
 /**
- * The write input of a retained descriptor: an event-named object of details
+ * The write input of a remembered descriptor: an event-named object of details
  * (remembered keys replace their slice, fold events fold it in, undeclared names
  * fire occurrences) or a bare name for a detail-less occurrence. Batches use
  * `create([...])` with a native `dispatchEvent`.
@@ -563,7 +562,7 @@ export type RememberedEventInput<Seeds extends EventDetails> =
   | string
   | (Partial<Seeds> & Record<string, unknown>)
 
-/** Creates one fresh retained event from the write-input grammar. */
+/** Creates one fresh remembered event from the write-input grammar. */
 export type RememberedCreate<Seeds extends EventDetails> = {
   (
     input: RememberedEventInput<Seeds> | readonly (string | Record<string, unknown>)[],
@@ -571,7 +570,7 @@ export type RememberedCreate<Seeds extends EventDetails> = {
   ): Event
 }
 
-/** Dispatches retained events on the descriptor itself. */
+/** Dispatches remembered events on the descriptor itself. */
 export type RememberedDispatchEvent<Seeds extends EventDetails> = {
   (event: Event): boolean
   (input: RememberedEventInput<Seeds>, init?: CustomEventsInit): Promise<void>
@@ -594,7 +593,7 @@ export type RememberedDescriptorBase<Events extends EventDetails, Seeds extends 
 } & CustomEventsDescriptor<Events, Immutable<Seeds>>
 
 /**
- * A retained descriptor: the root composite event (`eventSource={events}`)
+ * A remembered descriptor: the root composite event (`eventSource={events}`)
  * whose detail folds in every remembered seed and fold event.
  */
 export type RememberedDescriptor<

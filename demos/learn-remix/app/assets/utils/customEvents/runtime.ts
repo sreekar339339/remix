@@ -356,7 +356,7 @@ function warnRootSkipOnce(runtime: CustomEventsRuntimeState, type: string) {
   console.warn(
     `Map value replaces in "${type}" skip whole-key subscribers, so a whole-key <list> or ` +
       `<output> does not re-render for in-place item changes. Subscribe per item (for example ` +
-      `store.events.${type}.get(id)) when an element renders fields that change per item.`,
+      `events.${type}.get(id)) when an element renders fields that change per item.`,
   )
 }
 
