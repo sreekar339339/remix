@@ -3,10 +3,18 @@ import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTimer() {
-  let { events, state } = customEvents().store({
-    elapsed: 0,
-    duration: 10,
-  })
+  let events = customEvents(
+    { elapsed: 0, duration: 10 },
+    {
+      tick: (held, delta: number) => ({
+        elapsed: Math.min(held.duration, held.elapsed + delta),
+      }),
+      setDuration: (held, duration: number) => ({
+        duration,
+        elapsed: Math.min(held.elapsed, duration),
+      }),
+    },
+  )
   return () => (
     <section
       mix={[
@@ -17,10 +25,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
             let now = performance.now()
             let delta = (now - last) / 1000
             last = now
-            state.update((draft) => {
-              if (draft.elapsed >= draft.duration) return
-              draft.elapsed = Math.min(draft.duration, draft.elapsed + delta)
-            })
+            events.dispatch({ tick: delta })
           }, 100)
           signal.addEventListener('abort', () => window.clearInterval(id), {
             once: true,
@@ -32,7 +37,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
       <div>
         <evented.progress
           eventSource={events}
-          value={(timer) => Math.min(1, timer.elapsed / timer.duration)}
+          value={(held) => Math.min(1, held.elapsed / held.duration)}
           max={1}
         />
         <evented.output eventSource={events.elapsed}>
@@ -50,11 +55,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
           mix={[
             inputCss,
             on('input', ({ currentTarget }) => {
-              let duration = currentTarget.valueAsNumber
-              state.update((draft) => {
-                draft.duration = duration
-                draft.elapsed = Math.min(draft.elapsed, duration)
-              })
+              events.dispatch({ setDuration: currentTarget.valueAsNumber })
             }),
           ]}
         />
@@ -67,9 +68,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
         mix={[
           buttonCss,
           on('click', () => {
-            state.update((draft) => {
-              draft.elapsed = 0
-            })
+            events.dispatch({ elapsed: 0 })
           }),
         ]}
       >

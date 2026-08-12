@@ -8,7 +8,6 @@ type Flight = {
   startDate: string
   returnDate: string
 }
-type FlightEvents = Flight | 'bookingConfirmed'
 
 function isValidDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -38,14 +37,15 @@ export const SevenGuisFlightBooker = clientEntry(
   import.meta.url,
   function SevenGuisFlightBooker(handle) {
     let today = new Date().toISOString().slice(0, 10)
-    let { events, state, host } = customEvents<FlightEvents>().store({
-      kind: 'one-way flight',
+    let events = customEvents({
+      kind: 'one-way flight' as FlightKind,
       startDate: today,
       returnDate: today,
     })
     let confirmedFlight: Flight | null = null
     return () => (
-      <section
+      <evented.section
+        eventSource={events}
         mix={[
           taskCss,
           events.on((event) => {
@@ -53,80 +53,74 @@ export const SevenGuisFlightBooker = clientEntry(
           }),
         ]}
       >
-        <h2>Flight Booker</h2>
-        <select
-          aria-label="Flight type"
-          defaultValue={state.value.kind}
-          mix={[
-            inputCss,
-            on('change', ({ currentTarget }) => {
-              state.update((draft) => {
-                draft.kind = currentTarget.value as FlightKind
-              })
-            }),
-          ]}
-        >
-          <option>one-way flight</option>
-          <option>return flight</option>
-        </select>
-        <div mix={rowCss}>
-          <input
-            aria-label="Start date"
-            defaultValue={state.value.startDate}
-            aria-invalid={presentValidation(state.value).startDateInvalid}
-            mix={[
-              inputCss,
-              on('input', ({ currentTarget }) => {
-                state.update((draft) => {
-                  draft.startDate = currentTarget.value
-                })
-              }),
-            ]}
-          />
-          <input
-            aria-label="Return date"
-            defaultValue={state.value.returnDate}
-            disabled={presentValidation(state.value).returnDateDisabled}
-            aria-invalid={presentValidation(state.value).returnDateInvalid}
-            mix={[
-              inputCss,
-              on('input', ({ currentTarget }) => {
-                state.update((draft) => {
-                  draft.returnDate = currentTarget.value
-                })
-              }),
-            ]}
-          />
-        </div>
-        <button
-          type="button"
-          disabled={!canBook(state.value)}
-          mix={[
-            buttonCss,
-            on('click', () => {
-              confirmedFlight = {
-                kind: state.value.kind,
-                startDate: state.value.startDate,
-                returnDate: state.value.returnDate,
-              }
-              host.dispatchEvent(events.create('bookingConfirmed'))
-            }),
-          ]}
-        >
-          Book
-        </button>
-        <evented.output
-          eventSource={events.bookingConfirmed}
-          hidden={(value) => value === undefined}
-        >
-          {(value) => {
-            if (value === undefined || !confirmedFlight) return null
-            return confirmedFlight.kind === 'one-way flight'
-              ? `You have booked a one-way flight on ${confirmedFlight.startDate}.`
-              : `You have booked a return flight from ${confirmedFlight.startDate} to ${confirmedFlight.returnDate}.`
-          }}
-        </evented.output>
-      </section>
+        {(flight) => (
+          <>
+            <h2>Flight Booker</h2>
+            <select
+              aria-label="Flight type"
+              defaultValue={flight.kind}
+              mix={[
+                inputCss,
+                on('change', ({ currentTarget }) => {
+                  events.dispatch({ kind: currentTarget.value as FlightKind })
+                }),
+              ]}
+            >
+              <option>one-way flight</option>
+              <option>return flight</option>
+            </select>
+            <div mix={rowCss}>
+              <input
+                aria-label="Start date"
+                defaultValue={flight.startDate}
+                aria-invalid={presentValidation(flight).startDateInvalid}
+                mix={[
+                  inputCss,
+                  on('input', ({ currentTarget }) => {
+                    events.dispatch({ startDate: currentTarget.value })
+                  }),
+                ]}
+              />
+              <input
+                aria-label="Return date"
+                defaultValue={flight.returnDate}
+                disabled={presentValidation(flight).returnDateDisabled}
+                aria-invalid={presentValidation(flight).returnDateInvalid}
+                mix={[
+                  inputCss,
+                  on('input', ({ currentTarget }) => {
+                    events.dispatch({ returnDate: currentTarget.value })
+                  }),
+                ]}
+              />
+            </div>
+            <button
+              type="button"
+              disabled={!canBook(flight)}
+              mix={[
+                buttonCss,
+                on('click', () => {
+                  confirmedFlight = {
+                    kind: flight.kind,
+                    startDate: flight.startDate,
+                    returnDate: flight.returnDate,
+                  }
+                  events.dispatch('bookingConfirmed')
+                }),
+              ]}
+            >
+              Book
+            </button>
+            <output hidden={confirmedFlight === null}>
+              {confirmedFlight?.kind === 'one-way flight'
+                ? `You have booked a one-way flight on ${confirmedFlight.startDate}.`
+                : confirmedFlight
+                  ? `You have booked a return flight from ${confirmedFlight.startDate} to ${confirmedFlight.returnDate}.`
+                  : null}
+            </output>
+          </>
+        )}
+      </evented.section>
     )
   },
 )

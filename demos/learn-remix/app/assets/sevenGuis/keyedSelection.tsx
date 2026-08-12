@@ -9,9 +9,7 @@ const items = [
 ]
 
 export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelection() {
-  let { events, state } = customEvents<{
-    selectedId: string | null
-  }>().store({
+  let events = customEvents({
     selectedId: items[0]!.id,
   })
   let renderCounts = new Map<string, number>()
@@ -44,9 +42,7 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
                 },
               }),
               on('click', () => {
-                state.update((draft) => {
-                  draft.selectedId = item.id
-                })
+                events.dispatch({ selectedId: item.id })
               }),
             ]}
           >

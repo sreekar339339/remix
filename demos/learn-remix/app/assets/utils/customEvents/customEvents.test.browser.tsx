@@ -1977,12 +1977,13 @@ describe('retained customEvents', () => {
       await events.dispatch({ rename: { id: 1, label: 'first' } })
       await settleEffects()
     })
-    // The effect entry notifies the root; the diffed Map item replace routes
-    // to the item element only, preserving its DOM identity.
+    // The effect entry rides the diffed Map item routes, so the root view and
+    // the list are skipped while the item element follows its own keyed route,
+    // preserving its DOM identity.
     assert.equal(result.$('[aria-label="root"]')?.textContent, '1 items')
     assert.equal(result.$('.item')?.textContent, 'first')
     assert.equal(result.$('.item'), item)
-    assert.equal(rootCalls, 2, `rootCalls=${rootCalls}`)
+    assert.equal(rootCalls, 1, `rootCalls=${rootCalls}`)
     assert.equal(itemCalls, 1, `itemCalls=${itemCalls}`)
   })
 

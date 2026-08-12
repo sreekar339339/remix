@@ -80,10 +80,36 @@ const cellCss = css({
 export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCells() {
   let formulas: Values = { A0: '10', B0: '20', C0: '=A0+B0' }
   let renderCounts = new Map<CellId, number>()
-  let { events, state } = customEvents<{ cellDrafted: string }>().store({
-    values: calculate(formulas),
-    focusTarget: cellId('A', 0),
-  })
+  let events = customEvents(
+    {
+      values: calculate(formulas),
+      formulas,
+      focusTarget: cellId('A', 0),
+      drafted: { id: null as CellId | null, text: '' },
+    },
+    {
+      beginEdit: (held, id: string) => ({
+        drafted: { id: id as CellId, text: held.formulas[id as CellId] ?? '' },
+      }),
+      draftCell: (held, payload: { id: string; text: string }) => ({
+        drafted: { id: payload.id as CellId, text: payload.text },
+      }),
+      commitCell: (held, payload: { id: string; text: string }) => {
+        let nextFormulas = { ...held.formulas, [payload.id]: payload.text }
+        let nextValues = calculate(nextFormulas)
+        let committed = held.values[payload.id as CellId]
+        let next = nextValues[payload.id as CellId]
+        if (Object.is(committed, next)) {
+          return {
+            formulas: nextFormulas,
+            values: nextValues,
+            drafted: { id: payload.id as CellId, text: next ?? '' },
+          }
+        }
+        return { formulas: nextFormulas, values: nextValues }
+      },
+    },
+  )
   return () => (
     <section mix={[taskCss]}>
       <h2>Cells</h2>
@@ -117,7 +143,7 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                 {columns.map((column, __, _, id = cellId(column, row)) => (
                   <td key={id}>
                     <evented.input
-                      eventSource={[events.values[id], events.cellDrafted]}
+                      eventSource={[events.values[id], events.drafted]}
                       aria-label={id}
                       data-render-count={() => {
                         let count = (renderCounts.get(id) ?? 0) + 1
@@ -125,46 +151,35 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                         return String(count)
                       }}
                       type="text"
-                      defaultValue={([committed, draft]) => draft ?? committed}
-                      value={([committed, draft]) => draft ?? committed}
+                      defaultValue={([committed, draft]) =>
+                        draft?.id === id ? draft.text : committed
+                      }
+                      value={([committed, draft]) =>
+                        draft?.id === id ? draft.text : committed
+                      }
                       mix={[
                         cellCss,
                         events.focusTarget.as(id).on(({ currentTarget }) => {
                           currentTarget.focus()
                         }),
                         on('blur', ({ currentTarget }) => {
-                          formulas[id] = currentTarget.value
-                          let values = calculate(formulas)
-                          let previousValue: string | undefined
-                          state.update((draft) => {
-                            previousValue = draft.values[id]
-                            Object.assign(draft.values, values)
+                          events.dispatch({
+                            commitCell: { id, text: currentTarget.value },
                           })
-                          if (Object.is(previousValue, values[id])) {
-                            currentTarget.dispatchEvent(
-                              events.create('cellDrafted', values[id] ?? ''),
-                            )
-                          }
                         }),
                         on('focus', ({ currentTarget }) => {
-                          currentTarget.dispatchEvent(
-                            events.create('cellDrafted', formulas[id] ?? ''),
-                          )
+                          events.dispatch({ beginEdit: id })
                           currentTarget.select()
                         }),
                         on('input', ({ currentTarget }) => {
-                          currentTarget.dispatchEvent(
-                            events.create('cellDrafted', currentTarget.value),
-                          )
+                          events.dispatch({ draftCell: { id, text: currentTarget.value } })
                         }),
                         on('keydown', (event) => {
                           if (!isCellNavigationShortcut(event)) return
                           let nextId = adjacentCellId(column, row, event.key)
                           if (nextId === undefined) return
                           event.preventDefault()
-                          state.update((draft) => {
-                            draft.focusTarget = nextId
-                          })
+                          events.dispatch({ focusTarget: nextId })
                         }),
                       ]}
                     />

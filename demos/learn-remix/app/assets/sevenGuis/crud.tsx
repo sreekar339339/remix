@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents } from '../utils/customEvents/index.tsx'
+import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 type Person = {
@@ -8,30 +8,58 @@ type Person = {
   surname: string
 }
 
-type CrudModel = {
-  people: Array<Person>
-  prefix: string
-  selectedId: number | null
-  draft: { name: string; surname: string }
-  nextId: number
-}
-
 function visiblePeople(people: readonly Person[], prefix: string) {
   return people.filter((person) => person.surname.toLowerCase().startsWith(prefix.toLowerCase()))
 }
 
 export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud() {
-  let { events, state } = customEvents<CrudModel>().store({
-    people: [
-      { id: 1, name: 'Hans', surname: 'Emil' },
-      { id: 2, name: 'Max', surname: 'Mustermann' },
-      { id: 3, name: 'Roman', surname: 'Tisch' },
-    ],
-    prefix: '',
-    selectedId: null,
-    draft: { name: '', surname: '' },
-    nextId: 4,
-  })
+  let events = customEvents(
+    {
+      people: [
+        { id: 1, name: 'Hans', surname: 'Emil' },
+        { id: 2, name: 'Max', surname: 'Mustermann' },
+        { id: 3, name: 'Roman', surname: 'Tisch' },
+      ],
+      prefix: '',
+      selectedId: null as number | null,
+      draft: { name: '', surname: '' },
+      nextId: 4,
+    },
+    {
+      selectPerson: (held, id: number) => {
+        let person = held.people.find((candidate) => candidate.id === id)
+        if (!person) return {}
+        return {
+          selectedId: person.id,
+          draft: { name: person.name, surname: person.surname },
+        }
+      },
+      create: (held) => {
+        let person = { id: held.nextId, ...held.draft }
+        return {
+          people: [...held.people, person],
+          selectedId: person.id,
+          nextId: held.nextId + 1,
+        }
+      },
+      update: (held) => {
+        if (held.selectedId === null) return {}
+        return {
+          people: held.people.map((person) =>
+            person.id === held.selectedId ? { ...person, ...held.draft } : person,
+          ),
+        }
+      },
+      delete: (held) => {
+        if (held.selectedId === null) return {}
+        return {
+          people: held.people.filter((person) => person.id !== held.selectedId),
+          selectedId: null,
+          draft: { name: '', surname: '' },
+        }
+      },
+    },
+  )
   return () => (
     <section mix={taskCss}>
       <h2>CRUD</h2>
@@ -39,13 +67,11 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
         Filter prefix{' '}
         <input
           aria-label="Filter prefix"
-          defaultValue={state.value.prefix}
+          defaultValue=""
           mix={[
             inputCss,
             on('input', ({ currentTarget }) => {
-              state.update((draft) => {
-                draft.prefix = currentTarget.value
-              })
+              events.dispatch({ prefix: currentTarget.value })
             }),
           ]}
         />
@@ -68,15 +94,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
           mix={[
             inputCss,
             on('change', ({ currentTarget }) => {
-              state.update((draft) => {
-                let selected = draft.people.find(
-                  (person) => person.id === Number(currentTarget.value),
-                )
-                if (!selected) return
-                draft.selectedId = selected.id
-                draft.draft.name = selected.name
-                draft.draft.surname = selected.surname
-              })
+              events.dispatch({ selectPerson: Number(currentTarget.value) })
             }),
           ]}
         >
@@ -91,7 +109,10 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
         </select>
         <div eventSource={[events.draft, events.selectedId]} mix={css({ display: 'grid', gap: 8 })}>
           {(values) => {
-            let [draft, selectedId] = values as [CrudModel['draft'], number | null]
+            let [draft, selectedId] = values as [
+              { name: string; surname: string },
+              number | null,
+            ]
             return (
               <>
                 <label>
@@ -102,9 +123,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       inputCss,
                       on('input', ({ currentTarget }) => {
-                        state.update((draft) => {
-                          draft.draft.name = currentTarget.value
-                        })
+                        events.dispatch({ draft: { ...draft, name: currentTarget.value } })
                       }),
                     ]}
                   />
@@ -117,9 +136,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       inputCss,
                       on('input', ({ currentTarget }) => {
-                        state.update((draft) => {
-                          draft.draft.surname = currentTarget.value
-                        })
+                        events.dispatch({ draft: { ...draft, surname: currentTarget.value } })
                       }),
                     ]}
                   />
@@ -131,14 +148,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       buttonCss,
                       on('click', () => {
-                        state.update((draft) => {
-                          let person = {
-                            id: draft.nextId++,
-                            ...draft.draft,
-                          }
-                          draft.people.push(person)
-                          draft.selectedId = person.id
-                        })
+                        events.dispatch('create')
                       }),
                     ]}
                   >
@@ -150,11 +160,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       buttonCss,
                       on('click', () => {
-                        state.update((draft) => {
-                          if (draft.selectedId === null) return
-                          let person = draft.people.find((person) => person.id === draft.selectedId)
-                          if (person) Object.assign(person, draft.draft)
-                        })
+                        events.dispatch('update')
                       }),
                     ]}
                   >
@@ -166,16 +172,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     mix={[
                       buttonCss,
                       on('click', () => {
-                        state.update((draft) => {
-                          if (draft.selectedId === null) return
-                          let index = draft.people.findIndex(
-                            (person) => person.id === draft.selectedId,
-                          )
-                          if (index !== -1) draft.people.splice(index, 1)
-                          draft.selectedId = null
-                          draft.draft.name = ''
-                          draft.draft.surname = ''
-                        })
+                        events.dispatch('delete')
                       }),
                     ]}
                   >

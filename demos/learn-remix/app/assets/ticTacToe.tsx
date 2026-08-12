@@ -39,11 +39,47 @@ const isArrowKey = (eventKey: unknown): eventKey is keyof typeof arrowKeyIdxIncr
   Object.hasOwn(arrowKeyIdxIncrementMap, eventKey as string)
 
 export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTacToeCustomEvents() {
-  let { events, state } = customEvents().store({
-    position: new Map<number, Player>(),
-    result: null as Result | null,
-    focusTarget: NaN,
-  })
+  let events = customEvents(
+    {
+      position: new Map<number, Player>(),
+      result: null as Result | null,
+      focusTarget: NaN,
+    },
+    {
+      place: (held, cellId: number) => {
+        if (held.position.has(cellId) || held.result !== null) return {}
+        let position = new Map(held.position)
+        let nextPlayer: Player = position.size % 2 === 0 ? 'X' : 'O'
+        position.set(cellId, nextPlayer)
+        let result = deriveResult(position)
+        let focusTarget = held.focusTarget
+        if (result === null) {
+          let nextFreeCellIdx = cellId
+          while (position.has(nextFreeCellIdx)) {
+            nextFreeCellIdx = (nextFreeCellIdx + 1) % 9
+            if (nextFreeCellIdx === cellId) break
+          }
+          focusTarget = nextFreeCellIdx
+        }
+        return { position, result, focusTarget }
+      },
+      moveFocus: (held, { cellId, increment }: { cellId: number; increment: number }) => {
+        let boundIdx = increment < 0 ? 0 : 8
+        let nextFreeCellIdx = cellId
+        while (nextFreeCellIdx === cellId || held.position.has(nextFreeCellIdx)) {
+          nextFreeCellIdx += increment
+          if (
+            (boundIdx === 0 && nextFreeCellIdx < boundIdx) ||
+            (boundIdx === 8 && nextFreeCellIdx > boundIdx)
+          ) {
+            break
+          }
+        }
+        return { focusTarget: nextFreeCellIdx }
+      },
+      reset: () => ({ position: new Map(), result: null, focusTarget: 0 }),
+    },
+  )
   return () => (
     <div
       mix={css({
@@ -64,21 +100,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
             let cellId = Number(target.dataset.idx)
             if (Number.isNaN(cellId)) return
             if (cellId < 0) return
-            state.update((draft) => {
-              if (draft.position.has(cellId) || draft.result !== null) return
-              let nextPlayer: Player = draft.position.size % 2 === 0 ? 'X' : 'O'
-              draft.position.set(cellId, nextPlayer)
-              let result = deriveResult(draft.position)
-              draft.result = result
-              if (result === null) {
-                let nextFreeCellIdx = cellId
-                while (draft.position.has(nextFreeCellIdx)) {
-                  nextFreeCellIdx = (nextFreeCellIdx + 1) % 9
-                  if (nextFreeCellIdx === cellId) break
-                }
-                draft.focusTarget = nextFreeCellIdx
-              }
-            })
+            events.dispatch({ place: cellId })
           }),
           on('keydown', ({ key, target }) => {
             if (!isArrowKey(key)) return
@@ -86,20 +108,8 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
             let cellId = Number(target.dataset.idx)
             if (Number.isNaN(cellId)) return
             if (cellId < 0) return
-            let idxIncrement = arrowKeyIdxIncrementMap[key]
-            let boundIdx = idxIncrement < 0 ? 0 : 8
-            state.update((draft) => {
-              let nextFreeCellIdx = cellId
-              while (nextFreeCellIdx === cellId || draft.position.has(nextFreeCellIdx)) {
-                nextFreeCellIdx += idxIncrement
-                if (
-                  (boundIdx === 0 && nextFreeCellIdx < boundIdx) ||
-                  (boundIdx === 8 && nextFreeCellIdx > boundIdx)
-                ) {
-                  break
-                }
-              }
-              draft.focusTarget = nextFreeCellIdx
+            events.dispatch({
+              moveFocus: { cellId, increment: arrowKeyIdxIncrementMap[key] },
             })
           }),
         ]}
@@ -141,17 +151,11 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
             currentTarget.focus()
           }),
           on('click', () => {
-            state.update((draft) => {
-              draft.position.clear()
-              draft.result = null
-              draft.focusTarget = 0
-            })
+            events.dispatch('reset')
           }),
-          ref(() =>
-            state.update((draft) => {
-              draft.focusTarget = 0
-            }),
-          ),
+          ref(() => {
+            events.dispatch({ focusTarget: 0 })
+          }),
         ]}
       >
         Reset

@@ -14,16 +14,11 @@ type CircleHistory = {
   index: number
 }
 
-type DrawingModel = {
-  circles: Map<number, Circle>
-  editingCircleById: number | null
-  history: CircleHistory
-}
-
-function recordDrawingSnapshot(circles: Map<number, Circle>, history: CircleHistory) {
-  history.snapshots.splice(history.index + 1)
-  history.snapshots.push(new Map(circles.entries().map(([id, circle]) => [id, { ...circle }])))
-  history.index++
+function nextDrawingSnapshot(circles: Map<number, Circle>, history: CircleHistory): CircleHistory {
+  return {
+    snapshots: [...history.snapshots.slice(0, history.index + 1), new Map(circles)],
+    index: history.index + 1,
+  }
 }
 
 function hitCircle(circles: Iterable<Circle>, x: number, y: number) {
@@ -54,36 +49,83 @@ function getCanvasPoint(canvas: SVGSVGElement, clientX: number, clientY: number)
 export const SevenGuisCircleDrawer = clientEntry(
   import.meta.url,
   function SevenGuisCircleDrawer(handle) {
-    let { events, state } = customEvents<DrawingModel>().store({
-      circles: new Map(),
-      editingCircleById: null,
-      history: { snapshots: [new Map()], index: 0 },
-    })
-    let nextCircleId = 1
-    function closeDiameterEditor() {
-      state.update((draft) => {
-        let id = draft.editingCircleById
-        if (id === null) return
-        let circle = draft.circles.get(id)
-        let committedCircle = draft.history.snapshots[draft.history.index]?.get(id)
-        if (circle?.diameter !== committedCircle?.diameter) {
-          recordDrawingSnapshot(draft.circles, draft.history)
-        }
-        draft.editingCircleById = null
-      })
-    }
-
-    function travel(direction: -1 | 1) {
-      state.update((draft) => {
-        let index = draft.history.index + direction
-        if (index < 0 || index >= draft.history.snapshots.length) return
-        draft.circles = new Map(
-          draft.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
-        )
-        draft.editingCircleById = null
-        draft.history.index = index
-      })
-    }
+    let events = customEvents(
+      {
+        circles: new Map<number, Circle>(),
+        editingCircleById: null as number | null,
+        history: { snapshots: [new Map<number, Circle>()], index: 0 },
+        nextCircleId: 1,
+      },
+      {
+        addCircle: (held, point: { x: number; y: number }) => {
+          if (held.editingCircleById !== null) return {}
+          if (hitCircle(held.circles.values(), point.x, point.y)) return {}
+          let circle = {
+            id: held.nextCircleId,
+            ...point,
+            diameter: 30,
+          }
+          let circles = new Map(held.circles).set(circle.id, circle)
+          return {
+            circles,
+            history: nextDrawingSnapshot(circles, held.history),
+            nextCircleId: held.nextCircleId + 1,
+          }
+        },
+        openEditor: (held, id: number) => {
+          if (held.editingCircleById !== null) return {}
+          return { editingCircleById: id }
+        },
+        setDiameter: (held, diameter: number) => {
+          let id = held.editingCircleById
+          if (id === null) return {}
+          let circle = held.circles.get(id)
+          if (!circle || circle.diameter === diameter) return {}
+          return { circles: new Map(held.circles).set(id, { ...circle, diameter }) }
+        },
+        closeEditor: (held) => {
+          let id = held.editingCircleById
+          if (id === null) return {}
+          let circle = held.circles.get(id)
+          let committed = held.history.snapshots[held.history.index]?.get(id)
+          if (circle && committed && circle.diameter !== committed.diameter) {
+            return {
+              history: nextDrawingSnapshot(held.circles, held.history),
+              editingCircleById: null,
+            }
+          }
+          return { editingCircleById: null }
+        },
+        undo: (held) => {
+          let index = held.history.index - 1
+          if (index < 0) return {}
+          return {
+            circles: new Map(
+              held.history.snapshots[index]!.entries().map(([id, circle]) => [
+                id,
+                { ...circle },
+              ]),
+            ),
+            editingCircleById: null,
+            history: { ...held.history, index },
+          }
+        },
+        redo: (held) => {
+          let index = held.history.index + 1
+          if (index >= held.history.snapshots.length) return {}
+          return {
+            circles: new Map(
+              held.history.snapshots[index]!.entries().map(([id, circle]) => [
+                id,
+                { ...circle },
+              ]),
+            ),
+            editingCircleById: null,
+            history: { ...held.history, index },
+          }
+        },
+      },
+    )
 
     return () => (
       <section mix={taskCss}>
@@ -96,7 +138,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             mix={[
               buttonCss,
               on('click', () => {
-                travel(-1)
+                events.dispatch('undo')
               }),
             ]}
           >
@@ -109,7 +151,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             mix={[
               buttonCss,
               on('click', () => {
-                travel(1)
+                events.dispatch('redo')
               }),
             ]}
           >
@@ -129,17 +171,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             on('click', ({ currentTarget, clientX, clientY }) => {
               let point = getCanvasPoint(currentTarget, clientX, clientY)
               if (!point) return
-              state.update((draft) => {
-                if (draft.editingCircleById !== null) return
-                if (hitCircle(draft.circles.values(), point.x, point.y)) return
-                let circle = {
-                  id: nextCircleId++,
-                  ...point,
-                  diameter: 30,
-                }
-                draft.circles.set(circle.id, circle)
-                recordDrawingSnapshot(draft.circles, draft.history)
-              })
+              events.dispatch({ addCircle: point })
             }),
           ]}
         >
@@ -161,10 +193,7 @@ export const SevenGuisCircleDrawer = clientEntry(
                   }),
                   on('contextmenu', (event) => {
                     event.preventDefault()
-                    state.update((draft) => {
-                      if (draft.editingCircleById !== null) return
-                      draft.editingCircleById = id
-                    })
+                    events.dispatch({ openEditor: id })
                   }),
                 ]}
               />
@@ -178,7 +207,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             rowCss,
             on('submit', (event) => {
               event.preventDefault()
-              closeDiameterEditor()
+              events.dispatch('closeEditor')
             }),
           ]}
         >
@@ -195,14 +224,7 @@ export const SevenGuisCircleDrawer = clientEntry(
               mix={[
                 inputCss,
                 on('input', ({ currentTarget }) => {
-                  let diameter = currentTarget.valueAsNumber
-                  state.update((draft) => {
-                    let id = draft.editingCircleById
-                    if (id === null) return
-                    let circle = draft.circles.get(id)
-                    if (!circle || circle.diameter === diameter) return
-                    circle.diameter = diameter
-                  })
+                  events.dispatch({ setDiameter: currentTarget.valueAsNumber })
                 }),
               ]}
             />

@@ -28,6 +28,7 @@ import type {
   NormalizeCustomEventsDefinition,
   ReservedCustomEventsName,
   RetainedDescriptor,
+  RetainedDescriptorBase,
   RetainedFolds,
   RetainedSeeds,
 } from './types.ts'
@@ -71,15 +72,11 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
  *
  * `customEvents({ count: 0, label: 'idle' }, { inc: (held, n) => ({ count: held.count + n }) })`
  */
-export function customEvents<Seeds extends EventDetails>(
-  seeds: RetainedSeeds<Seeds>,
-  folds?: undefined,
-): RetainedDescriptor<Seeds, never>
-export function customEvents<
-  Seeds extends EventDetails,
-  Folds extends RetainedFolds<Seeds>,
->(
-  seeds: RetainedSeeds<Seeds>,
+export function customEvents<Seeds extends RetainedSeeds>(
+  seeds: Seeds,
+): RetainedDescriptorBase<Immutable<Seeds>, Seeds>
+export function customEvents<Seeds extends RetainedSeeds, Folds extends RetainedFolds<Seeds>>(
+  seeds: Seeds,
   folds: Folds,
 ): RetainedDescriptor<Seeds, Folds>
 export function customEvents(first?: unknown, foldsArg?: unknown): unknown {
@@ -136,7 +133,7 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
   function foldEntry(type: string, detail: unknown) {
     let foldFn = foldFns.get(type)
     if (foldFn) {
-      let entries: CustomEventsBatchRuntimeEntry[] = [{ type, detail }]
+      let entries: CustomEventsBatchRuntimeEntry[] = []
       let partial = foldFn(snapshot as Seeds, detail)
       if (partial !== undefined && Object.keys(partial).length > 0) {
         let nextSnapshot = produce(snapshot, (draft) => {
@@ -152,9 +149,22 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
         if (keyPatches.size > 0) {
           for (let [key, patches] of keyPatches) {
             let { addresses, ops } = normalizePatches(snapshot, nextSnapshot, patches)
+            let previousValue = snapshot[key]
+            let nextValue = (nextSnapshot as EventDetails)[key]
+            if (isPrimitive(previousValue) && isPrimitive(nextValue)) {
+              addresses = [
+                ...(previousValue !== undefined && previousValue !== null
+                  ? [ownerAddress(previousValue)]
+                  : []),
+                ...(nextValue !== undefined && nextValue !== null
+                  ? [ownerAddress(nextValue)]
+                  : []),
+              ]
+              ops = ['replace']
+            }
             entries.push({
               type: key,
-              detail: (nextSnapshot as EventDetails)[key],
+              detail: nextValue,
               addresses,
               ops,
             })
@@ -162,19 +172,41 @@ function createRetained<Seeds extends EventDetails, Folds extends RetainedFolds<
           snapshot = nextSnapshot
         }
       }
+      // The effect entry rides the same routes as its folded output so the
+      // fan-out covers exactly the affected addresses.
+      let addresses = entries.flatMap((entry) => entry.addresses ?? [])
+      let ops = entries.flatMap((entry) => entry.ops ?? [])
+      entries.unshift({
+        type,
+        detail,
+        ...(addresses.length > 0 ? { addresses } : {}),
+        ...(ops.length > 0 ? { ops } : {}),
+      })
       return entries
     }
 
     if (Object.hasOwn(snapshot, type)) {
+      let previousValue = snapshot[type]
       let nextSnapshot = produce(snapshot, (draft) => {
         ;(draft as EventDetails)[type] = detail
       })
       snapshot = nextSnapshot
+      let addresses: readonly (readonly unknown[])[] = [[]]
+      if (isPrimitive(previousValue) && isPrimitive(nextSnapshot[type])) {
+        addresses = [
+          ...(previousValue !== undefined && previousValue !== null
+            ? [ownerAddress(previousValue)]
+            : []),
+          ...(nextSnapshot[type] !== undefined && nextSnapshot[type] !== null
+            ? [ownerAddress(nextSnapshot[type])]
+            : []),
+        ]
+      }
       return [
         {
           type,
           detail: (nextSnapshot as EventDetails)[type],
-          addresses: [[]] as readonly (readonly unknown[])[],
+          addresses,
         },
       ]
     }
@@ -331,45 +363,68 @@ function isPrimitive(value: unknown) {
 /** Diff-style patches for one held key, with Map/Set item granularity. */
 function diffKey(previous: unknown, next: unknown): Patch[] {
   let segment = (value: unknown) => value as string | number
-  if (previous instanceof Map && next instanceof Map) {
-    let patches: Patch[] = []
-    for (let [key, prevValue] of previous) {
-      if (next.has(key)) {
-        if (next.get(key) !== prevValue) {
-          patches.push({ op: 'replace', path: [segment(key)] })
+  function diffValue(prev: unknown, next: unknown, path: (string | number)[]): Patch[] {
+    if (prev instanceof Map && next instanceof Map) {
+      let patches: Patch[] = []
+      for (let [key, prevValue] of prev) {
+        if (next.has(key)) {
+          if (next.get(key) !== prevValue) {
+            patches.push(...diffValue(prevValue, next.get(key), [...path, segment(key)]))
+          }
+        } else {
+          patches.push({ op: 'remove', path: [...path, segment(key)] })
         }
-      } else {
-        patches.push({ op: 'remove', path: [segment(key)] })
       }
-    }
-    for (let [key, value] of next) {
-      if (!previous.has(key)) {
-        patches.push({ op: 'add', path: [segment(key)], value })
+      for (let [key, value] of next) {
+        if (!prev.has(key)) {
+          patches.push({ op: 'add', path: [...path, segment(key)], value })
+        }
       }
+      if (patches.length > 0) return patches
+      return prev === next ? [] : [{ op: 'replace', path }]
     }
-    return patches
-  }
-  if (previous instanceof Set && next instanceof Set) {
-    let patches: Patch[] = []
-    for (let value of previous) {
-      if (!next.has(value)) patches.push({ op: 'remove', path: [segment(value)] })
-    }
-    for (let value of next) {
-      if (!previous.has(value)) {
-        patches.push({ op: 'add', path: [segment(value)], value })
+    if (prev instanceof Set && next instanceof Set) {
+      let patches: Patch[] = []
+      for (let value of prev) {
+        if (!next.has(value)) patches.push({ op: 'remove', path: [...path, segment(value)] })
       }
+      for (let value of next) {
+        if (!prev.has(value)) {
+          patches.push({ op: 'add', path: [...path, segment(value)], value })
+        }
+      }
+      return patches
     }
-    return patches
-  }
-  if (Array.isArray(previous) && Array.isArray(next)) {
-    if (previous.length !== next.length) return [{ op: 'replace', path: [] }]
-    let patches: Patch[] = []
-    for (let index = 0; index < previous.length; index++) {
-      if (previous[index] !== next[index]) patches.push({ op: 'replace', path: [index] })
+    if (Array.isArray(prev) && Array.isArray(next)) {
+      if (prev.length !== next.length) return [{ op: 'replace', path }]
+      let patches: Patch[] = []
+      for (let index = 0; index < prev.length; index++) {
+        if (prev[index] !== next[index]) {
+          patches.push(...diffValue(prev[index], next[index], [...path, index]))
+        }
+      }
+      return patches
     }
-    return patches
+    if (prev !== null && next !== null && typeof prev === 'object' && typeof next === 'object') {
+      let patches: Patch[] = []
+      for (let key of Reflect.ownKeys(prev)) {
+        if (typeof key !== 'string') continue
+        let prevValue = Reflect.get(prev, key)
+        let nextValue = Reflect.get(next, key)
+        if (!Object.is(prevValue, nextValue)) {
+          patches.push(...diffValue(prevValue, nextValue, [...path, key]))
+        }
+      }
+      for (let key of Reflect.ownKeys(next)) {
+        if (typeof key !== 'string' || Object.hasOwn(prev, key)) continue
+        patches.push({ op: 'add', path: [...path, key], value: Reflect.get(next, key) })
+      }
+      if (patches.length > 0) return patches
+      return prev === next ? [] : [{ op: 'replace', path }]
+    }
+    return prev === next ? [] : [{ op: 'replace', path }]
   }
-  return previous === next ? [] : [{ op: 'replace', path: [] }]
+  return diffValue(previous, next, [])
 }
 
 function ownerAddress(value: unknown): readonly unknown[] {
