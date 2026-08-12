@@ -114,7 +114,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
       >
         {Array.from({ length: 9 }, (_, index) => (
           <evented.button
-            eventSource={[events.position.get(index), events.result]}
+            eventSource={[events.on.position.get(index), events.on.result]}
             key={index}
             data-idx={String(index)}
             aria-label={`Cell ${index}`}
@@ -132,7 +132,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
                   color: 'red',
                 },
               }),
-              events.focusTarget.as(index).on(({ currentTarget }) => {
+              events.on.focusTarget.as(index)(({ currentTarget }) => {
                 currentTarget.focus()
               }),
             ]}
@@ -144,7 +144,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
       <button
         mix={[
           css({ fontSize: '18px', padding: '8px 16px' }),
-          events.result.on(({ currentTarget, detail }) => {
+          events.on.result(({ currentTarget, detail }) => {
             if (detail === null) return
             currentTarget.focus()
           }),
@@ -166,7 +166,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
           }),
         ]}
       >
-        <evented.span eventSource={events.result}>
+        <evented.span eventSource={events.on.result}>
           {(result) => {
             if (!result) return 'Game in progress'
             if (result === 'Draw') return 'Game is drawn.'

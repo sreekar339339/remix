@@ -14,11 +14,11 @@ describe('draggable custom events', () => {
           style={{ left: '12px', top: '8px' }}
           mix={[
             draggable(true),
-            draggable.events.start.on(({ currentTarget, detail, target }) => {
+            draggable.events.on.start(({ currentTarget, detail, target }) => {
               currentTarget.dataset.startPosition = `${detail.left},${detail.top}`
               currentTarget.dataset.startTargetIsCard = String(target === currentTarget)
             }),
-            draggable.events.end.on(({ currentTarget, detail, target }) => {
+            draggable.events.on.end(({ currentTarget, detail, target }) => {
               currentTarget.dataset.endPosition = `${detail.left},${detail.top}`
               currentTarget.dataset.endTargetIsCard = String(target === currentTarget)
             }),

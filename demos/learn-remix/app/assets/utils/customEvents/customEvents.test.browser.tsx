@@ -33,7 +33,7 @@ describe('customEvents', () => {
       return () => (
         <section mix={events.asHost()}>
           <evented.output
-            eventSource={events.submitted}
+            eventSource={events.on.submitted}
             aria-label="typed"
             data-id={(order) => order?.id}
           >
@@ -86,19 +86,19 @@ describe('customEvents', () => {
     function Collections() {
       return () => (
         <section>
-          <evented.output eventSource={events.position.get('a')}>
+          <evented.output eventSource={events.on.position.get('a')}>
             {(mark) => `${++calls.mapA}:${mark ?? ''}`}
           </evented.output>
-          <evented.output eventSource={events.position.get('b')}>
+          <evented.output eventSource={events.on.position.get('b')}>
             {(mark) => `${++calls.mapB}:${mark ?? ''}`}
           </evented.output>
-          <evented.output eventSource={events.position}>
+          <evented.output eventSource={events.on.position}>
             {(positions) => `${++calls.mapAll}:${positions.size}`}
           </evented.output>
-          <evented.output eventSource={events.selected.has('red')}>
+          <evented.output eventSource={events.on.selected.has('red')}>
             {(selected) => `${++calls.red}:${selected}`}
           </evented.output>
-          <evented.output eventSource={events.selected.has('blue')}>
+          <evented.output eventSource={events.on.selected.has('blue')}>
             {(selected) => `${++calls.blue}:${selected}`}
           </evented.output>
         </section>
@@ -163,12 +163,12 @@ describe('customEvents', () => {
 
     function Canvas() {
       return () => (
-        <evented.svg eventSource={events.circles}>
+        <evented.svg eventSource={events.on.circles}>
           {(circles) =>
             [...circles.values()].map((circle) => (
               <evented.circle
                 key={circle.id}
-                eventSource={events.circles.get(circle.id).r}
+                eventSource={events.on.circles.get(circle.id).r}
                 cx={circle.x}
                 r={(radius) => radius ?? circle.r}
               />
@@ -239,12 +239,12 @@ describe('customEvents', () => {
 
     function Canvas() {
       return () => (
-        <evented.svg eventSource={events.circles}>
+        <evented.svg eventSource={events.on.circles}>
           {(circles) =>
             [...circles.entries()].map(([id, circle]) => (
               <evented.circle
                 key={id}
-                eventSource={events.circles.get(id).r}
+                eventSource={events.on.circles.get(id).r}
                 cx={circle.x}
                 r={(radius) => radius ?? circle.r}
               />
@@ -309,7 +309,7 @@ describe('customEvents', () => {
     function Items() {
       return () => (
         <section>
-          <evented.div eventSource={events.items}>
+          <evented.div eventSource={events.on.items}>
             {(items) => {
               viewCalls++
               return (
@@ -386,19 +386,21 @@ describe('customEvents', () => {
     function Board() {
       return () => (
         <section>
-          <evented.output eventSource={events.columns.get('column:todo')}>
+          <evented.output eventSource={events.on.columns.get('column:todo')}>
             {() => String(++calls.todo)}
           </evented.output>
-          <evented.output eventSource={events.columns.get('column:done')}>
+          <evented.output eventSource={events.on.columns.get('column:done')}>
             {() => String(++calls.done)}
           </evented.output>
-          <evented.output eventSource={events.columns.get('column:todo').cards.get('card:one')}>
+          <evented.output eventSource={events.on.columns.get('column:todo').cards.get('card:one')}>
             {() => String(++calls.one)}
           </evented.output>
-          <evented.output eventSource={events.columns.get('column:todo').cards.get('card:two')}>
+          <evented.output eventSource={events.on.columns.get('column:todo').cards.get('card:two')}>
             {() => String(++calls.two)}
           </evented.output>
-          <evented.output eventSource={events.columns.get('column:done').cards.get('card:three')}>
+          <evented.output
+            eventSource={events.on.columns.get('column:done').cards.get('card:three')}
+          >
             {() => String(++calls.three)}
           </evented.output>
         </section>
@@ -439,7 +441,7 @@ describe('customEvents', () => {
 
     function RecordValue() {
       return () => (
-        <evented.output eventSource={events.records.get(recordKey).value}>
+        <evented.output eventSource={events.on.records.get(recordKey).value}>
           {(value) => `${++renders}:${value}`}
         </evented.output>
       )
@@ -479,13 +481,13 @@ describe('customEvents', () => {
     function Items() {
       return () => (
         <section>
-          <evented.output eventSource={events.items[0]}>
+          <evented.output eventSource={events.on.items[0]}>
             {() => String(++calls.first)}
           </evented.output>
-          <evented.output eventSource={events.items[1]} aria-label="1">
+          <evented.output eventSource={events.on.items[1]} aria-label="1">
             {() => String(++calls.second)}
           </evented.output>
-          <evented.output eventSource={events.items}>{() => String(++calls.all)}</evented.output>
+          <evented.output eventSource={events.on.items}>{() => String(++calls.all)}</evented.output>
         </section>
       )
     }
@@ -543,14 +545,18 @@ describe('customEvents', () => {
     function Collections() {
       return () => (
         <section>
-          <evented.output eventSource={events.circles[0]}>
+          <evented.output eventSource={events.on.circles[0]}>
             {() => String(++calls.circle0)}
           </evented.output>
-          <evented.output eventSource={events.circles[1]} aria-label="1">
+          <evented.output eventSource={events.on.circles[1]} aria-label="1">
             {() => String(++calls.circle1)}
           </evented.output>
-          <evented.output eventSource={events.values.A0}>{() => String(++calls.A0)}</evented.output>
-          <evented.output eventSource={events.values.B0}>{() => String(++calls.B0)}</evented.output>
+          <evented.output eventSource={events.on.values.A0}>
+            {() => String(++calls.A0)}
+          </evented.output>
+          <evented.output eventSource={events.on.values.B0}>
+            {() => String(++calls.B0)}
+          </evented.output>
         </section>
       )
     }
@@ -604,11 +610,11 @@ describe('customEvents', () => {
       return () => (
         <section>
           <evented.button
-            eventSource={events.selected.as('1')}
+            eventSource={events.on.selected.as('1')}
             aria-label="1"
             type="button"
             aria-pressed={(selected) => selected}
-            mix={events.selected.as('1').on(({ currentTarget, detail }) => {
+            mix={events.on.selected.as('1')(({ currentTarget, detail }) => {
               effectOrder.push(currentTarget.getAttribute('aria-label') ?? '')
               if (detail === '1') {
                 currentTarget.focus()
@@ -618,11 +624,11 @@ describe('customEvents', () => {
             {() => String(++calls.first)}
           </evented.button>
           <evented.button
-            eventSource={events.selected.as('2')}
+            eventSource={events.on.selected.as('2')}
             aria-label="2"
             type="button"
             aria-pressed={(selected) => selected}
-            mix={events.selected.as('2').on(({ currentTarget, detail }) => {
+            mix={events.on.selected.as('2')(({ currentTarget, detail }) => {
               effectOrder.push(currentTarget.getAttribute('aria-label') ?? '')
               if (detail === '2') {
                 currentTarget.focus()
@@ -631,7 +637,9 @@ describe('customEvents', () => {
           >
             {() => String(++calls.second)}
           </evented.button>
-          <evented.output eventSource={events.selected}>{() => String(++calls.all)}</evented.output>
+          <evented.output eventSource={events.on.selected}>
+            {() => String(++calls.all)}
+          </evented.output>
         </section>
       )
     }
@@ -694,7 +702,7 @@ describe('customEvents', () => {
           <button
             aria-label="source"
             mix={[
-              events.countDrafted.on(() => {
+              events.on.countDrafted(() => {
                 drafts++
               }),
               on('click', ({ currentTarget }) => {
@@ -702,7 +710,7 @@ describe('customEvents', () => {
               }),
             ]}
           />
-          <evented.output aria-label="listener" eventSource={events.countDrafted}>
+          <evented.output aria-label="listener" eventSource={events.on.countDrafted}>
             {(count) => (count === undefined ? 'idle' : `${count}:${++listenerRenders}`)}
           </evented.output>
         </section>
@@ -826,7 +834,7 @@ describe('customEvents', () => {
       // @ts-expect-error - dispatchEvent is self-only; target.dispatchEvent(events(...)) for hosted.
       events.dispatchEvent(new EventTarget(), 'submitted')
       // @ts-expect-error - customEvents effects do not expose reentry signals.
-      events.paid.on((_event, _signal) => {})
+      events.on.paid((_event, _signal) => {})
       events.on((event) => {
         switch (event.type) {
           case 'submitted':
@@ -868,16 +876,16 @@ describe('customEvents', () => {
     function CollidingEventNames() {
       return () => (
         <section mix={events.asHost()}>
-          <evented.output eventSource={events.name} aria-label="name">
+          <evented.output eventSource={events.on.name} aria-label="name">
             {(value, event) => event?.type}
           </evented.output>
-          <evented.output eventSource={events.length} aria-label="length">
+          <evented.output eventSource={events.on.length} aria-label="length">
             {(value, event) => event?.type}
           </evented.output>
-          <evented.output eventSource={events.bind} aria-label="bind">
+          <evented.output eventSource={events.on.bind} aria-label="bind">
             {(value, event) => event?.type}
           </evented.output>
-          <evented.output eventSource={events.toString} aria-label="toString">
+          <evented.output eventSource={events.on.toString} aria-label="toString">
             {(value, event) => event?.type}
           </evented.output>
         </section>
@@ -912,12 +920,12 @@ describe('customEvents', () => {
             Submit
           </button>
           <evented.form
-            eventSource={events.submitted}
+            eventSource={events.on.submitted}
             initial={events('submitted', { id: 'idle' })}
             aria-label="form"
             class={(order, event) => (order.id === 'idle' ? '' : 'pending')}
             aria-busy={(order, event) => order.id !== 'idle'}
-            mix={events.submitted.on(({ currentTarget }) => {
+            mix={events.on.submitted(({ currentTarget }) => {
               currentTarget.dataset.committed = String(currentTarget.classList.contains('pending'))
             })}
           >
@@ -951,14 +959,14 @@ describe('customEvents', () => {
       return () => (
         <section mix={events.asHost()} aria-label="confirmation-host">
           <evented.output
-            eventSource={events.submitted}
+            eventSource={events.on.submitted}
             hidden={(order, event) => order === undefined}
             aria-label="confirmation"
           >
             {(order, event) => order?.id ?? null}
           </evented.output>
           <evented.output
-            eventSource={events.submitted}
+            eventSource={events.on.submitted}
             initial={events('submitted', { id: 'initial' })}
             hidden={(order, event) => order.id === 'hidden'}
             aria-label="initial-confirmation"
@@ -1044,7 +1052,7 @@ describe('customEvents', () => {
           />
           {['first', 'second'].map((id) => (
             <evented.output
-              eventSource={[events.submitted, events.paid]}
+              eventSource={[events.on.submitted, events.on.paid]}
               initial={initialOutcome}
               aria-label={id}
               mix={events.on(({ currentTarget, type }) => {
@@ -1110,7 +1118,7 @@ describe('customEvents', () => {
           <button
             aria-label="local"
             mix={[
-              events.paid.on(({ currentTarget }) => {
+              events.on.paid(({ currentTarget }) => {
                 currentTarget.dataset.received = 'true'
               }),
               on('click', ({ currentTarget }) => {
@@ -1127,7 +1135,7 @@ describe('customEvents', () => {
             />
             <output
               aria-label="unhosted-listener"
-              mix={events.paid.on(({ currentTarget }) => {
+              mix={events.on.paid(({ currentTarget }) => {
                 currentTarget.textContent = 'received'
               })}
             />
@@ -1141,7 +1149,7 @@ describe('customEvents', () => {
             />
             <output
               aria-label="hosted-listener"
-              mix={events.paid.on(({ currentTarget }) => {
+              mix={events.on.paid(({ currentTarget }) => {
                 currentTarget.textContent = 'received'
               })}
             />
@@ -1184,7 +1192,7 @@ describe('customEvents', () => {
         <section
           mix={[
             events.asHost(),
-            events.submitted.on(({ currentTarget, detail }) => {
+            events.on.submitted(({ currentTarget, detail }) => {
               currentTarget.dataset.latest = detail.id
             }),
           ]}
@@ -1304,7 +1312,7 @@ describe('customEvents', () => {
             on('input', ({ currentTarget }) => {
               currentTarget.dispatchEvent(events('paid'))
             }),
-            events.paid.on(({ currentTarget }) => {
+            events.on.paid(({ currentTarget }) => {
               currentTarget.dataset.ready = 'true'
             }),
             ref((input) => input.dispatchEvent(new InputEvent('input'))),
@@ -1535,11 +1543,11 @@ describe('remembered customEvents', () => {
 
     if (false) {
       // @ts-expect-error - remembered descriptors have no state namespace.
-      events.state
+      events.on.state
       // @ts-expect-error - remembered descriptors have no sync read.
-      events.value
+      events.on.value
       // @ts-expect-error - writes go through dispatch, not update.
-      events.update
+      events.on.update
       // @ts-expect-error - remembered details are typed by their seeds.
       events.dispatchEvent({ count: 'not-a-number' })
       // @ts-expect-error - seeds cannot overwrite the descriptor API.
@@ -1608,11 +1616,11 @@ describe('remembered customEvents', () => {
               return `${detail.items.size} items`
             }}
           </evented.output>
-          <evented.div eventSource={events.items}>
+          <evented.div eventSource={events.on.items}>
             {(items) => (
               <>
                 {[...items.entries()].map(([id, item]) => (
-                  <evented.div key={id} className="item" eventSource={events.items.get(id)}>
+                  <evented.div key={id} className="item" eventSource={events.on.items.get(id)}>
                     {(current) => current?.label ?? item.label}
                   </evented.div>
                 ))}
@@ -1654,7 +1662,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events.tick} aria-label="tick">
+        <evented.output eventSource={events.on.tick} aria-label="tick">
           {(delta, latest) => {
             seen.push([delta, latest?.type])
             return delta === undefined ? '' : `${delta}`
@@ -1681,7 +1689,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events.kind} aria-label="kind">
+        <evented.output eventSource={events.on.kind} aria-label="kind">
           {(kind) => {
             seen.push(kind)
             return `${kind}`

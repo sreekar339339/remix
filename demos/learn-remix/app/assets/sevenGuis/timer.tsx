@@ -40,7 +40,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
           value={(current) => Math.min(1, current.elapsed / current.duration)}
           max={1}
         />
-        <evented.output eventSource={events.elapsed}>
+        <evented.output eventSource={events.on.elapsed}>
           {(elapsed) => `${elapsed.toFixed(1)}s elapsed`}
         </evented.output>
       </div>
@@ -59,7 +59,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
             }),
           ]}
         />
-        <evented.span eventSource={events.duration}>
+        <evented.span eventSource={events.on.duration}>
           {(duration) => `${duration.toFixed(1)}s`}
         </evented.span>
       </label>

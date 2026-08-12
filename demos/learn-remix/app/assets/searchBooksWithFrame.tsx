@@ -39,7 +39,7 @@ export const SearchBooksWithFrame = clientEntry(
                     animation: 'glimmer 1.15s linear infinite',
                   },
                 }),
-                events.queryEmpty.on(({ currentTarget }) => {
+                events.on.queryEmpty(({ currentTarget }) => {
                   currentTarget.select()
                 }),
               ]}

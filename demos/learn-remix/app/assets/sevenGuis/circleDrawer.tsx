@@ -115,7 +115,7 @@ export const SevenGuisCircleDrawer = clientEntry(
         <h2>Circle Drawer</h2>
         <div mix={rowCss}>
           <evented.button
-            eventSource={events.history}
+            eventSource={events.on.history}
             type="button"
             disabled={(history) => history.index === 0}
             mix={[
@@ -128,7 +128,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             Undo
           </evented.button>
           <evented.button
-            eventSource={events.history}
+            eventSource={events.on.history}
             type="button"
             disabled={(history) => history.index === history.snapshots.length - 1}
             mix={[
@@ -158,13 +158,16 @@ export const SevenGuisCircleDrawer = clientEntry(
             }),
           ]}
         >
-          <evented.svg eventSource={events.circles}>
+          <evented.svg eventSource={events.on.circles}>
             {(circles) => (
               <>
                 {[...circles.entries()].map(([id, circle]) => (
                   <evented.circle
                     key={id}
-                    eventSource={[events.circles.get(id).diameter, events.editingCircleById.as(id)]}
+                    eventSource={[
+                      events.on.circles.get(id).diameter,
+                      events.on.editingCircleById.as(id),
+                    ]}
                     cx={circle.x}
                     cy={circle.y}
                     r={([diameter]) => (diameter ?? circle.diameter) / 2}
@@ -189,7 +192,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           </evented.svg>
         </svg>
         <evented.form
-          eventSource={events.editingCircleById}
+          eventSource={events.on.editingCircleById}
           hidden={(circleId) => circleId === null}
           mix={[
             rowCss,
@@ -202,7 +205,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           <label>
             Diameter{' '}
             <evented.input
-              eventSource={[events.editingCircleById, events.circles]}
+              eventSource={[events.on.editingCircleById, events.on.circles]}
               type="range"
               min={10}
               max={120}

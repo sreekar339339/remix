@@ -40,7 +40,7 @@ export function AddTodo(handle: Handle<Props<'form'>>) {
         css({ display: 'flex', alignItems: 'center', gap: 8 }),
         on('submit', onSubmit),
         events.asHost(),
-        events.actionSucceeded.on(({ currentTarget }) => {
+        events.on.actionSucceeded(({ currentTarget }) => {
           currentTarget.reset()
         }),
       ]}

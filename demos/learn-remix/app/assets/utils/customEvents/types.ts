@@ -124,7 +124,8 @@ export type EventSourceMetadata<Value = unknown, Type extends string = string> =
 export type EventSource<Value, Type extends string, Detail = Value> = {
   readonly [EVENT_SOURCE]: EventSourceProtocol
   readonly [eventSourceMetadata]: EventSourceMetadata<Value, Type>
-  on<Host extends Element = Element>(
+  /** Element-owned effect for this source: active only while mounted. */
+  <Host extends Element = Element>(
     listener: EventSourceListener<Detail, Type, Host>,
   ): MixinDescriptor<Host, any>
 }
@@ -506,6 +507,16 @@ export type CustomEventsOnFunction<Events extends EventDetails> = {
   ): MixinDescriptor<HostElement, any>
 }
 
+/**
+ * The `events.on` surface: callable for a wildcard effect, and a namespace
+ * exposing every declared event as a source node. Nodes are callable too, so
+ * `events.on.<name>(listener)` scopes an effect to one source.
+ */
+export type CustomEventsOnNamespace<
+  Events extends EventDetails,
+  State extends EventDetails | never = never,
+> = CustomEventsOnFunction<Events> & EventSources<Events, State>
+
 /** Element-host mixin factory and domain-target bridge. */
 export type CustomEventsAsHost<
   Events extends EventDetails,
@@ -520,12 +531,11 @@ export type CustomEventsDescriptor<
   State extends EventDetails | never = never,
 > = CustomEventsBuilder<Events> &
   CustomEventsWildcardSource<Events, State> &
-  EventSources<Events, State> &
   TypedEventTarget<CustomEventsEventMap<Events>> & {
     /** Dispatches a native event or an event-named input on the descriptor. */
     dispatchEvent: CustomEventsDispatchEvent<Events>
-    /** Runs a mounted-element effect for every descriptor event. */
-    on: CustomEventsOnFunction<Events>
+    /** Wildcard effect (callable) and the source namespace (`events.on.<name>`). */
+    on: CustomEventsOnNamespace<Events, State>
     /** Registers an element host (mixin) or a domain `EventTarget` (bridge). */
     asHost: CustomEventsAsHost<Events, State>
   }
@@ -594,13 +604,13 @@ export type RememberedOnFunction = {
   ): MixinDescriptor<HostElement, any>
 }
 
-/** Remembered descriptor core: the root event, remembered and fold sub-sources, and write verbs. */
+/** Remembered descriptor core: the root event, fold sub-sources, and write verbs. */
 export type RememberedDescriptorBase<
   Events extends EventDetails,
   Seeds extends EventDetails,
 > = CustomEventsBuilder<Events, Seeds> & {
   dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
-  on: RememberedOnFunction
+  on: RememberedOnFunction & CustomEventsOnNamespace<Events, Immutable<Seeds>>
 } & CustomEventsDescriptor<Events, Immutable<Seeds>>
 
 /**

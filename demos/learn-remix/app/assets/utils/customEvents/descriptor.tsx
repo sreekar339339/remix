@@ -27,6 +27,7 @@ import type {
   CustomEventsDispatchEvent,
   CustomEventsInit,
   CustomEventsOnFunction,
+  CustomEventsOnNamespace,
   EventDetails,
   EventSourceMetadata,
 } from './types.ts'
@@ -260,17 +261,37 @@ export function createCustomEventsDescriptor<
     customEventsRuntime.registerHost(getRuntime(), target)
     return eventsProxy
   }) as CustomEventsAsHost<Events, State>
-  let on = ((...args: unknown[]) => {
-    let listener = args[0] as ((event: Event) => void | Promise<unknown>) | undefined
+  let wildcardOn = ((listener?: (event: Event) => void | Promise<unknown>) => {
     if (!listener) {
       throw new TypeError('customEvents on() requires an event listener.')
     }
     return customEventsOnMixin(getRuntime(), undefined, listener)
   }) as CustomEventsOnFunction<Events>
 
+  // The `on` surface: a wildcard effect when called, and the source namespace
+  // (every declared event name resolves to a callable source node).
+  let sources = new Map<string, object>()
+  let on = new Proxy(wildcardOn, {
+    get(_, property) {
+      if (typeof property !== 'string') return undefined
+      let source = sources.get(property)
+      if (!source) {
+        let readRoot =
+          state && Object.hasOwn(state.getState(), property)
+            ? () => state.getState()[property]
+            : undefined
+        source = createSource(property, readRoot)
+        sources.set(property, source)
+      }
+      return source
+    },
+    construct() {
+      throw new TypeError('customEvents on() is not a constructor.')
+    },
+  }) as CustomEventsOnNamespace<Events, State>
+
   // The descriptor's own members and native EventTarget channel ride on the
-  // callable target; every other name (including Function and Object
-  // prototype members) creates an event source.
+  // callable target; the `on` namespace owns every event source.
   let descriptorTarget = Object.assign(create, { dispatchEvent, on, asHost })
   customEventsRuntime.registerHost(getRuntime(), base)
 
@@ -308,14 +329,14 @@ export function createCustomEventsDescriptor<
         )
       },
     }
-    return new Proxy(Object.create(null), {
+    // Sources are callable: invoking one with a listener registers an
+    // element-owned effect scoped to this source.
+    let onNode = (listener: (event: Event) => void | Promise<unknown>) =>
+      customEventsOnMixin(getRuntime(), metadata, listener)
+    return new Proxy(onNode, {
       get(_, property) {
         if (property === EVENT_SOURCE) return protocol
         if (property === eventSourceMetadata) return metadata
-        if (property === 'on') {
-          return (listener: (event: Event) => void | Promise<unknown>) =>
-            customEventsOnMixin(getRuntime(), metadata, listener)
-        }
         let at = (segment: unknown, read?: () => unknown) =>
           createSource(type, readRoot, [...path, canonicalAddressSegment(segment)], read)
         let current = metadata.read?.()
@@ -333,7 +354,6 @@ export function createCustomEventsDescriptor<
     })
   }
 
-  let sources = new Map<string, object>()
   let proxy = new Proxy(descriptorTarget, {
     get(target, property, receiver) {
       if (property === EVENT_SOURCE) {
@@ -345,17 +365,7 @@ export function createCustomEventsDescriptor<
       if (property === 'dispatchEvent' || property === 'on' || property === 'asHost') {
         return Reflect.get(target, property, target)
       }
-      if (typeof property !== 'string') return undefined
-      let source = sources.get(property)
-      if (!source) {
-        let readRoot =
-          state && Object.hasOwn(state.getState(), property)
-            ? () => state.getState()[property]
-            : undefined
-        source = createSource(property, readRoot)
-        sources.set(property, source)
-      }
-      return source
+      return undefined
     },
     construct() {
       throw new TypeError('customEvents descriptors are not constructors.')

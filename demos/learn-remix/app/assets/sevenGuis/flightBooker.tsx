@@ -44,15 +44,7 @@ export const SevenGuisFlightBooker = clientEntry(
     })
     let confirmedFlight: Flight | null = null
     return () => (
-      <evented.section
-        eventSource={events}
-        mix={[
-          taskCss,
-          events.on((event) => {
-            if (event.type !== 'bookingConfirmed') return handle.update()
-          }),
-        ]}
-      >
+      <evented.section eventSource={events} mix={[taskCss]}>
         {(flight) => (
           <>
             <h2>Flight Booker</h2>

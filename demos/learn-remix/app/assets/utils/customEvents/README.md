@@ -90,8 +90,8 @@ class Drummer extends TypedEventTarget<CustomEventsEventMap<DrummerEvents>> {
 Every declared event is exposed as a typed source:
 
 ```ts
-events.count
-events.bookingConfirmed
+events.on.count
+events.on.bookingConfirmed
 ```
 
 Property access records an **address**; it does not snapshot a selected value.
@@ -101,18 +101,18 @@ consumer, and the value is re-read when an event is delivered.
 Nested access and collection accessors:
 
 ```ts
-events.profile.name
-events.columns.get(columnId).cards.get(cardId).urgent
-events.values.A0
-events.selected.as('green')
-events.items[index].diameter
+events.on.profile.name
+events.on.columns.get(columnId).cards.get(cardId).urgent
+events.on.values.A0
+events.on.selected.as('green')
+events.on.items[index].diameter
 ```
 
 Maps and Sets retain their real key identity. Arrays are addressed by index.
 A source also carries an element-owned effect listener:
 
 ```ts
-source.on(listener) // MixinDescriptor; active only while mounted
+events.on.<source>(listener) // MixinDescriptor; active only while mounted
 ```
 
 ### Evented-views — `evented.<tag>`
@@ -124,7 +124,7 @@ source (the whole composite for the descriptor's wildcard). The matched event
 is the second argument, always called `event`:
 
 ```tsx
-<evented.output eventSource={events.startDate}>{(detail) => detail}</evented.output>
+<evented.output eventSource={events.on.startDate}>{(detail) => detail}</evented.output>
 ```
 
 Evented-view props:
@@ -135,14 +135,14 @@ Evented-view props:
 | `initial`        | A defined event to render before an occurrence first matches; callbacks receive it as the matched event. Remembered views need no `initial`.                                                                           |
 | `children`       | Static children, or a render function of the selected detail and matched event.                                                                                                                                        |
 | _reactive props_ | Any native prop may be a function of the selected detail and matched event.                                                                                                                                            |
-| `mix`            | Mixins; use `source.on(...)` for element-owned effects.                                                                                                                                                                |
+| `mix`            | Mixins; use `events.on.<source>(...)` for element-owned effects.                                                                                                                                                       |
 
 ### Descriptor methods
 
 | Member                                     | Signature                                                                     | Purpose                                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- | ---- | -------------- | --------------------------------------------------------- |
+| ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- | ---- | ---------------------------------------- | --------------------------------------------------------------------- |
 | `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`                        | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
-| _(callable)_                               | `events(type, detail?, init?)` / `events({ name: detail })` / `events([...])` | Builds a fresh event for any target.                                                           |     | `on` | `on(listener)` | Element-owned wildcard effect for every descriptor event. |
+| _(callable)_                               | `events(type, detail?, init?)` / `events({ name: detail })` / `events([...])` | Builds a fresh event for any target.                                                           |     | `on` | `on(listener)` / `on.<source>(listener)` | Wildcard effect when called; source nodes scope effects to one event. |
 | `asHost`                                   | `asHost()` / `asHost(target)`                                                 | Element host (mixin) or domain `EventTarget` bridge.                                           |
 | `addEventListener` / `removeEventListener` | native                                                                        | Native listeners on the descriptor.                                                            |
 
@@ -217,7 +217,7 @@ and async work dispatch pure events that fold events interpret.
 ### Narrow evented-views
 
 ```tsx
-<evented.button eventSource={events.selected.as(item.id)} aria-pressed={(selected) => selected}>
+<evented.button eventSource={events.on.selected.as(item.id)} aria-pressed={(selected) => selected}>
   {item.label}
 </evented.button>
 ```
@@ -227,7 +227,7 @@ a tuple index-aligned with `eventSource`:
 
 ```tsx
 <evented.button
-  eventSource={[events.position.get(index), events.result]}
+  eventSource={[events.on.position.get(index), events.on.result]}
   disabled={([, result]) => result !== null}
 >
   {([pos]) => pos}
@@ -241,14 +241,14 @@ reconcile additions, removals, and reorders with minimal DOM work while item
 edits stay on item views:
 
 ```tsx
-<evented.svg eventSource={events.circles}>
+<evented.svg eventSource={events.on.circles}>
   {(circles) =>
     [...circles.values()].map((circle) => (
       <evented.circle
         key={circle.id}
         eventSource={[
-          events.circles.get(circle.id).diameter,
-          events.editingCircleById.as(circle.id),
+          events.on.circles.get(circle.id).diameter,
+          events.on.editingCircleById.as(circle.id),
         ]}
         r={([diameter]) => (diameter ?? circle.diameter) / 2}
       />
@@ -303,19 +303,20 @@ source, not the matched occurrence.
 
 ### Element-owned effects
 
-A source's `.on(listener)` creates a Remix mixin that lives only while its
+`events.on` is callable and a namespace: `events.on(listener)` runs for every
+descriptor event, while calling a source node with a listener scopes the
+effect to that source. Both create a Remix mixin that lives only while its
 host element is mounted:
 
 ```tsx
 <input
-  mix={events.focusTarget.as(id).on(({ currentTarget, detail }) => {
+  mix={events.on.focusTarget.as(id)(({ currentTarget, detail }) => {
     if (detail === id) currentTarget.focus()
   })}
 />
 ```
 
-The descriptor's root `.on(listener)` runs for every descriptor event. There
-is intentionally no detached `observe()` or `subscribe()` API — detached
+There is intentionally no detached `observe()` or `subscribe()` API — detached
 consumers use the descriptor's own `EventTarget` channel
 (`addEventListener` / `addEventListeners`).
 
@@ -336,7 +337,7 @@ class Drummer extends TypedEventTarget<CustomEventsEventMap<DrummerEvents>> {
 }
 
 // detached:   addEventListeners(drummer, signal, { tempoSet() {} })
-// mounted:    mix={drummer.events.tempoSet.on(...)}
+// mounted:    mix={drummer.events.on.tempoSet(listener)}
 // write:      drummer.events.dispatchEvent({ tempoSet: 120 })
 ```
 
@@ -351,7 +352,7 @@ Identity-valued details (which row is selected, which cell is focused) route
 by value via `.as(ownerId)`:
 
 ```tsx
-<evented.button eventSource={events.selected.as(item.id)} aria-pressed={(selected) => selected}>
+<evented.button eventSource={events.on.selected.as(item.id)} aria-pressed={(selected) => selected}>
   {item.label}
 </evented.button>
 ```

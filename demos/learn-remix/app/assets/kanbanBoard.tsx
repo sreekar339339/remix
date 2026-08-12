@@ -140,7 +140,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                   <header>
                     <h2>{column.title}</h2>
                     <evented.output
-                      eventSource={events.columns.get(columnId)}
+                      eventSource={events.on.columns.get(columnId)}
                       aria-label={`${column.title} view`}
                     >
                       {(column) => {
@@ -156,7 +156,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                     .entries()
                     .map(([cardId, initialCard]) => (
                       <evented.article
-                        eventSource={events.columns.get(columnId).cards.get(cardId)}
+                        eventSource={events.on.columns.get(columnId).cards.get(cardId)}
                         key={cardId}
                         aria-label={initialCard.title}
                         data-urgent={(card) => card?.urgent}

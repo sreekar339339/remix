@@ -153,7 +153,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
             data-action={(_, event) => event?.type}
             mix={[
               events.asHost(),
-              events.actionErrored.on(({ currentTarget }) => {
+              events.on.actionErrored(({ currentTarget }) => {
                 currentTarget.reset()
               }),
               on('focusout', ({ currentTarget }) => {

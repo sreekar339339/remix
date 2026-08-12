@@ -56,6 +56,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
       },
     },
   )
+
   return () => (
     <section mix={taskCss}>
       <h2>CRUD</h2>
@@ -83,7 +84,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
         ]}
       >
         <select
-          eventSource={[events.people, events.prefix, events.selectedId]}
+          eventSource={[events.on.people, events.on.prefix, events.on.selectedId]}
           size={7}
           aria-label="People"
           value={(values) => (values as [unknown, unknown, number | null])[2] ?? ''}
@@ -103,7 +104,10 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
             ))
           }}
         </select>
-        <div eventSource={[events.draft, events.selectedId]} mix={css({ display: 'grid', gap: 8 })}>
+        <div
+          eventSource={[events.on.draft, events.on.selectedId]}
+          mix={css({ display: 'grid', gap: 8 })}
+        >
           {(values) => {
             let [draft, selectedId] = values as [{ name: string; surname: string }, number | null]
             return (

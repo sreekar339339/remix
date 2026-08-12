@@ -40,7 +40,9 @@ export function UserDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div eventSource={events.user.name}>{(name) => name ?? 'Not logged in'}</evented.div>
+      <evented.div eventSource={events.on.user.name}>
+        {(name) => name ?? 'Not logged in'}
+      </evented.div>
     </div>
   )
 }
@@ -50,7 +52,9 @@ export function EventUserDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div eventSource={events.user.name}>{(user) => user ?? 'Not logged in'}</evented.div>
+      <evented.div eventSource={events.on.user.name}>
+        {(user) => user ?? 'Not logged in'}
+      </evented.div>
     </div>
   )
 }
@@ -60,7 +64,7 @@ export function SettingsDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div eventSource={events.settings}>
+      <evented.div eventSource={events.on.settings}>
         {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
       </evented.div>
     </div>
@@ -71,7 +75,7 @@ export function EventSettingsDisplay(handle: Handle) {
   let events = handle.context.get(AppProvider)
 
   return () => (
-    <evented.pre eventSource={events.settings}>
+    <evented.pre eventSource={events.on.settings}>
       {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
     </evented.pre>
   )

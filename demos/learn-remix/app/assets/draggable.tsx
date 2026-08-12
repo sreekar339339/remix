@@ -93,10 +93,10 @@ function DraggableCard() {
     <div
       mix={[
         draggable(true),
-        draggable.events.start.on(({ detail: { left, top } }) => {
+        draggable.events.on.start(({ detail: { left, top } }) => {
           console.log('draggable start with:', { left }, { top })
         }),
-        draggable.events.end.on(({ detail: { left, top } }) => {
+        draggable.events.on.end(({ detail: { left, top } }) => {
           console.log('draggable end with:', { left }, { top })
         }),
       ]}
