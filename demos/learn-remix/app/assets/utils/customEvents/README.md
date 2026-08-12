@@ -50,8 +50,8 @@ let events = customEvents(
 
 The descriptor is the root composite event: `eventSource={events}` re-reads
 the whole detail on every matched event. Every seed and fold event is exposed
-as a typed source. The descriptor is an `EventTarget`, so it also carries
-native listeners.
+as a typed source. The descriptor carries native listeners, so native
+`addEventListener` works directly on the events object.
 
 ### Occurrence descriptors — `customEvents<Definition>()`
 
@@ -61,17 +61,19 @@ A typed vocabulary of transient events with no remembered model:
 const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
 ```
 
-Reserved names cannot be events: `create`, `on`, `asHost`, `dispatchEvent`,
+Reserved names cannot be events: `on`, `asHost`, `dispatchEvent`,
 `addEventListener`, `removeEventListener`, and native DOM event names.
 
-### The descriptor is an `EventTarget`
+### The descriptor is callable
 
-Descriptors are real `EventTarget`s. Native consumption works directly on the
-events object:
+Invoking the descriptor builds a fresh event for any target; it also carries
+native `EventTarget` listeners, so consumption works directly on the events
+object:
 
 ```ts
 events.addEventListener('count', (event) => console.log(event.detail))
 addEventListeners(events, signal, { count() {} })
+element.dispatchEvent(events('countDrafted', 2)) // hosted elements
 ```
 
 `asHost()` registers an element host as a mixin; `asHost(target)` bridges the
@@ -140,8 +142,7 @@ Evented-view props:
 | Member                                     | Signature                                                                     | Purpose                                                                                        |
 | ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`                        | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
-| `create`                                   | `create(type, detail?, init?)` / `create({ name: detail })` / `create([...])` | Builds a fresh event for any target.                                                           |
-| `on`                                       | `on(listener)`                                                                | Element-owned wildcard effect for every descriptor event.                                      |
+| _(callable)_                               | `events(type, detail?, init?)` / `events({ name: detail })` / `events([...])` | Builds a fresh event for any target.                                                           || `on`                                       | `on(listener)`                                                                | Element-owned wildcard effect for every descriptor event.                                      |
 | `asHost`                                   | `asHost()` / `asHost(target)`                                                 | Element host (mixin) or domain `EventTarget` bridge.                                           |
 | `addEventListener` / `removeEventListener` | native                                                                        | Native listeners on the descriptor.                                                            |
 
@@ -151,8 +152,8 @@ details atomically:
 ```ts
 await events.dispatchEvent({ kind: 'return flight' }) // remembered: folds in
 await events.dispatchEvent('bookingConfirmed') // bare name: an occurrence
-await events.dispatchEvent([{ startDate }, { returnDate }]) // via create + a native target
-element.dispatchEvent(events.create('countDrafted', 2)) // hosted elements
+await events.dispatchEvent([{ startDate }, { returnDate }]) // via events(...) + a native target
+element.dispatchEvent(events('countDrafted', 2)) // hosted elements
 ```
 
 `dispatchEvent(event)` returns the native `boolean`; the input form returns a
