@@ -22,7 +22,7 @@ import type {
   RememberedDescriptor,
   RememberedDescriptorBase,
   RememberedFolds,
-  RememberedSeeds,
+  RememberedDetails,
 } from './types.ts'
 export type { CustomEventsEventMap } from './types.ts'
 
@@ -45,17 +45,17 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
 ): CustomEventsDescriptor<NormalizeCustomEventsDefinition<Definition>>
 /**
  * Creates a remembered descriptor: a root composite event whose detail folds in
- * every remembered seed and fold event declared here.
+ * every remembered detail and fold event declared here.
  *
  * `customEvents({ count: 0, label: 'idle' }, { inc: (draft, n) => { draft.count += n } })`
  */
-export function customEvents<Seeds extends RememberedSeeds>(
-  seeds: Seeds,
-): RememberedDescriptorBase<Immutable<Seeds>, Seeds>
-export function customEvents<Seeds extends RememberedSeeds, Folds extends RememberedFolds<Seeds>>(
-  seeds: Seeds,
-  folds: Folds,
-): RememberedDescriptor<Seeds, Folds>
+export function customEvents<Details extends RememberedDetails>(
+  details: Details,
+): RememberedDescriptorBase<Immutable<Details>, Details>
+export function customEvents<
+  Details extends RememberedDetails,
+  Folds extends RememberedFolds<Details>,
+>(details: Details, folds: Folds): RememberedDescriptor<Details, Folds>
 export function customEvents(first?: unknown, foldsArg?: unknown): unknown {
   if (isRememberedDeclaration(first)) {
     return createRemembered(first, foldsArg as RememberedFolds<EventDetails> | undefined)
@@ -72,25 +72,25 @@ function isRememberedDeclaration(value: unknown): value is EventDetails {
   )
 }
 
-const rememberedSeedNames = new Set<string>(reservedCustomEventsNames)
+const rememberedDetailNames = new Set<string>(reservedCustomEventsNames)
 
 type RememberedFoldFn<Held extends EventDetails> = (draft: Draft<Held>, detail: unknown) => void
 
 /** Creates a remembered descriptor from initial details and declared fold events. */
-function createRemembered<Seeds extends EventDetails, Folds extends RememberedFolds<Seeds>>(
-  seeds: Seeds,
+function createRemembered<Details extends EventDetails, Folds extends RememberedFolds<Details>>(
+  details: Details,
   folds?: Folds,
-): RememberedDescriptor<Seeds, Folds> {
-  for (let name of Object.keys(seeds)) {
-    if (name === '*' || rememberedSeedNames.has(name)) {
-      throw new TypeError(`customEvents reserves the seed name "${name}".`)
+): RememberedDescriptor<Details, Folds> {
+  for (let name of Object.keys(details)) {
+    if (name === '*' || rememberedDetailNames.has(name)) {
+      throw new TypeError(`customEvents reserves the detail name "${name}".`)
     }
   }
-  let snapshot = freeze(seeds, true) as EventDetails
-  let foldFns = new Map<string, RememberedFoldFn<Seeds>>()
+  let snapshot = freeze(details, true) as EventDetails
+  let foldFns = new Map<string, RememberedFoldFn<Details>>()
   if (folds !== undefined) {
     for (let [name, fold] of Object.entries(folds)) {
-      foldFns.set(name, fold as RememberedFoldFn<Seeds>)
+      foldFns.set(name, fold as RememberedFoldFn<Details>)
     }
   }
 
@@ -98,7 +98,7 @@ function createRemembered<Seeds extends EventDetails, Folds extends RememberedFo
     let foldFn = foldFns.get(type)
     if (foldFn) {
       let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
-        foldFn(draft as Draft<Seeds>, detail)
+        foldFn(draft as Draft<Details>, detail)
       })
       let entries: CustomEventsRuntimeEntry[] = []
       if (patches.length > 0) {
@@ -116,7 +116,7 @@ function createRemembered<Seeds extends EventDetails, Folds extends RememberedFo
       return entries
     }
 
-    // A seed dispatch is the implicit fold that replaces itself.
+    // A detail dispatch is the implicit fold that replaces itself.
     if (Object.hasOwn(snapshot, type)) {
       let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
         ;(draft as EventDetails)[type] = detail
@@ -132,7 +132,7 @@ function createRemembered<Seeds extends EventDetails, Folds extends RememberedFo
     getState: () => snapshot,
     fold: foldEntry,
   })
-  return events as unknown as RememberedDescriptor<Seeds, Folds>
+  return events as unknown as RememberedDescriptor<Details, Folds>
 }
 
 function resolvePatchPath(

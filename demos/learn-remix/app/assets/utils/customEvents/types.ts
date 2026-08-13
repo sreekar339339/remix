@@ -85,7 +85,7 @@ export type NormalizeCustomEventsDefinition<Definition extends CustomEventsDefin
  * An already-aborted `signal` synchronously throws its abort reason instead
  * of creating an event.
  */
-export type CustomEventsInit = Omit<EventInit, 'cancelable'> & {
+export type CustomEventInit = Omit<EventInit, 'cancelable'> & {
   /** Custom events describe completed facts and are never cancelable. */
   cancelable?: never
   /** Throws the signal's abort reason when it is already aborted. */
@@ -416,12 +416,12 @@ type NullDetailEventTypes<Events extends EventDetails> = {
 export type CustomEventsCreate<Events extends EventDetails> = {
   <Type extends NullDetailEventTypes<Events> & CustomEventsEventType<Events>>(
     type: Type,
-    init?: CustomEventsInit,
+    init?: CustomEventInit,
   ): CustomEventsEventMap<Events>[Type]
 } & {
   <const Input extends Partial<Events> & Record<string, unknown>>(
     input: Input,
-    init?: CustomEventsInit,
+    init?: CustomEventInit,
   ): [keyof Input & keyof Events] extends [never]
     ? Event
     : CustomEventsEventMap<Events>[keyof Input & keyof Events & CustomEventsEventType<Events>]
@@ -446,7 +446,7 @@ export type CustomEventsDispatchEvent<Events extends EventDetails = EventDetails
   (event: Event): boolean
   (
     input: string | (Partial<Events> & Record<string, unknown>),
-    init?: CustomEventsInit,
+    init?: CustomEventInit,
   ): Promise<void>
 }
 
@@ -523,11 +523,11 @@ export type RememberedFolds<Held extends EventDetails> = {
 }
 
 /**
- * Remembered seeds of a remembered descriptor: data values keyed by event
+ * Initial details of a remembered descriptor: data values keyed by event
  * name, which cannot overwrite the descriptor API or use native DOM event
  * names.
  */
-export type RememberedSeeds = EventDetails & {
+export type RememberedDetails = EventDetails & {
   readonly [Name in ReservedCustomEventsName | NativeDOMEventName]?: never
 }
 
@@ -538,11 +538,11 @@ type RememberedFoldDetail<Folds, Name extends keyof Folds & string> = Folds[Name
   ? Detail
   : unknown
 
-/** The event map of a remembered descriptor: remembered seeds and declared fold events. */
+/** The event map of a remembered descriptor: remembered details and declared fold events. */
 export type RememberedEventsMap<
-  Seeds extends EventDetails,
-  Folds extends RememberedFolds<Seeds>,
-> = Immutable<Seeds> & {
+  Details extends EventDetails,
+  Folds extends RememberedFolds<Details>,
+> = Immutable<Details> & {
   [Name in keyof Folds & string]: RememberedFoldDetail<Folds, Name>
 }
 
@@ -553,14 +553,14 @@ export type RememberedEventsMap<
  * Multi-entry transactions build a carrier with `events.create({...})` and
  * dispatch it on a native target.
  */
-export type RememberedEventInput<Seeds extends EventDetails> =
+export type RememberedEventInput<Details extends EventDetails> =
   | string
-  | (Partial<Seeds> & Record<string, unknown>)
+  | (Partial<Details> & Record<string, unknown>)
 
 /** Dispatches remembered events on the descriptor itself. */
-export type RememberedDispatchEvent<Seeds extends EventDetails> = {
+export type RememberedDispatchEvent<Details extends EventDetails> = {
   (event: Event): boolean
-  (input: RememberedEventInput<Seeds>, init?: CustomEventsInit): Promise<void>
+  (input: RememberedEventInput<Details>, init?: CustomEventInit): Promise<void>
 }
 
 /** Runs a mounted-element effect for every descriptor event, including implicit occurrences. */
@@ -575,17 +575,17 @@ export type RememberedOnFunction = {
 /** Remembered descriptor core: the root event, fold sub-sources, and write verbs. */
 export type RememberedDescriptorBase<
   Events extends EventDetails,
-  Seeds extends EventDetails,
+  Details extends EventDetails,
 > = CustomEventsBuilder<Events> & {
-  dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Seeds>
-  on: { readonly '*': RememberedOnFunction } & CustomEventsOnNamespace<Events, Immutable<Seeds>>
-} & CustomEventsDescriptor<Events, Immutable<Seeds>>
+  dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Details>
+  on: { readonly '*': RememberedOnFunction } & CustomEventsOnNamespace<Events, Immutable<Details>>
+} & CustomEventsDescriptor<Events, Immutable<Details>>
 
 /**
  * A remembered descriptor: the root composite event (`eventSource={events}`)
- * whose detail folds in every remembered seed and fold event.
+ * whose detail folds in every remembered detail and fold event.
  */
 export type RememberedDescriptor<
-  Seeds extends EventDetails,
-  Folds extends RememberedFolds<Seeds>,
-> = RememberedDescriptorBase<RememberedEventsMap<Seeds, Folds>, Seeds>
+  Details extends EventDetails,
+  Folds extends RememberedFolds<Details>,
+> = RememberedDescriptorBase<RememberedEventsMap<Details, Folds>, Details>

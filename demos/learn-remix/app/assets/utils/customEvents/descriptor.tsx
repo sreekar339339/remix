@@ -24,14 +24,14 @@ import type {
   CustomEventsAsHost,
   CustomEventsDescriptor,
   CustomEventsDispatchEvent,
-  CustomEventsInit,
+  CustomEventInit,
   CustomEventsOnNamespace,
   EventDetails,
   EventSourceMetadata,
 } from './types.ts'
 
 const CUSTOM_EVENTS_TRANSACTION = '$transaction'
-const customEventsInitKeys = new Set(['bubbles', 'composed', 'signal'])
+const customEventInitKeys = new Set(['bubbles', 'composed', 'signal'])
 // Runtime twin of the type-only marker; the source proxy exposes its metadata.
 const eventSourceMetadata = Symbol('eventSource')
 
@@ -45,7 +45,7 @@ export const customEventsEvented = new Proxy(Object.create(null), {
   },
 })
 
-type InternalEntryOptions = CustomEventsInit & {
+type InternalEntryOptions = CustomEventInit & {
   addresses?: readonly (readonly unknown[])[]
 }
 
@@ -59,11 +59,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function isCustomEventsInit(value: unknown): value is CustomEventsInit {
-  return isRecord(value) && Object.keys(value).every((key) => customEventsInitKeys.has(key))
+function isCustomEventInit(value: unknown): value is CustomEventInit {
+  return isRecord(value) && Object.keys(value).every((key) => customEventInitKeys.has(key))
 }
 
-function getEventInit(init: CustomEventsInit | undefined): EventInit {
+function getEventInit(init: CustomEventInit | undefined): EventInit {
   if (init && Object.hasOwn(init, 'cancelable')) {
     throw new TypeError('customEvents describe completed facts and cannot be cancelable.')
   }
@@ -140,7 +140,7 @@ export function createCustomEventsDescriptor<
     ]
   }
 
-  function createTransaction(entries: CustomEventsRuntimeEntry[], init?: CustomEventsInit) {
+  function createTransaction(entries: CustomEventsRuntimeEntry[], init?: CustomEventInit) {
     init?.signal?.throwIfAborted()
     return customEventsRuntime.createProductEvent(
       getRuntime(),
@@ -156,11 +156,9 @@ export function createCustomEventsDescriptor<
   let create = (...args: Array<unknown>) => {
     let [typeOrEvents, detailOrInit] = args as [string | Record<string, unknown>, unknown?]
     if (typeof typeOrEvents === 'string') {
-      let init = args.length >= 2 ? (detailOrInit as CustomEventsInit) : undefined
-      if (args.length >= 2 && !isCustomEventsInit(detailOrInit)) {
-        throw new TypeError(
-          'customEvents create() expects CustomEventsInit as the second argument.',
-        )
+      let init = args.length >= 2 ? (detailOrInit as CustomEventInit) : undefined
+      if (args.length >= 2 && !isCustomEventInit(detailOrInit)) {
+        throw new TypeError('customEvents create() expects CustomEventInit as the second argument.')
       }
       return customEventsRuntime.createProductEvent(
         getRuntime(),
@@ -172,7 +170,7 @@ export function createCustomEventsDescriptor<
     }
 
     if (isRecord(typeOrEvents)) {
-      let init = args.length >= 2 ? (detailOrInit as CustomEventsInit | undefined) : undefined
+      let init = args.length >= 2 ? (detailOrInit as CustomEventInit | undefined) : undefined
       let entries: CustomEventsRuntimeEntry[] = []
       for (let [type, detail] of Object.entries(typeOrEvents)) {
         entries.push(...resolveEntry(type, detail, init))

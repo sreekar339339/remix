@@ -1687,6 +1687,6 @@ describe('remembered customEvents', () => {
     })
     assert.throws(() => {
       customEvents({ on: 1 } as EventDetails)
-    }, /reserves the seed name/)
+    }, /reserves the detail name/)
   })
 })
