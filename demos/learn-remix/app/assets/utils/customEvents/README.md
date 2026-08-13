@@ -10,7 +10,7 @@ The library is organized around these concepts:
 
 - **Remembered descriptor** — `customEvents(seeds, folds)`: an event
   declaration whose root event's detail folds in every remembered seed and
-  fold event. The descriptor is itself an `EventTarget`.
+  fold event. The descriptor carries native `EventTarget` listeners.
 - **Occurrence descriptor** — `customEvents<Definition>()`: a typed
   vocabulary of transient events with no remembered model.
 - **Event source** — a typed, addressable subscription handle for one event.
@@ -64,9 +64,11 @@ const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
 Reserved names cannot be events: `create`, `on`, `asHost`, `dispatchEvent`,
 `addEventListener`, `removeEventListener`, and native DOM event names.
 
-### The descriptor is callable
+### Building events — `events.create`
 
-Invoking the descriptor builds a fresh event for any target; it also carries
+The `create` builder makes a fresh event for any target. A bare name builds a
+detail-less event; an object of event-named details builds a single event (one
+entry) or an atomic transaction carrier (several). The descriptor also carries
 native `EventTarget` listeners, so consumption works directly on the events
 object:
 
@@ -74,7 +76,13 @@ object:
 events.addEventListener('count', (event) => console.log(event.detail))
 addEventListeners(events, signal, { count() {} })
 element.dispatchEvent(events.create({ countDrafted: 2 })) // hosted elements
+element.dispatchEvent(events.create('bookingConfirmed')) // a detail-less event
 ```
+
+`create` always takes `CustomEventsInit` (propagation flags, `signal`) as its
+second argument: `init` only on `create('name', init?)`, and
+`create({ countDrafted: 2 }, init?)`. An already-aborted `signal` throws its
+abort reason when the event is created.
 
 `asHost()` registers an element host as a mixin; `asHost(target)` bridges the
 descriptor's dispatch channel onto an external `EventTarget`:
@@ -85,7 +93,7 @@ class Drummer extends TypedEventTarget<CustomEventsEventMap<DrummerEvents>> {
 }
 ```
 
-### Event sources — `events.<name>`
+### Event sources — `events.on.<name>`
 
 Every declared event is exposed as a typed source:
 
@@ -139,12 +147,13 @@ Evented-view props:
 
 ### Descriptor methods
 
-| Member                                     | Signature                                                                       | Purpose                                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- | ---- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`                          | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
-| `create`                                   | `create('name', init?)` / `create({ name: detail })` / `create({ a: 1, b: 2 })` | Builds a fresh event (or transaction carrier) for any target.                                  |     | `on` | `on['*'](listener)` / `on.<source>(listener)` | The `'*'` node runs a wildcard effect; source nodes scope effects to one event. |
-| `asHost`                                   | `asHost()` / `asHost(target)`                                                   | Element host (mixin) or domain `EventTarget` bridge.                                           |
-| `addEventListener` / `removeEventListener` | native                                                                          | Native listeners on the descriptor.                                                            |
+| Member                                     | Signature                                                 | Purpose                                                                                        |
+| ------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`    | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
+| `create`                                   | `create('name', init?)` / `create({ a: 1, b: 2 }, init?)` | Builds a fresh event (or transaction carrier) for any target.                                  |
+| `on`                                       | `on['*'](listener)` / `on.<source>(listener)`             | The `'*'` node runs a wildcard effect; source nodes scope effects to one event.                |
+| `asHost`                                   | `asHost()` / `asHost(target)`                             | Element host (mixin) or domain `EventTarget` bridge.                                           |
+| `addEventListener` / `removeEventListener` | native                                                    | Native listeners on the descriptor.                                                            |
 
 Writes are dispatch-only. The object grammar dispatches an event-named set of
 details atomically:
@@ -208,7 +217,7 @@ per-item granularity, scalar writes route by owner identity, and deep
 mutations reach exactly the affected addresses.
 
 **Reads are views only**: subscribe `eventSource={events}` for the whole
-composite or `eventSource={events.<seed>}` for one remembered value. Handlers
+composite or `eventSource={events.on.<seed>}` for one remembered value. Handlers
 live inside a root view's render closure where the detail is in scope; timers
 and async work dispatch pure events that fold events interpret.
 

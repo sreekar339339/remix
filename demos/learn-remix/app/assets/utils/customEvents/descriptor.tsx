@@ -113,8 +113,8 @@ export function createCustomEventsDescriptor<
 >(state?: RememberedEventContext): CustomEventsDescriptor<Events, State> {
   let runtime: CustomEventsRuntimeState | undefined
   let getRuntime = () => (runtime ??= createCustomEventsRuntimeState())
-  // The descriptor is itself an EventTarget: native listeners attach to it and
-  // target-less writes dispatch on it.
+  // The descriptor carries a native EventTarget channel: native listeners
+  // attach to it and target-less writes dispatch on it.
   let base = new EventTarget()
 
   function resolveEntry(

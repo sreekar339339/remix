@@ -436,11 +436,11 @@ export type CustomEventsBuilder<Events extends EventDetails> = {
 }
 
 /**
- * The unified dispatch surface of a descriptor, which is itself an
- * `EventTarget`: dispatching a native `Event` fires it on the descriptor
- * (returning `boolean`), while an event-named input (a bare name or an object
- * of details) dispatches on the descriptor and resolves after view updates
- * and effects settle.
+ * The unified dispatch surface of a descriptor, which carries a native
+ * `EventTarget` channel: dispatching a native `Event` fires it on the
+ * descriptor (returning `boolean`), while an event-named input (a bare name
+ * or an object of details) dispatches on the descriptor and resolves after
+ * view updates and effects settle.
  */
 export type CustomEventsDispatchEvent<Events extends EventDetails = EventDetails> = {
   (event: Event): boolean
