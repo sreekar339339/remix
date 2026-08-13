@@ -80,31 +80,30 @@ const cellCss = css({
 export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCells() {
   let formulas: Values = { A0: '10', B0: '20', C0: '=A0+B0' }
   let renderCounts = new Map<CellId, number>()
-  let events = customEvents(
-    {
+  let events = customEvents({
+    root: {
       values: calculate(formulas),
       formulas,
       focusTarget: cellId('A', 0),
       drafted: { id: null as CellId | null, text: '' },
     },
-    {
-      beginEdit: (draft, id: string) => {
-        draft.drafted = { id: id as CellId, text: draft.formulas[id as CellId] ?? '' }
-      },
-      draftCell: (draft, payload: { id: string; text: string }) => {
-        draft.drafted = { id: payload.id as CellId, text: payload.text }
-      },
-      commitCell: (draft, payload: { id: string; text: string }) => {
-        let committed = draft.values[payload.id as CellId]
-        draft.formulas[payload.id as CellId] = payload.text
-        let nextValues = calculate(draft.formulas)
-        Object.assign(draft.values, nextValues)
-        if (Object.is(committed, nextValues[payload.id as CellId])) {
-          draft.drafted = { id: payload.id as CellId, text: nextValues[payload.id as CellId] ?? '' }
-        }
-      },
+
+    beginEdit: (id: string, root) => {
+      root.drafted = { id: id as CellId, text: root.formulas[id as CellId] ?? '' }
     },
-  )
+    draftCell: (payload: { id: string; text: string }, root) => {
+      root.drafted = { id: payload.id as CellId, text: payload.text }
+    },
+    commitCell: (payload: { id: string; text: string }, root) => {
+      let committed = root.values[payload.id as CellId]
+      root.formulas[payload.id as CellId] = payload.text
+      let nextValues = calculate(root.formulas)
+      Object.assign(root.values, nextValues)
+      if (Object.is(committed, nextValues[payload.id as CellId])) {
+        root.drafted = { id: payload.id as CellId, text: nextValues[payload.id as CellId] ?? '' }
+      }
+    },
+  })
   return () => (
     <section mix={[taskCss]}>
       <h2>Cells</h2>

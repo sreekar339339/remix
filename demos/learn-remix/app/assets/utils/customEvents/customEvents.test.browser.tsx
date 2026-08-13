@@ -62,23 +62,22 @@ describe('customEvents', () => {
   })
 
   it('routes Map and Set folds to item and whole-key subscribers', async (t) => {
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         position: new Map([
           ['a', 'X'],
           ['b', 'O'],
         ]),
         selected: new Set(['red']),
       },
-      {
-        set: (draft, { key, value }: { key: string; value: string }) => {
-          draft.position.set(key, value)
-        },
-        add: (draft, value: string) => {
-          draft.selected.add(value)
-        },
+
+      set: ({ key, value }: { key: string; value: string }, root) => {
+        root.position.set(key, value)
       },
-    )
+      add: (value: string, root) => {
+        root.selected.add(value)
+      },
+    })
     let calls = { mapA: 0, mapB: 0, mapAll: 0, red: 0, blue: 0 }
     let positionEvents = 0
     events.addEventListener('position', () => positionEvents++)
@@ -140,26 +139,25 @@ describe('customEvents', () => {
   })
 
   it('renders keyed children from a remembered descriptor without component updates', async (t) => {
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         circles: new Map<number, { id: number; x: number; r: number }>([
           [1, { id: 1, x: 10, r: 5 }],
           [2, { id: 2, x: 20, r: 5 }],
         ]),
       },
-      {
-        resize: (draft, { id, r }: { id: number; r: number }) => {
-          let circle = draft.circles.get(id)
-          if (circle) circle.r = r
-        },
-        add: (draft, circle: { id: number; x: number; r: number }) => {
-          draft.circles.set(circle.id, circle)
-        },
-        replace: (draft, circles: Map<number, { id: number; x: number; r: number }>) => {
-          draft.circles = circles
-        },
+
+      resize: ({ id, r }: { id: number; r: number }, root) => {
+        let circle = root.circles.get(id)
+        if (circle) circle.r = r
       },
-    )
+      add: (circle: { id: number; x: number; r: number }, root) => {
+        root.circles.set(circle.id, circle)
+      },
+      replace: (circles: Map<number, { id: number; x: number; r: number }>, root) => {
+        root.circles = circles
+      },
+    })
 
     function Canvas() {
       return () => (
@@ -216,26 +214,25 @@ describe('customEvents', () => {
   })
 
   it('reconciles keyed children through the keyed diff', async (t) => {
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         circles: new Map<number, { id: number; x: number; r: number }>([
           [1, { id: 1, x: 10, r: 5 }],
           [2, { id: 2, x: 20, r: 5 }],
         ]),
       },
-      {
-        resize: (draft, { id, r }: { id: number; r: number }) => {
-          let circle = draft.circles.get(id)
-          if (circle) circle.r = r
-        },
-        add: (draft, circle: { id: number; x: number; r: number }) => {
-          draft.circles.set(circle.id, circle)
-        },
-        remove: (draft, id: number) => {
-          draft.circles.delete(id)
-        },
+
+      resize: ({ id, r }: { id: number; r: number }, root) => {
+        let circle = root.circles.get(id)
+        if (circle) circle.r = r
       },
-    )
+      add: (circle: { id: number; x: number; r: number }, root) => {
+        root.circles.set(circle.id, circle)
+      },
+      remove: (id: number, root) => {
+        root.circles.delete(id)
+      },
+    })
 
     function Canvas() {
       return () => (
@@ -288,22 +285,21 @@ describe('customEvents', () => {
   })
 
   it('settles coalesced bursts of list folds on the final value', async (t) => {
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         items: new Map<number, { id: number; label: string }>([
           [1, { id: 1, label: 'one' }],
           [2, { id: 2, label: 'two' }],
         ]),
       },
-      {
-        add: (draft, item: { id: number; label: string }) => {
-          draft.items.set(item.id, item)
-        },
-        remove: (draft, id: number) => {
-          draft.items.delete(id)
-        },
+
+      add: (item: { id: number; label: string }, root) => {
+        root.items.set(item.id, item)
       },
-    )
+      remove: (id: number, root) => {
+        root.items.delete(id)
+      },
+    })
     let viewCalls = 0
 
     function Items() {
@@ -354,8 +350,8 @@ describe('customEvents', () => {
   })
 
   it('routes deep patches through every nested identity boundary', async (t) => {
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         columns: new Map([
           [
             'column:todo',
@@ -374,13 +370,12 @@ describe('customEvents', () => {
           ],
         ]),
       },
-      {
-        toggle: (draft, { columnId, cardId }: { columnId: string; cardId: string }) => {
-          let card = draft.columns.get(columnId)?.cards.get(cardId)
-          if (card) card.urgent = !card.urgent
-        },
+
+      toggle: ({ columnId, cardId }: { columnId: string; cardId: string }, root) => {
+        let card = root.columns.get(columnId)?.cards.get(cardId)
+        if (card) card.urgent = !card.urgent
       },
-    )
+    })
     let calls = { todo: 0, done: 0, one: 0, two: 0, three: 0 }
 
     function Board() {
@@ -426,17 +421,16 @@ describe('customEvents', () => {
 
   it('preserves object identity in Map fold addresses', async (t) => {
     let recordKey = {}
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         records: new Map<object, { value: number }>([[recordKey, { value: 1 }]]),
       },
-      {
-        set: (draft, { key, value }: { key: object; value: number }) => {
-          let record = draft.records.get(key)
-          if (record) record.value = value
-        },
+
+      set: ({ key, value }: { key: object; value: number }, root) => {
+        let record = root.records.get(key)
+        if (record) record.value = value
       },
-    )
+    })
     let renders = 0
 
     function RecordValue() {
@@ -460,22 +454,21 @@ describe('customEvents', () => {
   })
 
   it('derives array index routes by default', async (t) => {
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         items: ['first', 'second'],
       },
-      {
-        set: (draft, { index, value }: { index: number; value: string }) => {
-          draft.items[index] = value
-        },
-        removeFirst: (draft) => {
-          draft.items.splice(0, 1)
-        },
-        replace: (draft, items: string[]) => {
-          draft.items = items
-        },
+
+      set: ({ index, value }: { index: number; value: string }, root) => {
+        root.items[index] = value
       },
-    )
+      removeFirst: (_detail, root) => {
+        root.items.splice(0, 1)
+      },
+      replace: (items: string[], root) => {
+        root.items = items
+      },
+    })
     let calls = { first: 0, second: 0, all: 0 }
 
     function Items() {
@@ -516,30 +509,29 @@ describe('customEvents', () => {
 
   it('routes object arrays by index', async (t) => {
     type Circle = { id: number; diameter: number }
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         circles: [
           { id: 7, diameter: 30 },
           { id: 8, diameter: 40 },
         ],
         values: { A0: '10', B0: '20' },
       },
-      {
-        resize: (draft, { index, diameter }: { index: number; diameter: number }) => {
-          let circle = draft.circles[index]
-          if (circle) circle.diameter = diameter
-        },
-        setValue: (draft, { key, value }: { key: string; value: string }) => {
-          ;(draft.values as Record<string, string>)[key] = value
-        },
-        removeFirst: (draft) => {
-          draft.circles.splice(0, 1)
-        },
-        replace: (draft, circles: Circle[]) => {
-          draft.circles = circles
-        },
+
+      resize: ({ index, diameter }: { index: number; diameter: number }, root) => {
+        let circle = root.circles[index]
+        if (circle) circle.diameter = diameter
       },
-    )
+      setValue: ({ key, value }: { key: string; value: string }, root) => {
+        ;(root.values as Record<string, string>)[key] = value
+      },
+      removeFirst: (_detail, root) => {
+        root.circles.splice(0, 1)
+      },
+      replace: (circles: Circle[], root) => {
+        root.circles = circles
+      },
+    })
     let calls = { circle0: 0, circle1: 0, A0: 0, B0: 0 }
 
     function Collections() {
@@ -593,16 +585,15 @@ describe('customEvents', () => {
   })
 
   it('routes scalar identity values by value and notifies owners via as()', async (t) => {
-    let events = customEvents(
-      {
+    let events = customEvents({
+      root: {
         selected: null as string | null,
       },
-      {
-        select: (draft, id: string | null) => {
-          draft.selected = id
-        },
+
+      select: (id: string | null, root) => {
+        root.selected = id
       },
-    )
+    })
     let calls = { first: 0, second: 0, all: 0 }
     let effectOrder: string[] = []
 
@@ -684,15 +675,16 @@ describe('customEvents', () => {
   })
 
   it('keeps element-dispatched occurrences on the origin element', async (t) => {
-    let events = customEvents(
-      { count: 0 },
-      {
-        increment: (draft, amount: number) => {
-          draft.count += amount
-        },
-        countDrafted: () => {},
+    let events = customEvents({
+      root: {
+        count: 0,
       },
-    )
+
+      increment: (amount: number, root) => {
+        root.count += amount
+      },
+      countDrafted: () => {},
+    })
     let drafts = 0
     let listenerRenders = 0
 
@@ -736,14 +728,15 @@ describe('customEvents', () => {
   })
 
   it('renders the whole composite through the wildcard source', async (t) => {
-    let events = customEvents(
-      { count: 0 },
-      {
-        increment: (draft, amount: number) => {
-          draft.count += amount
-        },
+    let events = customEvents({
+      root: {
+        count: 0,
       },
-    )
+
+      increment: (amount: number, root) => {
+        root.count += amount
+      },
+    })
     let seen: Array<[{ count: number }, unknown]> = []
 
     function Snapshot() {
@@ -1471,14 +1464,16 @@ describe('customEvents', () => {
 
 describe('remembered customEvents', () => {
   it('folds remembered replaces and fold events into the root composite', async (t) => {
-    let events = customEvents(
-      { count: 0, label: 'idle' },
-      {
-        inc: (draft, amount: number) => {
-          draft.count += amount
-        },
+    let events = customEvents({
+      root: {
+        count: 0,
+        label: 'idle',
       },
-    )
+
+      inc: (amount: number, root) => {
+        root.count += amount
+      },
+    })
     let seen: Array<[unknown, unknown]> = []
 
     function View() {
@@ -1521,14 +1516,14 @@ describe('remembered customEvents', () => {
       // @ts-expect-error - remembered details are typed by their seeds.
       events.dispatchEvent({ count: 'not-a-number' })
       // @ts-expect-error - seeds cannot overwrite the descriptor API.
-      customEvents({ dispatchEvent: 1 })
+      customEvents({ root: { dispatchEvent: 1 } })
       // @ts-expect-error - seeds cannot use native DOM event names.
-      customEvents({ click: false })
+      customEvents({ root: { click: false } })
     }
   })
 
   it('dispatches implicit occurrences with and without details', async (t) => {
-    let events = customEvents({ count: 0 })
+    let events = customEvents({ root: { count: 0 } })
     let seen: Array<[unknown, unknown]> = []
 
     function View() {
@@ -1565,16 +1560,17 @@ describe('remembered customEvents', () => {
 
   it('runs effect folds atomically and routes patches fine-grained', async (t) => {
     type Item = { id: number; label: string }
-    let events = customEvents(
-      { items: new Map<number, Item>([[1, { id: 1, label: 'one' }]]) },
-      {
-        rename: (draft, { id, label }: { id: number; label: string }) => {
-          let item = draft.items.get(id)
-          if (!item) return
-          draft.items.set(id, { ...item, label })
-        },
+    let events = customEvents({
+      root: {
+        items: new Map<number, Item>([[1, { id: 1, label: 'one' }]]),
       },
-    )
+
+      rename: ({ id, label }: { id: number; label: string }, root) => {
+        let item = root.items.get(id)
+        if (!item) return
+        root.items.set(id, { ...item, label })
+      },
+    })
     let rootCalls = 0
 
     function View() {
@@ -1619,15 +1615,16 @@ describe('remembered customEvents', () => {
     assert.equal(rootCalls, 2, `rootCalls=${rootCalls}`)
   })
 
-  it("keeps the fold event's own payload visible to its subscribers", async (t) => {
-    let events = customEvents(
-      { elapsed: 0 },
-      {
-        tick: (draft, delta: number) => {
-          draft.elapsed += delta
-        },
+  it("keeps the fold event's own detail visible to its subscribers", async (t) => {
+    let events = customEvents({
+      root: {
+        elapsed: 0,
       },
-    )
+
+      tick: (delta: number, root) => {
+        root.elapsed += delta
+      },
+    })
     let seen: Array<[unknown, unknown]> = []
 
     function View() {
@@ -1654,7 +1651,7 @@ describe('remembered customEvents', () => {
   })
 
   it('folds null through the bare-name sugar for remembered events', async (t) => {
-    let events = customEvents({ kind: 'one-way' })
+    let events = customEvents({ root: { kind: 'one-way' } })
     let seen: unknown[] = []
 
     function View() {
@@ -1681,12 +1678,54 @@ describe('remembered customEvents', () => {
 
   it('freezes remembered seeds and rejects reserved names', () => {
     let seeds = { count: 0 }
-    customEvents(seeds)
+    customEvents({ root: seeds })
     assert.throws(() => {
       seeds.count = 1
     })
     assert.throws(() => {
-      customEvents({ on: 1 } as EventDetails)
+      customEvents({ root: { on: 1 } } as any)
     }, /reserves the detail name/)
+  })
+
+  it('exposes the root composite as the named events.root source', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+        label: 'idle',
+      },
+      inc: (amount: number, root) => {
+        root.count += amount
+      },
+    })
+    let seen: Array<[unknown, unknown]> = []
+
+    function View() {
+      return () => (
+        <evented.output eventSource={events.root} aria-label="root">
+          {(detail, event) => {
+            seen.push([detail, event?.type])
+            return `${detail.label}:${detail.count}`
+          }}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
+
+    await result.act(async () => {
+      await events.dispatchEvent('refresh')
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
+    assert.deepEqual(seen[seen.length - 1], [{ count: 0, label: 'idle' }, 'refresh'])
+
+    await result.act(async () => {
+      await events.dispatchEvent({ inc: 2 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
+    assert.deepEqual(seen[seen.length - 1], [{ count: 2, label: 'idle' }, 'count'])
   })
 })

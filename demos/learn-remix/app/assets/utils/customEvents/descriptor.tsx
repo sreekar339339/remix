@@ -5,6 +5,7 @@ import {
   type EventSource,
   type EventSourceEvent,
   type EventSourceProtocol,
+  type EventSourceSubscriber,
 } from 'remix/ui'
 import {
   ALL_EVENTS,
@@ -45,9 +46,7 @@ export const customEventsEvented = new Proxy(Object.create(null), {
   },
 })
 
-type InternalEntryOptions = CustomEventInit & {
-  addresses?: readonly (readonly unknown[])[]
-}
+type InternalEntryOptions = CustomEventInit
 
 type RememberedEventContext = {
   getState(): EventDetails
@@ -126,18 +125,11 @@ export function createCustomEventsDescriptor<
     if (type === ALL_EVENTS) {
       throw new TypeError('customEvents reserves "*" for subscriptions.')
     }
-    if (options?.addresses === undefined && state?.fold) {
+    if (state?.fold) {
       let folded = state.fold(type, detail)
       if (folded !== undefined) return [...folded]
     }
-    let addresses = options?.addresses
-    return [
-      {
-        type,
-        detail,
-        ...(addresses === undefined ? {} : { addresses }),
-      },
-    ]
+    return [{ type, detail }]
   }
 
   function createTransaction(entries: CustomEventsRuntimeEntry[], init?: CustomEventInit) {
@@ -231,7 +223,7 @@ export function createCustomEventsDescriptor<
     return eventsProxy
   }) as CustomEventsAsHost<Events, State>
   // The `on` surface is a pure namespace: `'*'` runs an element-owned effect
-  // for every descriptor event, every other name is a source node (callable
+  // for every descriptor event, every other name is a source (callable
   // to scope an effect to one source).
   let wildcardOn = (listener: (event: Event) => void | Promise<unknown>) => {
     if (!listener) {
@@ -239,6 +231,28 @@ export function createCustomEventsDescriptor<
     }
     return customEventsOnMixin(getRuntime(), undefined, listener)
   }
+  // The named root event of a remembered descriptor: the composite source
+  // under the `events.root` handle, with the wildcard effect as its callable.
+  // Pure descriptors have no root — the descriptor itself is their wildcard.
+  let rootSource = state
+    ? new Proxy(wildcardOn, {
+        get(_, property) {
+          if (property === EVENT_SOURCE) {
+            return {
+              type: 'root',
+              read: () => state.getState(),
+              subscribe(subscriber: EventSourceSubscriber, signal: AbortSignal) {
+                subscribeView(getRuntime(), subscriber, signal, null, undefined)
+              },
+            } satisfies EventSourceProtocol
+          }
+          if (property === eventSourceMetadata) {
+            return { type: 'root', path: [] }
+          }
+          return undefined
+        },
+      })
+    : undefined
   let sources = new Map<string, object>()
   let on = new Proxy(Object.create(null), {
     get(_, property) {
@@ -328,6 +342,9 @@ export function createCustomEventsDescriptor<
       }
       if (property === 'addEventListener' || property === 'removeEventListener') {
         return Reflect.get(EventTarget.prototype, property, base).bind(base)
+      }
+      if (property === 'root') {
+        return rootSource
       }
       if (
         property === 'create' ||

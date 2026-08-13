@@ -2,15 +2,15 @@ import { clientEntry, on } from 'remix/ui'
 import { customEvents, evented } from './utils/customEvents/index.tsx'
 
 export const Counter = clientEntry(import.meta.url, function Counter(handle) {
-  let events = customEvents(
-    { count: 0 },
-    {
-      increment: (draft) => {
-        draft.count += incrementOffset
-      },
-    },
-  )
   let incrementOffset = 1
+  let events = customEvents({
+    root: {
+      count: 0,
+    },
+    increment: (_detail, root) => {
+      root.count += incrementOffset
+    },
+  })
   return () => (
     <>
       <button

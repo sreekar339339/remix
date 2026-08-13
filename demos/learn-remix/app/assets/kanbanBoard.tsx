@@ -90,15 +90,16 @@ function initialColumns() {
 }
 
 export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
-  let events = customEvents(
-    { columns: initialColumns() },
-    {
-      toggleUrgency: (draft, { columnId, cardId }: { columnId: string; cardId: string }) => {
-        let card = draft.columns.get(columnId)?.cards.get(cardId)
-        if (card) card.urgent = !card.urgent
-      },
+  let events = customEvents({
+    root: {
+      columns: initialColumns(),
     },
-  )
+
+    toggleUrgency: ({ columnId, cardId }: { columnId: string; cardId: string }, root) => {
+      let card = root.columns.get(columnId)?.cards.get(cardId)
+      if (card) card.urgent = !card.urgent
+    },
+  })
   let renderCounts = new Map<string, number>()
 
   function nextRenderCount(id: string) {

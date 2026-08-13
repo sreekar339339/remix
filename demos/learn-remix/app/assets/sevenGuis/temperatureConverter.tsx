@@ -15,8 +15,10 @@ export const SevenGuisTemperatureConverter = clientEntry(
   import.meta.url,
   function SevenGuisTemperatureConverter() {
     let events = customEvents({
-      celsius: '',
-      fahrenheit: '',
+      root: {
+        celsius: '',
+        fahrenheit: '',
+      },
     })
 
     return () => (

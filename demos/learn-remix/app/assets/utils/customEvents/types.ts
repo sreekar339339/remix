@@ -47,6 +47,7 @@ export const reservedCustomEventsNames = [
   'dispatchEvent',
   'addEventListener',
   'removeEventListener',
+  'root',
 ] as const
 
 export type ReservedCustomEventsName = (typeof reservedCustomEventsNames)[number]
@@ -69,7 +70,7 @@ export type CustomEventsFactoryArgs<Definition> = [NativeNamesIn<Definition>] ex
   : [error: NativeEventNameError<NativeNamesIn<Definition>>]
 
 /**
- * Normalizes signal names and payload maps into one event-detail map.
+ * Normalizes signal names and detail maps into one event-detail map.
  *
  * `"saved" | { failed: Error }` becomes
  * `{ saved: null; failed: Error }`.
@@ -282,6 +283,19 @@ type CustomEventsWildcardEvent<Events extends EventDetails> =
   | CustomEventsEventMap<Events>[CustomEventsEventType<Events>]
   | (CustomEvent<unknown> & { readonly type: string })
 
+/**
+ * The descriptor's root event: `events.root` matches every descriptor event
+ * and reads the whole composite on a remembered descriptor. Invoking it
+ * scopes an element-owned effect to the root event, like the wildcard
+ * `on['*'](listener)`.
+ */
+export type CustomEventsRootSource<
+  Events extends EventDetails,
+  State extends EventDetails,
+> = EventSource<State, 'root', CustomEventsWildcardEvent<Events>> & {
+  readonly [rememberedEventSourceMarker]: true
+}
+
 /** Default `eventSource`-omitted element on an occurrence descriptor: subscribes to every event. */
 type CustomEventsDefaultElementProps<
   Events extends EventDetails,
@@ -325,7 +339,7 @@ type CustomEventsRememberedElementProps<
   false
 >
 
-/** Evented-view on an occurrence source: the input is the payload, `undefined` before a match. */
+/** Evented-view on an occurrence source: the input is the detail, `undefined` before a match. */
 type CustomEventsOccurrenceProps<
   Source,
   Tag extends keyof JSX.IntrinsicElements,
@@ -475,7 +489,7 @@ export type CustomEventsOnFunction<Events extends EventDetails> = {
 
 /**
  * The `events.on` surface: a pure namespace. Every declared event name
- * resolves to a callable source node, and `'*'` is the wildcard effect that
+ * resolves to a callable source, and `'*'` is the wildcard effect that
  * runs for every descriptor event. Invoking a node with a listener scopes an
  * effect to its source.
  */
@@ -505,12 +519,17 @@ export type CustomEventsDescriptor<
     on: CustomEventsOnNamespace<Events, State>
     /** Registers an element host (mixin) or a domain `EventTarget` (bridge). */
     asHost: CustomEventsAsHost<Events, State>
-  }
+    /** The root event source: matches every descriptor event and reads the composite. */
+  } & ([State] extends [never] ? {} : { root: CustomEventsRootSource<Events, State> })
 
-/** How a declared effect event folds into the remembered composite. */
+/**
+ * How a declared fold event folds into the root event: the first parameter
+ * is the fold event's own detail, the second the root composite as an
+ * Immer draft.
+ */
 export type RememberedFold<Held extends EventDetails, Detail = unknown> = (
-  draft: Draft<Held>,
   detail: Detail,
+  root: Draft<Held>,
 ) => void
 
 /**
@@ -518,9 +537,23 @@ export type RememberedFold<Held extends EventDetails, Detail = unknown> = (
  * Folds may narrow their detail parameter; the contextual type is `any` so
  * both annotated and unannotated folds assign.
  */
+/**
+ * Everything that may appear in a remembered declaration: the `root`
+ * composite (Details) or a fold recipe (RememberedFold). Unioning the detail
+ * shape into the index signature lets the `root` key coexist with it.
+ */
 export type RememberedFolds<Held extends EventDetails> = {
-  readonly [Name: string]: RememberedFold<Held, any>
+  readonly [Name: string]: RememberedFold<Held, any> | EventDetails
 }
+
+/**
+ * A remembered declaration: the reserved `root` key holds the initial
+ * composite, and every other key declares a fold event for its name. Kept as
+ * a plain intersection so `Folds` infers from the argument.
+ */
+export type RememberedDeclaration<Details extends RememberedDetails, Folds> = {
+  root: Details
+} & Folds
 
 /**
  * Initial details of a remembered descriptor: data values keyed by event
@@ -532,8 +565,8 @@ export type RememberedDetails = EventDetails & {
 }
 
 type RememberedFoldDetail<Folds, Name extends keyof Folds & string> = Folds[Name] extends (
-  draft: any,
   detail: infer Detail,
+  root: any,
 ) => any
   ? Detail
   : unknown
@@ -547,45 +580,25 @@ export type RememberedEventsMap<
 }
 
 /**
- * The write input of a remembered descriptor: an event-named object of details
- * (remembered keys replace their slice, fold events fold it in, undeclared
- * names fire occurrences) or a bare name for a detail-less occurrence.
- * Multi-entry transactions build a carrier with `events.create({...})` and
- * dispatch it on a native target.
+ * Runs a mounted-element effect for every descriptor event, including implicit
+ * occurrences. Over `EventDetails` the declared-event union collapses to any
+ * event, which is exactly the remembered wildcard surface.
  */
-export type RememberedEventInput<Details extends EventDetails> =
-  | string
-  | (Partial<Details> & Record<string, unknown>)
-
-/** Dispatches remembered events on the descriptor itself. */
-export type RememberedDispatchEvent<Details extends EventDetails> = {
-  (event: Event): boolean
-  (input: RememberedEventInput<Details>, init?: CustomEventInit): Promise<void>
-}
-
-/** Runs a mounted-element effect for every descriptor event, including implicit occurrences. */
-export type RememberedOnFunction = {
-  <HostElement extends Element = Element>(
-    listener: (
-      event: CustomEvent<unknown> & { readonly type: string; readonly currentTarget: HostElement },
-    ) => void | Promise<unknown>,
-  ): MixinDescriptor<HostElement, any>
-}
-
-/** Remembered descriptor core: the root event, fold sub-sources, and write verbs. */
-export type RememberedDescriptorBase<
-  Events extends EventDetails,
-  Details extends EventDetails,
-> = CustomEventsBuilder<Events> & {
-  dispatchEvent: CustomEventsDispatchEvent<Events> & RememberedDispatchEvent<Details>
-  on: { readonly '*': RememberedOnFunction } & CustomEventsOnNamespace<Events, Immutable<Details>>
-} & CustomEventsDescriptor<Events, Immutable<Details>>
+export type RememberedOnFunction = CustomEventsOnFunction<EventDetails>
 
 /**
- * A remembered descriptor: the root composite event (`eventSource={events}`)
- * whose detail folds in every remembered detail and fold event.
+ * A remembered descriptor: the root composite event (`eventSource={events.root}`)
+ * whose detail folds in every remembered detail and fold event. The write
+ * input and builder surface come from `CustomEventsDescriptor` over the
+ * remembered event map; only the wildcard `on['*']` effect is overridden to
+ * tolerate implicit occurrences.
  */
 export type RememberedDescriptor<
   Details extends EventDetails,
   Folds extends RememberedFolds<Details>,
-> = RememberedDescriptorBase<RememberedEventsMap<Details, Folds>, Details>
+> = Omit<CustomEventsDescriptor<RememberedEventsMap<Details, Folds>, Immutable<Details>>, 'on'> & {
+  on: { readonly '*': RememberedOnFunction } & CustomEventsOnNamespace<
+    RememberedEventsMap<Details, Folds>,
+    Immutable<Details>
+  >
+}

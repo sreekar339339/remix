@@ -21,10 +21,10 @@ is a typed `EventTarget`: everything the DOM provides works on it exactly —
 
 The library is organized around these concepts:
 
-- **Remembered descriptor** — `customEvents(details, folds)`: an event
-  declaration whose composite detail both holds its initial details and
-  folds in declared fold events. The descriptor carries native
-  `EventTarget` listeners.
+- **Remembered descriptor** — `customEvents({ root: { ... }, folds })`: a
+  declaration whose composite detail both holds its initial details (under the
+  reserved `root` key) and folds in declared fold events. The descriptor
+  carries native `EventTarget` listeners.
 - **Occurrence descriptor** — `customEvents<Definition>()`: a typed
   vocabulary of transient events with no remembered detail.
 - **Event source** — a typed, addressable subscription handle for one event.
@@ -65,41 +65,45 @@ creation). Details are expressed by the object grammar — see
 
 ## Public API
 
-### Remembered descriptors — `customEvents(details, folds)`
+### Remembered descriptors — `customEvents({ root: { ... }, folds })`
 
-The first argument is the composite's **initial details**: data values keyed
-by event name. The second maps **fold events** — how an event folds into the
-composite — as mutable Immer recipes:
+A single object declares the descriptor: the reserved `root` key holds the
+composite's **initial details** — data values keyed by event name — and every
+other key declares a **fold event**: how an event folds into the composite, as
+a mutable Immer recipe:
 
 ```ts
-let events = customEvents(
-  { count: 0, label: 'idle' },
-  {
-    increment: (draft, offset: number) => {
-      draft.count += offset
-    },
+let events = customEvents({
+  root: { count: 0, label: 'idle' },
+  increment: (offset: number, root) => {
+    root.count += offset
   },
-)
+})
 ```
 
-The descriptor is the root composite event: `eventSource={events}` re-reads
-the whole detail on every matched event. Every detail and fold event is
-exposed as a typed source. The descriptor carries native listeners, so native
-`addEventListener` works directly on the events object.
+The `root` key is typed by hand — its keys are user-defined, so editors cannot
+suggest them — and everything else infers from it: the fold recipe's `detail`
+and `root` parameters, the `on.<name>` sources, and `dispatchEvent` inputs.
+
+The descriptor is the root composite event: `eventSource={events}` (or the
+named `events.root` source) re-reads the whole detail on every matched event.
+Every detail and fold event is exposed as a typed source. The descriptor
+carries native listeners, so native `addEventListener` works directly on the
+events object.
 
 ### The mental model
 
 A remembered descriptor is one event — the root composite — whose detail is
-the entire model. The first argument is that event's **initial detail**: each
-key is simultaneously one slice of the composite and its own event name.
-`events.on.count` reads the slice; dispatching `{ count: 5 }` fires a real
-`count` event whose detail is `5`, folding the slice in as the new value (the
-implicit "replace itself" fold).
+the entire model. The `root` key declares that event's **initial detail**: each
+key inside it is simultaneously one slice of the composite and its own event
+name. `events.on.count` reads the slice; dispatching `{ count: 5 }` fires a
+real `count` event whose detail is `5`, folding the slice in as the new value
+(the implicit "replace itself" fold).
 
-The second argument declares additional events in recipe form. A fold maps an
-event name to `(draft, detail) => void`: the first parameter is the root
-event's detail as a mutable Immer draft, and the second is that fold event's
-own detail. Running the recipe mutates the draft; the resulting patches
+Every other declared key is an additional event in recipe form. A fold maps an
+event name to `(detail, root) => void`: the first parameter is that fold
+event's own detail, and the second is the root event's detail as a mutable
+Immer draft. Running the recipe mutates the draft; the resulting patches
 become the fold's routing addresses.
 
 Every name that is neither a detail nor a fold event is a transient
@@ -113,8 +117,9 @@ A typed vocabulary of transient events with no remembered detail:
 const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
 ```
 
-Reserved names cannot be events: `create`, `on`, `asHost`, `dispatchEvent`,
-`addEventListener`, `removeEventListener`, and native DOM event names.
+Reserved names cannot be events: `root`, `create`, `on`, `asHost`,
+`dispatchEvent`, `addEventListener`, `removeEventListener`, and native DOM
+event names.
 
 ### Building events — `events.create`
 
@@ -203,7 +208,7 @@ Evented-view props:
 | ------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `dispatchEvent`                            | `dispatchEvent(event)` / `dispatchEvent(input, init?)`    | Fires a native event (boolean) or dispatches an event-named input on the descriptor (Promise). |
 | `create`                                   | `create('name', init?)` / `create({ a: 1, b: 2 }, init?)` | Builds a fresh event (or transaction carrier) for any target.                                  |
-| `on`                                       | `on['*'](listener)` / `on.<source>(listener)`             | The `'*'` node runs a wildcard effect; source nodes scope effects to one event.                |
+| `on`                                       | `on['*'](listener)` / `on.<source>(listener)`             | The `'*'` node runs a wildcard effect; sources scope effects to one event.                     |
 | `asHost`                                   | `asHost()` / `asHost(target)`                             | Element host (mixin) or domain `EventTarget` bridge.                                           |
 | `addEventListener` / `removeEventListener` | native                                                    | Native listeners on the descriptor.                                                            |
 
@@ -222,7 +227,7 @@ element.dispatchEvent(events.create({ countDrafted: 2 })) // hosted elements
 
 ## Event maps
 
-A payload map declares detailed events; a string union declares detail-less
+A detail map declares detailed events; a string union declares detail-less
 occurrences:
 
 ```ts
@@ -247,21 +252,19 @@ Initial details hold their value until replaced; fold events mutate an Immer
 draft of the composite:
 
 ```ts
-let events = customEvents({ count: 0 })
+let events = customEvents({ root: { count: 0 } })
 
 await events.dispatchEvent({ count: 5 }) // replaces the count detail
 ```
 
 ```ts
-let events = customEvents(
-  { columns: new Map() },
-  {
-    toggleUrgency: (draft, { columnId, cardId }) => {
-      let card = draft.columns.get(columnId)?.cards.get(cardId)
-      if (card) card.urgent = !card.urgent
-    },
+let events = customEvents({
+  root: { columns: new Map() },
+  toggleUrgency: ({ columnId, cardId }, root) => {
+    let card = root.columns.get(columnId)?.cards.get(cardId)
+    if (card) card.urgent = !card.urgent
   },
-)
+})
 ```
 
 Fold recipes must be synchronous and return no value. A no-op fold emits
@@ -269,10 +272,11 @@ nothing but its own event. Immer patches drive the routing: keyed writes keep
 per-item granularity, scalar writes route by owner identity, and deep
 mutations reach exactly the affected addresses.
 
-**Reads are views only**: subscribe `eventSource={events}` for the whole
-composite or `eventSource={events.on.<detail>}` for one remembered value.
-Handlers live inside a root view's render closure where the detail is in
-scope; timers and async work dispatch pure events that fold events interpret.
+**Reads are views only**: subscribe `eventSource={events}` (or the named
+`events.root` source) for the whole composite or
+`eventSource={events.on.<detail>}` for one remembered value. Handlers live
+inside a root view's render closure where the detail is in scope; timers and
+async work dispatch pure events that fold events interpret.
 
 ## Consumption patterns
 
@@ -325,8 +329,10 @@ edits re-render exactly the touched item.
 
 ### Whole-model wildcard view
 
-Pass the descriptor itself to `eventSource` to subscribe to every event. The
-first argument is always the whole composite; the matched event is the second:
+Pass the descriptor itself to `eventSource` to subscribe to every event; the
+named `events.root` source is the same root subscription with an explicit
+handle. The first argument is always the whole composite; the matched event
+is the second:
 
 ```tsx
 <evented.output eventSource={events}>
@@ -366,7 +372,7 @@ source, not the matched occurrence.
 ### Element-owned effects
 
 `events.on` is a namespace: `events.on['*'](listener)` runs for every
-descriptor event, while calling a source node with a listener scopes the
+descriptor event, while calling a source with a listener scopes the
 effect to that source. Both create a Remix mixin that lives only while its
 host element is mounted:
 

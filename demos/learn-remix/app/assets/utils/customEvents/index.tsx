@@ -4,7 +4,6 @@ import {
   enableMapSet,
   enablePatches,
   freeze,
-  type Immutable,
   type Patch,
   produceWithPatches,
 } from 'immer'
@@ -19,10 +18,11 @@ import type {
   CustomEventsEventMap,
   EventDetails,
   NormalizeCustomEventsDefinition,
+  RememberedDeclaration,
   RememberedDescriptor,
-  RememberedDescriptorBase,
-  RememberedFolds,
   RememberedDetails,
+  RememberedFold,
+  RememberedFolds,
 } from './types.ts'
 export type { CustomEventsEventMap } from './types.ts'
 
@@ -44,61 +44,69 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
   ...args: CustomEventsFactoryArgs<Definition>
 ): CustomEventsDescriptor<NormalizeCustomEventsDefinition<Definition>>
 /**
- * Creates a remembered descriptor: a root composite event whose detail folds in
- * every remembered detail and fold event declared here.
+ * Creates a remembered descriptor: the `root` key declares the root event's
+ * initial composite, and every other key declares a fold event that folds its
+ * detail into the root (`(detail, root) => void`).
  *
- * `customEvents({ count: 0, label: 'idle' }, { inc: (draft, n) => { draft.count += n } })`
+ * `customEvents({ root: { count: 0, label: 'idle' }, inc: (detail, root) => { root.count += detail } })`
+ *
+ * Type the `root` key by hand: the composite's keys are user-defined, so
+ * completion cannot suggest them (TypeScript cannot complete properties of an
+ * argument that infers its own generic). Everything else — fold details and
+ * drafts, `on.<name>` sources, and `dispatchEvent` inputs — infers from it.
  */
-export function customEvents<Details extends RememberedDetails>(
-  details: Details,
-): RememberedDescriptorBase<Immutable<Details>, Details>
 export function customEvents<
   Details extends RememberedDetails,
   Folds extends RememberedFolds<Details>,
->(details: Details, folds: Folds): RememberedDescriptor<Details, Folds>
-export function customEvents(first?: unknown, foldsArg?: unknown): unknown {
-  if (isRememberedDeclaration(first)) {
-    return createRemembered(first, foldsArg as RememberedFolds<EventDetails> | undefined)
+>(declaration: { root: Details } & Folds): RememberedDescriptor<Details, Omit<Folds, 'root'>>
+export function customEvents(declaration?: unknown): unknown {
+  if (isRememberedDeclaration(declaration)) {
+    return createRemembered(declaration)
   }
   return createCustomEventsDescriptor()
 }
 
-function isRememberedDeclaration(value: unknown): value is EventDetails {
+function isRememberedDeclaration(value: unknown): value is { root: EventDetails } & {
+  readonly [Name: string]: RememberedFold<EventDetails, any>
+} {
   return (
     value !== null &&
     typeof value === 'object' &&
     !Array.isArray(value) &&
-    Object.keys(value).length > 0
+    Object.hasOwn(value, 'root')
   )
 }
 
-const rememberedDetailNames = new Set<string>(reservedCustomEventsNames)
+type RememberedFoldFn<Held extends EventDetails> = (detail: unknown, root: Draft<Held>) => void
 
-type RememberedFoldFn<Held extends EventDetails> = (draft: Draft<Held>, detail: unknown) => void
-
-/** Creates a remembered descriptor from initial details and declared fold events. */
-function createRemembered<Details extends EventDetails, Folds extends RememberedFolds<Details>>(
-  details: Details,
-  folds?: Folds,
-): RememberedDescriptor<Details, Folds> {
-  for (let name of Object.keys(details)) {
-    if (name === '*' || rememberedDetailNames.has(name)) {
+/** Creates a remembered descriptor from a root event declaration and fold events. */
+function createRemembered<
+  Details extends RememberedDetails,
+  Folds extends RememberedFolds<Details>,
+>(declaration: { root: Details } & Folds): RememberedDescriptor<Details, Omit<Folds, 'root'>> {
+  let { root, ...folds } = declaration
+  if (root === null || typeof root !== 'object' || Array.isArray(root)) {
+    throw new TypeError('customEvents root must be an object of remembered details.')
+  }
+  for (let name of Object.keys(root)) {
+    if (name === '*' || (reservedCustomEventsNames as readonly string[]).includes(name)) {
       throw new TypeError(`customEvents reserves the detail name "${name}".`)
     }
   }
-  let snapshot = freeze(details, true) as EventDetails
+  let snapshot = freeze(root, true) as EventDetails
   let foldFns = new Map<string, RememberedFoldFn<Details>>()
-  if (folds !== undefined) {
-    for (let [name, fold] of Object.entries(folds)) {
-      foldFns.set(name, fold as RememberedFoldFn<Details>)
+  for (let [name, fold] of Object.entries(folds)) {
+    if (typeof fold !== 'function') {
+      throw new TypeError(`customEvents expects a recipe as the fold for "${name}".`)
     }
+    foldFns.set(name, fold as RememberedFoldFn<Details>)
   }
 
   function foldEntry(type: string, detail: unknown) {
     let foldFn = foldFns.get(type)
     if (foldFn) {
       let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
-        foldFn(draft as Draft<Details>, detail)
+        foldFn(detail, draft as Draft<Details>)
       })
       let entries: CustomEventsRuntimeEntry[] = []
       if (patches.length > 0) {
@@ -132,7 +140,7 @@ function createRemembered<Details extends EventDetails, Folds extends Remembered
     getState: () => snapshot,
     fold: foldEntry,
   })
-  return events as unknown as RememberedDescriptor<Details, Folds>
+  return events as unknown as RememberedDescriptor<Details, Omit<Folds, 'root'>>
 }
 
 function resolvePatchPath(

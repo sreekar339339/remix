@@ -3,18 +3,20 @@ import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTimer() {
-  let events = customEvents(
-    { elapsed: 0, duration: 10 },
-    {
-      tick: (draft, delta: number) => {
-        draft.elapsed = Math.min(draft.duration, draft.elapsed + delta)
-      },
-      setDuration: (draft, duration: number) => {
-        draft.duration = duration
-        draft.elapsed = Math.min(draft.elapsed, duration)
-      },
+  let events = customEvents({
+    root: {
+      elapsed: 0,
+      duration: 10,
     },
-  )
+
+    tick: (delta: number, root) => {
+      root.elapsed = Math.min(root.duration, root.elapsed + delta)
+    },
+    setDuration: (duration: number, root) => {
+      root.duration = duration
+      root.elapsed = Math.min(root.elapsed, duration)
+    },
+  })
   return () => (
     <section
       mix={[

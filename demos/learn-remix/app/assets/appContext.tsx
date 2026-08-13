@@ -11,8 +11,10 @@ export type AppContextValue = {
 
 export function createAppContext() {
   return customEvents({
-    user: null as AppContextValue['user'],
-    settings: { layout: 'normal', theme: 'system' },
+    root: {
+      user: null as AppContextValue['user'],
+      settings: { layout: 'normal', theme: 'system' },
+    },
   })
 }
 

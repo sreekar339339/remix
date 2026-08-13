@@ -38,9 +38,11 @@ export const SevenGuisFlightBooker = clientEntry(
   function SevenGuisFlightBooker(handle) {
     let today = new Date().toISOString().slice(0, 10)
     let events = customEvents({
-      kind: 'one-way flight' as FlightKind,
-      startDate: today,
-      returnDate: today,
+      root: {
+        kind: 'one-way flight' as FlightKind,
+        startDate: today,
+        returnDate: today,
+      },
     })
     let confirmedFlight: Flight | null = null
     return () => (
