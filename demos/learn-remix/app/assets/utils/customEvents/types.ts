@@ -79,9 +79,9 @@ export type NormalizeCustomEventsDefinition<Definition extends CustomEventsDefin
 }
 
 /**
- * Options for events created by `customEvents`.
- *
- * These include the standard propagation flags except `cancelable`.
+ * Init options for events created by `customEvents`: the DOM's
+ * `CustomEventInit` minus `detail` and `cancelable`, plus `signal`.
+ * Details are expressed by the object grammar (`create({ name: detail })`).
  * An already-aborted `signal` synchronously throws its abort reason instead
  * of creating an event.
  */

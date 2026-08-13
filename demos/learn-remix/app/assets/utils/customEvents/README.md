@@ -1,18 +1,32 @@
 # Custom events
 
-`customEvents` combines native `CustomEvent`/`EventTarget`, Immer-backed model
-folds, addressable event sources, and Remix element lifecycles. It exists to
-update an existing DOM view at the narrowest affected model address without
-splitting every repeated element into a component with its own state and
-`handle.update()` ceremony.
+`customEvents` is an enhancement on top of the DOM Events API. A descriptor
+is a typed `EventTarget`: everything the DOM provides works on it exactly —
+`addEventListener`/`removeEventListener`, `dispatchEvent(event)` returning a
+`boolean`, and `CustomEvent` instances with `type`, `detail`, `target`, and
+`currentTarget`. On top of that foundation the library adds:
+
+- **Shorthand inputs** — `dispatchEvent('name')` and
+  `dispatchEvent({ name: detail, ... })` build and dispatch `CustomEvent`s
+  for you; the object form commits several events atomically.
+- **Typed vocabulary** — declared event names with per-event detail types,
+  checked at compile time.
+- **Remembered detail** — a descriptor can own a live composite detail (the
+  model); dispatching an event folds a new value into it.
+- **Addressable subscriptions** — `events.on.<name>` sources subscribe
+  narrow consumers to one event and re-render exactly the affected
+  addresses.
+- **Element lifecycles** — Remix mixins (`eventSource`, `on`, `asHost`) wire
+  subscriptions and effects to mounted elements.
 
 The library is organized around these concepts:
 
-- **Remembered descriptor** — `customEvents(seeds, folds)`: an event
-  declaration whose root event's detail folds in every remembered seed and
-  fold event. The descriptor carries native `EventTarget` listeners.
+- **Remembered descriptor** — `customEvents(details, folds)`: an event
+  declaration whose composite detail both holds its initial details and
+  folds in declared fold events. The descriptor carries native
+  `EventTarget` listeners.
 - **Occurrence descriptor** — `customEvents<Definition>()`: a typed
-  vocabulary of transient events with no remembered model.
+  vocabulary of transient events with no remembered detail.
 - **Event source** — a typed, addressable subscription handle for one event.
 - **Evented-view** — an intrinsic element (`evented.<tag>`) that subscribes
   to sources through the `eventSource` host prop and re-renders from matched
@@ -29,13 +43,33 @@ namespace, shared by every descriptor. Keeping these namespaces separate means
 domain events may safely be named `output`, `form`, `name`, `length`, or any
 other intrinsic/function name.
 
+## The DOM foundation
+
+A descriptor is an `EventTarget`, and `create` mirrors the `CustomEvent`
+constructor. The dispatch shorthand is the same DOM operation with the
+constructor step elided:
+
+| DOM                                                             | customEvents                                       |
+| --------------------------------------------------------------- | -------------------------------------------------- |
+| `new CustomEvent('count')`                                      | `events.create('count')`                           |
+| `new CustomEvent('count', { detail: 5 })`                       | `events.create({ count: 5 })`                      |
+| `target.dispatchEvent(event)` → `boolean`                       | `events.dispatchEvent(event)` → `boolean`          |
+| `target.dispatchEvent(new CustomEvent('count'))`                | `events.dispatchEvent('count')` → `Promise`        |
+| `target.dispatchEvent(new CustomEvent('count', { detail: 5 }))` | `events.dispatchEvent({ count: 5 })` → `Promise`   |
+| `target.addEventListener('count', fn, { signal })`              | `events.addEventListener('count', fn, { signal })` |
+
+The init dict is the DOM's `CustomEventInit` minus `detail` and `cancelable`,
+plus `signal` (an already-aborted `signal` throws its abort reason at event
+creation). Details are expressed by the object grammar — see
+[Building events](#building-events--eventscreate).
+
 ## Public API
 
-### Remembered descriptors — `customEvents(seeds, folds)`
+### Remembered descriptors — `customEvents(details, folds)`
 
-The first argument is the model's **initial details**: data values keyed by
-event name. The second maps **fold events** — how an event folds into the
-model — as mutable Immer recipes:
+The first argument is the composite's **initial details**: data values keyed
+by event name. The second maps **fold events** — how an event folds into the
+composite — as mutable Immer recipes:
 
 ```ts
 let events = customEvents(
@@ -49,13 +83,31 @@ let events = customEvents(
 ```
 
 The descriptor is the root composite event: `eventSource={events}` re-reads
-the whole detail on every matched event. Every seed and fold event is exposed
-as a typed source. The descriptor carries native listeners, so native
+the whole detail on every matched event. Every detail and fold event is
+exposed as a typed source. The descriptor carries native listeners, so native
 `addEventListener` works directly on the events object.
+
+### The mental model
+
+A remembered descriptor is one event — the root composite — whose detail is
+the entire model. The first argument is that event's **initial detail**: each
+key is simultaneously one slice of the composite and its own event name.
+`events.on.count` reads the slice; dispatching `{ count: 5 }` fires a real
+`count` event whose detail is `5`, folding the slice in as the new value (the
+implicit "replace itself" fold).
+
+The second argument declares additional events in recipe form. A fold maps an
+event name to `(draft, detail) => void`: the first parameter is the root
+event's detail as a mutable Immer draft, and the second is that fold event's
+own detail. Running the recipe mutates the draft; the resulting patches
+become the fold's routing addresses.
+
+Every name that is neither a detail nor a fold event is a transient
+occurrence: it fires its event and forgets it.
 
 ### Occurrence descriptors — `customEvents<Definition>()`
 
-A typed vocabulary of transient events with no remembered model:
+A typed vocabulary of transient events with no remembered detail:
 
 ```ts
 const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
@@ -66,11 +118,13 @@ Reserved names cannot be events: `create`, `on`, `asHost`, `dispatchEvent`,
 
 ### Building events — `events.create`
 
-The `create` builder makes a fresh event for any target. A bare name builds a
-detail-less event; an object of event-named details builds a single event (one
-entry) or an atomic transaction carrier (several). The descriptor also carries
-native `EventTarget` listeners, so consumption works directly on the events
-object:
+`create` is the typed `CustomEvent` constructor. The second argument is a
+`CustomEventInit`: the DOM init dict (`bubbles`, `composed`) plus `signal`,
+and deliberately no `detail` or `cancelable`. A bare name builds a
+detail-less event; an object of event-named details builds a single event
+(one entry) or an atomic transaction carrier (several). The descriptor also
+carries native `EventTarget` listeners, so consumption works directly on the
+events object:
 
 ```ts
 events.addEventListener('count', (event) => console.log(event.detail))
@@ -79,10 +133,8 @@ element.dispatchEvent(events.create({ countDrafted: 2 })) // hosted elements
 element.dispatchEvent(events.create('bookingConfirmed')) // a detail-less event
 ```
 
-`create` always takes `CustomEventsInit` (propagation flags, `signal`) as its
-second argument: `init` only on `create('name', init?)`, and
-`create({ countDrafted: 2 }, init?)`. An already-aborted `signal` throws its
-abort reason when the event is created.
+An already-aborted `signal` throws its abort reason when the event is
+created.
 
 `asHost()` registers an element host as a mixin; `asHost(target)` bridges the
 descriptor's dispatch channel onto an external `EventTarget`:
@@ -188,15 +240,16 @@ const flightEvents = customEvents<FlightEvents>()
 Native DOM event names are rejected. Custom events describe completed facts,
 so they are deliberately non-cancelable.
 
-## Remembered state
+## Remembered details
 
-A remembered descriptor folds every dispatch into its detail. Remembered
-seeds hold their value; fold events mutate an Immer draft of the composite:
+A remembered descriptor folds every dispatch into its composite detail.
+Initial details hold their value until replaced; fold events mutate an Immer
+draft of the composite:
 
 ```ts
 let events = customEvents({ count: 0 })
 
-await events.dispatchEvent({ count: 5 }) // the count fold: replace itself
+await events.dispatchEvent({ count: 5 }) // replaces the count detail
 ```
 
 ```ts
@@ -217,9 +270,9 @@ per-item granularity, scalar writes route by owner identity, and deep
 mutations reach exactly the affected addresses.
 
 **Reads are views only**: subscribe `eventSource={events}` for the whole
-composite or `eventSource={events.on.<seed>}` for one remembered value. Handlers
-live inside a root view's render closure where the detail is in scope; timers
-and async work dispatch pure events that fold events interpret.
+composite or `eventSource={events.on.<detail>}` for one remembered value.
+Handlers live inside a root view's render closure where the detail is in
+scope; timers and async work dispatch pure events that fold events interpret.
 
 ## Consumption patterns
 
@@ -288,8 +341,8 @@ first argument is always the whole composite; the matched event is the second:
 ### Occurrence vocabulary
 
 Occurrences are transient events with no remembered slice — any name that is
-neither a seed nor a fold event. Subscribe a wildcard view to a descriptor to
-see them all:
+neither a detail nor a fold event. Subscribe a wildcard view to a descriptor
+to see them all:
 
 ```tsx
 <evented.div eventSource={searchEvents} initial={initialEvent}>
@@ -370,6 +423,33 @@ A write to a remembered scalar is addressed to the losing and gaining owners
 by value; untouched siblings do not re-render. An `.as(id)` view receives the
 boolean whether the scalar currently equals `id`; an `.as(id)` effect receives
 the scalar value in `event.detail`.
+
+## Differences from DOM
+
+The DOM foundation is exact; the enhancement layer deliberately deviates
+where DOM semantics do not apply:
+
+- **No cancelable events.** Custom events describe completed facts, so
+  `cancelable`/`preventDefault` are rejected at runtime and the init type
+  omits them.
+- **No `detail` in the init dict.** DOM's `CustomEventInit` carries `detail`;
+  here details live in the object grammar (`create({ name: detail })`), so a
+  bare name always builds a detail-less event.
+- **`bubbles` defaults to `true`.** The DOM defaults to `false`; here the
+  default lets a descriptor dispatch reach every subscription in its default
+  host scope.
+- **Logical routing, not DOM-tree propagation.** Dispatched events do not
+  travel the document tree; the runtime routes them by event type, address
+  path (Immer patches), and host scope to subscribed views and effects.
+- **Shorthand dispatch settles asynchronously.** The input form of
+  `dispatchEvent` returns a `Promise` that resolves after matching views
+  re-render and effects settle; a native `Event` argument still returns the
+  DOM's synchronous `boolean`.
+- **Descriptor isolation.** Events created by one descriptor are ignored by
+  every other descriptor, even under the same raw name.
+- **Live composite detail.** A remembered descriptor's composite detail is
+  current and readable through sources; a DOM `CustomEvent.detail` is a
+  one-shot snapshot.
 
 ## Sequencing
 
