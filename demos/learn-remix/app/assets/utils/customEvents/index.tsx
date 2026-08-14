@@ -150,19 +150,25 @@ function createRemembered<
           throw new TypeError(`customEvents reserves the detail name "${name}".`)
         }
       }
-      let patches: Patch[] = []
+      let entries: CustomEventsRuntimeEntry[] = []
       for (let key of Object.keys(next)) {
-        if (!Object.is(live[key], next[key])) {
-          patches.push({ op: 'replace', path: [key], value: next[key] })
+        let previous = live[key]
+        if (!Object.is(previous, next[key])) {
+          entries.push(detailEntry(key, previous, next[key]))
+          live[key] = next[key]
         }
       }
       for (let key of Object.keys(live)) {
         if (!Object.hasOwn(next, key)) {
-          patches.push({ op: 'remove', path: [key] })
+          let previous = live[key]
+          delete live[key]
+          entries.push(
+            previous instanceof Set
+              ? { type: key, detail: undefined, addresses: [[]] }
+              : detailEntry(key, previous, undefined),
+          )
         }
       }
-      let entries = entriesFromPatches(live, next, patches)
-      mirrorKeys(live, next, patches)
       return entries
     }
 
@@ -174,7 +180,7 @@ function createRemembered<
       let entries: CustomEventsRuntimeEntry[] = []
       if (patches.length > 0) {
         entries = entriesFromPatches(live, next, patches)
-        mirrorKeys(live, next, patches)
+        mirrorKeys(live, next, entries)
       }
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
@@ -192,8 +198,7 @@ function createRemembered<
       let previous = live[type]
       if (Object.is(previous, detail)) return []
       live[type] = detail
-      let patches: Patch[] = [{ op: 'replace', path: [type], value: detail }]
-      return entriesFromPatches({ [type]: previous } as EventDetails, live, patches)
+      return [detailEntry(type, previous, detail)]
     }
     return undefined
   }
@@ -206,18 +211,36 @@ function createRemembered<
 }
 
 /**
+ * The runtime entry of a top-level key write, computed directly from the
+ * previous and next values: primitives route by owner identity, Sets by the
+ * new value, and everything else by the whole-key route.
+ */
+function detailEntry(type: string, previous: unknown, detail: unknown): CustomEventsRuntimeEntry {
+  if (isPrimitive(previous) && isPrimitive(detail)) {
+    return {
+      type,
+      detail,
+      addresses: [
+        ...(previous !== undefined && previous !== null ? [ownerAddress(previous)] : []),
+        ...(detail !== undefined && detail !== null ? [ownerAddress(detail)] : []),
+      ],
+    }
+  }
+  if (previous instanceof Set || detail instanceof Set) {
+    return { type, detail, addresses: [ownerAddress(detail)] }
+  }
+  return { type, detail, addresses: [[]] }
+}
+
+/**
  * Mirrors the folded keys onto the live composite at the top level, so the
- * seed object a caller holds reads the current model. Keys the patches did
- * not touch keep their references (Immer shares untouched subtrees), so the
+ * seed object a caller holds reads the current model. Keys without entries
+ * keep their references (Immer shares untouched subtrees), so the
  * assignments are no-ops except for the folded keys.
  */
-function mirrorKeys(live: EventDetails, next: EventDetails, patches: Patch[]) {
-  let touched = new Set<string>()
-  for (let patch of patches) {
-    let key = patch.path[0]
-    if (typeof key === 'string') touched.add(key)
-  }
-  for (let key of touched) {
+function mirrorKeys(live: EventDetails, next: EventDetails, entries: CustomEventsRuntimeEntry[]) {
+  for (let entry of entries) {
+    let key = entry.type
     if (Object.hasOwn(next, key)) live[key] = next[key]
     else delete live[key]
   }

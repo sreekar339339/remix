@@ -65,7 +65,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isCustomEventInit(value: unknown): value is CustomEventInit {
-  return isRecord(value) && Object.keys(value).every((key) => customEventInitKeys.has(key))
+  if (!isRecord(value)) return false
+  for (let key in value) {
+    if (Object.hasOwn(value, key) && !customEventInitKeys.has(key)) return false
+  }
+  return true
 }
 
 function getEventInit(init: CustomEventInit | undefined): EventInit {
@@ -186,23 +190,33 @@ export function createCustomEventsDescriptor<
 
     if (isRecord(typeOrEvents)) {
       let init = args.length >= 2 ? (detailOrInit as CustomEventInit | undefined) : undefined
-      let entries: CustomEventsRuntimeEntry[] = []
-      for (let [type, detail] of Object.entries(typeOrEvents)) {
-        entries.push(...resolveEntry(type, detail, init))
-      }
       // A single resolved entry builds the event under its own name (like the
       // string form); several entries commit as one transaction carrier.
-      if (entries.length === 1) {
-        let entry = entries[0]!
-        return customEventsRuntime.createProductEvent(
-          getRuntime(),
-          entry.type,
-          entry.detail,
-          getEventInit(init),
-          entries,
-        )
+      let product = (entries: CustomEventsRuntimeEntry[]) => {
+        if (entries.length === 1) {
+          let entry = entries[0]!
+          return customEventsRuntime.createProductEvent(
+            getRuntime(),
+            entry.type,
+            entry.detail,
+            getEventInit(init),
+            entries,
+          )
+        }
+        return createTransaction(entries, init)
       }
-      return createTransaction(entries, init)
+      let keys = Object.keys(typeOrEvents)
+      if (keys.length === 1) {
+        // A single-key object dispatches its one event without allocating an
+        // entries array or Object.entries pairs.
+        let type = keys[0]!
+        return product(resolveEntry(type, typeOrEvents[type], init))
+      }
+      let entries: CustomEventsRuntimeEntry[] = []
+      for (let key of keys) {
+        entries.push(...resolveEntry(key, typeOrEvents[key]!, init))
+      }
+      return product(entries)
     }
 
     throw new TypeError('customEvents create expects an event name or an object of details.')
@@ -230,7 +244,7 @@ export function createCustomEventsDescriptor<
     if (first instanceof Event) {
       return EventTarget.prototype.dispatchEvent.call(base, first)
     }
-    let event = create(first, ...(args.slice(1) as [unknown?])) as Event
+    let event = (args.length > 1 ? create(first, args[1]) : create(first)) as Event
     let target = customEventsRuntime.defaultHost(getRuntime())
     if (target === undefined) {
       throw new TypeError('customEvents dispatchEvent requires a registered host.')

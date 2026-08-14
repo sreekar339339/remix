@@ -31,11 +31,27 @@ export type CustomEventsRuntimeEntry = {
   addresses?: readonly EventAddress[]
 }
 
-type ProductEventMetadata = {
-  entries: CustomEventsRuntimeEntry[]
-  completion?: Promise<void>
+/**
+ * A dispatched product event: the carrier and its metadata are one object, so
+ * the runtime never looks product events up in a side table.
+ */
+class ProductEvent extends CustomEvent<unknown> {
+  readonly entries: CustomEventsRuntimeEntry[]
   /** Transaction carriers do not natively deliver their entry types. */
-  transaction?: boolean
+  readonly transaction: boolean
+  completion?: Promise<void>
+
+  constructor(type: string, init: EventInit, detail: unknown, entries: CustomEventsRuntimeEntry[]) {
+    super(type, init)
+    // CustomEvent stores null for an omitted detail; keep the dispatched
+    // value observable exactly as given.
+    Object.defineProperty(this, 'detail', {
+      configurable: true,
+      value: detail,
+    })
+    this.entries = entries
+    this.transaction = entries.length !== 1 || entries[0]?.type !== type
+  }
 }
 
 export type EventAddress = readonly unknown[]
@@ -212,7 +228,6 @@ export function createCurrentTargetEvent(event: CustomEvent, currentTarget: Even
 export type CustomEventsRuntimeState = {
   eventTypes: Set<string>
   eventTypeListeners: Set<(type: string) => void>
-  eventMetadata: WeakMap<Event, ProductEventMetadata>
   subscriptions: SubscriptionIndex
   dispatchTargets: WeakMap<EventTarget, DispatchTargetRegistration>
   hosts: WeakMap<Element, number>
@@ -228,7 +243,6 @@ export function createCustomEventsRuntimeState(): CustomEventsRuntimeState {
   return {
     eventTypes: new Set(),
     eventTypeListeners: new Set(),
-    eventMetadata: new WeakMap(),
     subscriptions: {
       view: new Map(),
       effect: new Map(),
@@ -255,20 +269,15 @@ function createProductEvent(
 ) {
   addEventType(runtime, carrierType)
   for (let { type } of entries) addEventType(runtime, type)
-  let event = new CustomEvent(carrierType, { ...init, detail })
-  if (detail === undefined) setEventProperty(event, 'detail', undefined)
-  runtime.eventMetadata.set(event, {
-    entries,
-    transaction: entries.length !== 1 || entries[0]?.type !== carrierType,
-  })
-  return event
+  return new ProductEvent(carrierType, init, detail, entries)
 }
 
-function dispatch(runtime: CustomEventsRuntimeState, target: EventTarget, event: Event) {
-  let metadata = runtime.eventMetadata.get(event)
+const RESOLVED = Promise.resolve()
+
+function dispatch(_runtime: CustomEventsRuntimeState, target: EventTarget, event: Event) {
   // Bypass the descriptor's own dispatchEvent override to avoid recursion.
   EventTarget.prototype.dispatchEvent.call(target, event)
-  return metadata?.completion ?? Promise.resolve()
+  return event instanceof ProductEvent ? (event.completion ?? RESOLVED) : RESOLVED
 }
 
 function subscribe(
@@ -412,22 +421,24 @@ function notifyEntries(
   originTarget: EventTarget,
   carrier: CustomEvent,
 ) {
-  let snapshots = new Map<number, CustomEvent>()
+  let snapshots: Array<CustomEvent | undefined> = []
   let snapshotFor = (index: number) => {
-    let event = snapshots.get(index)
+    let event = snapshots[index]
     if (!event) {
       event = createEventSnapshot(entries[index]!, originTarget, carrier)
-      snapshots.set(index, event)
+      snapshots[index] = event
     }
     return event
   }
 
   let matches = new Map<ElementSubscription, number>()
-  for (let index = 0; index < entries.length; index++) {
-    let entry = entries[index]!
-    for (let subscription of matchingSubscriptions(runtime, 'view', entry)) {
-      if (matchesScope(runtime, subscription, carrier, originScope, originTarget)) {
-        matches.set(subscription, index)
+  if (runtime.subscriptions.view.size > 0) {
+    for (let index = 0; index < entries.length; index++) {
+      let entry = entries[index]!
+      for (let subscription of matchingSubscriptions(runtime, 'view', entry)) {
+        if (matchesScope(runtime, subscription, carrier, originScope, originTarget)) {
+          matches.set(subscription, index)
+        }
       }
     }
   }
@@ -437,15 +448,19 @@ function notifyEntries(
   for (let match of matches) {
     ;(match[0].element === originTarget ? source : remaining).push(match)
   }
-  let commit = (selected: typeof source) =>
-    Promise.all(
-      selected.values().map(([subscription, index]) => subscription.notify(snapshotFor(index))),
-    )
+  let commit = (selected: typeof source) => {
+    let results: unknown[] = []
+    for (let [subscription, index] of selected) {
+      results.push(subscription.notify(snapshotFor(index)))
+    }
+    return Promise.all(results)
+  }
   let viewsCommitted = source.length
     ? commit(source).then(() => commit(remaining))
     : commit(remaining)
 
   let viewsAndEffectsSettled = viewsCommitted.then(() => {
+    if (runtime.subscriptions.effect.size === 0) return
     let effectResults: unknown[] = []
     for (let index = 0; index < entries.length; index++) {
       let entry = entries[index]!
@@ -462,19 +477,15 @@ function notifyEntries(
 }
 
 function process(runtime: CustomEventsRuntimeState, event: Event) {
-  if (!(event instanceof CustomEvent)) return
-  let metadata = runtime.eventMetadata.get(event)
-  if (!metadata) return
-  runtime.eventMetadata.delete(event)
-
+  if (!(event instanceof ProductEvent)) return
   let originTarget = event.target
   if (!originTarget) return
   let originHost = isElement(originTarget) ? findHost(runtime, originTarget) : undefined
   if (originHost && event.composed !== true) {
     event.stopPropagation()
   }
-  if (metadata.transaction && originTarget === runtime.defaultHost && runtime.nativeListeners > 0) {
-    for (let entry of metadata.entries) {
+  if (event.transaction && originTarget === runtime.defaultHost && runtime.nativeListeners > 0) {
+    for (let entry of event.entries) {
       EventTarget.prototype.dispatchEvent.call(
         originTarget,
         new CustomEvent(entry.type, {
@@ -490,9 +501,9 @@ function process(runtime: CustomEventsRuntimeState, event: Event) {
   let originScope =
     originHost ?? (isElement(originTarget) ? originTarget : (runtime.defaultHost ?? originTarget))
   try {
-    metadata.completion = notifyEntries(runtime, metadata.entries, originScope, originTarget, event)
+    event.completion = notifyEntries(runtime, event.entries, originScope, originTarget, event)
   } catch (error) {
-    metadata.completion = Promise.reject(error)
+    event.completion = Promise.reject(error)
   }
 }
 
