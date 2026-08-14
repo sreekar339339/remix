@@ -249,11 +249,13 @@ function mirrorKeys(live: EventDetails, next: EventDetails, entries: CustomEvent
 function resolvePatchPath(
   state: EventDetails,
   rootKey: string,
-  segments: readonly unknown[],
+  path: readonly unknown[],
+  offset = 0,
 ): readonly unknown[] | undefined {
   let logicalPath: unknown[] = []
   let value = state[rootKey]
-  for (let segment of segments) {
+  for (let index = offset; index < path.length; index++) {
+    let segment = path[index]!
     if (value instanceof Map) {
       if (!value.has(segment)) return
       let item = value.get(segment)
@@ -292,21 +294,21 @@ function normalizePatches(previousState: EventDetails, nextState: EventDetails, 
   let next = nextState[rootKey]
   let addresses: Array<readonly unknown[]> = []
 
+  let sameAddress = (left: readonly unknown[], right: readonly unknown[]) =>
+    left.length === right.length && left.every((segment, index) => Object.is(segment, right[index]))
+
   let addAddress = (address: readonly unknown[] | undefined) => {
     if (!address) return
-    let duplicate = addresses.some(
-      (candidate) =>
-        candidate.length === address.length &&
-        candidate.every((segment, index) => Object.is(segment, address[index])),
-    )
-    if (!duplicate) {
-      addresses.push(address)
-    }
+    // Adjacent duplicates are the common case (a patch's previous and next
+    // paths coincide), so compare against the last address before scanning.
+    let last = addresses.at(-1)
+    if (last && sameAddress(last, address)) return
+    if (addresses.some((candidate) => sameAddress(candidate, address))) return
+    addresses.push(address)
   }
 
   for (let patch of patches) {
     let addressCount = addresses.length
-    let segments = (patch.path as unknown[]).slice(1)
 
     if (previous instanceof Set || next instanceof Set) {
       if (!Object.hasOwn(patch, 'value')) {
@@ -317,8 +319,8 @@ function normalizePatches(previousState: EventDetails, nextState: EventDetails, 
       continue
     }
 
-    let previousPath = resolvePatchPath(previousState, rootKey, segments)
-    let nextPath = resolvePatchPath(nextState, rootKey, segments)
+    let previousPath = resolvePatchPath(previousState, rootKey, patch.path, 1)
+    let nextPath = resolvePatchPath(nextState, rootKey, patch.path, 1)
 
     addAddress(previousPath)
     addAddress(nextPath)

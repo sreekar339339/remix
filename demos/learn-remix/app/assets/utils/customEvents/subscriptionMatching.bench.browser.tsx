@@ -6,6 +6,42 @@ const subscriptionCount = 5_000
 const dispatchCount = 500
 const targetKey = String(subscriptionCount - 1)
 
+it('benchmarks no-subscriber dispatch', async () => {
+  let runtime = createCustomEventsRuntimeState()
+  let host = document.createElement('section')
+  let origin = document.createElement('button')
+  host.append(origin)
+  let unregisterHost = customEventsRuntime.registerHost(runtime, host)
+  let init = { bubbles: true, cancelable: false }
+
+  let createEvent = () =>
+    customEventsRuntime.createProductEvent(runtime, 'itemUpdated', null, init, [
+      {
+        type: 'itemUpdated',
+        detail: null,
+        addresses: [[targetKey]],
+      },
+    ])
+
+  for (let index = 0; index < 20; index++) {
+    await customEventsRuntime.dispatch(runtime, origin, createEvent())
+  }
+
+  let started = performance.now()
+  for (let index = 0; index < dispatchCount; index++) {
+    await customEventsRuntime.dispatch(runtime, origin, createEvent())
+  }
+  let duration = performance.now() - started
+
+  console.log('[customEvents no-subscriber dispatch]', {
+    dispatches: dispatchCount,
+    durationMs: Number(duration.toFixed(2)),
+    averageDispatchMs: Number((duration / dispatchCount).toFixed(4)),
+  })
+
+  unregisterHost()
+})
+
 it('benchmarks addressed subscription matching', async () => {
   let runtime = createCustomEventsRuntimeState()
   let host = document.createElement('section')
