@@ -33,6 +33,11 @@ import type {
 } from './types.ts'
 
 const CUSTOM_EVENTS_TRANSACTION = '$transaction'
+const DEFAULT_CUSTOM_EVENTS_INIT: EventInit = {
+  bubbles: true,
+  cancelable: false,
+}
+const reservedNames = new Set<string>(reservedCustomEventsNames)
 const customEventInitKeys = new Set(['bubbles', 'composed', 'signal'])
 // Runtime twin of the type-only marker; the source proxy exposes its metadata.
 const eventSourceMetadata = Symbol('eventSource')
@@ -52,7 +57,7 @@ type InternalEntryOptions = CustomEventInit
 type RememberedEventContext = {
   getState(): EventDetails
   /** Folds a dispatched event into the remembered composite; absent for pure descriptors. */
-  fold?(type: string, detail: unknown): readonly CustomEventsRuntimeEntry[] | undefined
+  fold?(type: string, detail: unknown): CustomEventsRuntimeEntry[] | undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,6 +72,7 @@ function getEventInit(init: CustomEventInit | undefined): EventInit {
   if (init && Object.hasOwn(init, 'cancelable')) {
     throw new TypeError('customEvents describe completed facts and cannot be cancelable.')
   }
+  if (init === undefined) return DEFAULT_CUSTOM_EVENTS_INIT
   return {
     bubbles: init?.bubbles ?? true,
     cancelable: false,
@@ -136,7 +142,7 @@ export function createCustomEventsDescriptor<
     }
     // Descriptor API names cannot be events; `root` is the composite event
     // and exists only on remembered descriptors.
-    if (type !== 'root' && (reservedCustomEventsNames as readonly string[]).includes(type)) {
+    if (type !== 'root' && reservedNames.has(type)) {
       throw new TypeError(`customEvents reserves "${type}" for its API.`)
     }
     if (type === 'root' && !state?.fold) {
@@ -144,7 +150,7 @@ export function createCustomEventsDescriptor<
     }
     if (state?.fold) {
       let folded = state.fold(type, detail)
-      if (folded !== undefined) return [...folded]
+      if (folded !== undefined) return folded
     }
     return [{ type, detail }]
   }

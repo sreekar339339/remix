@@ -3,9 +3,9 @@ import {
   type Draft,
   enableMapSet,
   enablePatches,
-  freeze,
   type Patch,
   produceWithPatches,
+  setAutoFreeze,
 } from 'immer'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
 import { canonicalAddressSegment, isPropertyKey, type CustomEventsRuntimeEntry } from './runtime.ts'
@@ -26,8 +26,13 @@ import type {
 } from './types.ts'
 export type { CustomEventsEventMap } from './types.ts'
 
+const reservedNames = new Set<string>(reservedCustomEventsNames)
+
 enablePatches()
 enableMapSet()
+// Produced state stays mutable so the live seed can mirror it without
+// copying; reads are guarded by readonly types instead of runtime freezing.
+setAutoFreeze(false)
 
 /**
  * Event-aware intrinsic elements for any descriptor: `evented.<tag>` resolves
@@ -58,6 +63,11 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
  * name runs the recipe instead of the implicit replace-itself fold, so the
  * recipe owns the update. The detail's slice remains the read surface
  * (`on.<name>` reads its current value); only the write semantics change.
+ *
+ * The object passed as `root` is the live composite: every dispatch folds
+ * into that same object in place, so a held reference reads the current model
+ * (imperative consumers attach native listeners and re-read the seed). Read
+ * values are readonly-typed, so views cannot mutate the model at compile time.
  *
  * Type the `root` key by hand: the composite's keys are user-defined, so
  * completion cannot suggest them (TypeScript cannot complete properties of an
@@ -98,17 +108,25 @@ function createRemembered<
     throw new TypeError('customEvents root must be an object of remembered details.')
   }
   for (let name of Object.keys(root)) {
-    if (name === '*' || (reservedCustomEventsNames as readonly string[]).includes(name)) {
+    if (name === '*' || reservedNames.has(name)) {
       throw new TypeError(`customEvents reserves the detail name "${name}".`)
     }
   }
-  let snapshot = freeze(root, true) as EventDetails
+  if (Object.isFrozen(root)) {
+    throw new TypeError(
+      'customEvents root must not be frozen so dispatches can update it in place.',
+    )
+  }
+  // The seed object is the live composite: every dispatch folds into it and
+  // mirrors its result back at the top level, so a holder of the seed reads
+  // the current model. Reads are guarded by readonly types, not freezing.
+  let live = root as EventDetails
   let foldFns = new Map<string, RememberedFoldFn<Details>>()
   for (let [name, fold] of Object.entries(folds)) {
     if (typeof fold !== 'function') {
       throw new TypeError(`customEvents expects a recipe as the fold for "${name}".`)
     }
-    if ((reservedCustomEventsNames as readonly string[]).includes(name)) {
+    if (reservedNames.has(name)) {
       throw new TypeError(`customEvents reserves "${name}" for its API.`)
     }
     // A recipe with fewer than two parameters declares a transient
@@ -126,31 +144,37 @@ function createRemembered<
       if (detail === null || typeof detail !== 'object' || Array.isArray(detail)) {
         throw new TypeError('customEvents root must be an object of remembered details.')
       }
-      for (let name of Object.keys(detail)) {
-        if (name === '*' || (reservedCustomEventsNames as readonly string[]).includes(name)) {
+      let next = detail as EventDetails
+      for (let name of Object.keys(next)) {
+        if (name === '*' || reservedNames.has(name)) {
           throw new TypeError(`customEvents reserves the detail name "${name}".`)
         }
       }
-      let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
-        for (let key of Object.keys(draft)) {
-          delete (draft as EventDetails)[key]
+      let patches: Patch[] = []
+      for (let key of Object.keys(next)) {
+        if (!Object.is(live[key], next[key])) {
+          patches.push({ op: 'replace', path: [key], value: next[key] })
         }
-        Object.assign(draft, detail)
-      })
-      let entries = entriesFromPatches(snapshot, nextSnapshot, patches)
-      snapshot = nextSnapshot
+      }
+      for (let key of Object.keys(live)) {
+        if (!Object.hasOwn(next, key)) {
+          patches.push({ op: 'remove', path: [key] })
+        }
+      }
+      let entries = entriesFromPatches(live, next, patches)
+      mirrorKeys(live, next, patches)
       return entries
     }
 
     let foldFn = foldFns.get(type)
     if (foldFn) {
-      let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
+      let [next, patches] = produceWithPatches(live, (draft) => {
         foldFn(detail, draft as Draft<Details>)
       })
       let entries: CustomEventsRuntimeEntry[] = []
       if (patches.length > 0) {
-        entries = entriesFromPatches(snapshot, nextSnapshot, patches)
-        snapshot = nextSnapshot
+        entries = entriesFromPatches(live, next, patches)
+        mirrorKeys(live, next, patches)
       }
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
@@ -164,22 +188,39 @@ function createRemembered<
     }
 
     // A detail dispatch is the implicit fold that replaces itself.
-    if (Object.hasOwn(snapshot, type)) {
-      let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
-        ;(draft as EventDetails)[type] = detail
-      })
-      let entries = entriesFromPatches(snapshot, nextSnapshot, patches)
-      snapshot = nextSnapshot
-      return entries
+    if (Object.hasOwn(live, type)) {
+      let previous = live[type]
+      if (Object.is(previous, detail)) return []
+      live[type] = detail
+      let patches: Patch[] = [{ op: 'replace', path: [type], value: detail }]
+      return entriesFromPatches({ [type]: previous } as EventDetails, live, patches)
     }
     return undefined
   }
 
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>({
-    getState: () => snapshot,
+    getState: () => live,
     fold: foldEntry,
   })
   return events as unknown as RememberedDescriptor<Details, Omit<Folds, 'root'>>
+}
+
+/**
+ * Mirrors the folded keys onto the live composite at the top level, so the
+ * seed object a caller holds reads the current model. Keys the patches did
+ * not touch keep their references (Immer shares untouched subtrees), so the
+ * assignments are no-ops except for the folded keys.
+ */
+function mirrorKeys(live: EventDetails, next: EventDetails, patches: Patch[]) {
+  let touched = new Set<string>()
+  for (let patch of patches) {
+    let key = patch.path[0]
+    if (typeof key === 'string') touched.add(key)
+  }
+  for (let key of touched) {
+    if (Object.hasOwn(next, key)) live[key] = next[key]
+    else delete live[key]
+  }
 }
 
 function resolvePatchPath(
