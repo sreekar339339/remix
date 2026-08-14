@@ -246,47 +246,10 @@ function mirrorKeys(live: EventDetails, next: EventDetails, entries: CustomEvent
   }
 }
 
-function normalizePatches(previousState: EventDetails, nextState: EventDetails, patches: Patch[]) {
-  let rootKey = patches[0]?.path[0]
-  if (typeof rootKey !== 'string') {
-    return []
-  }
-  let previous = previousState[rootKey]
-  let next = nextState[rootKey]
-  let addresses: Array<readonly unknown[]> = []
-
-  let sameAddress = (left: readonly unknown[], right: readonly unknown[]) =>
+function sameAddress(left: readonly unknown[], right: readonly unknown[]) {
+  return (
     left.length === right.length && left.every((segment, index) => Object.is(segment, right[index]))
-
-  let addAddress = (address: readonly unknown[] | undefined) => {
-    if (!address) return
-    // Adjacent duplicates are the common case (a patch's previous and next
-    // paths coincide), so compare against the last address before scanning.
-    let last = addresses.at(-1)
-    if (last && sameAddress(last, address)) return
-    if (addresses.some((candidate) => sameAddress(candidate, address))) return
-    addresses.push(address)
-  }
-
-  for (let patch of patches) {
-    if (previous instanceof Set || next instanceof Set) {
-      if (!Object.hasOwn(patch, 'value')) {
-        addAddress([])
-        continue
-      }
-      addAddress([canonicalAddressSegment(patch.value)])
-      continue
-    }
-    // Immer emits the raw path of every mutation it applied, so
-    // canonicalizing the segments directly yields the same logical address
-    // resolving the previous and next states would, without walking either.
-    let address: unknown[] = []
-    for (let index = 1; index < patch.path.length; index++) {
-      address.push(canonicalAddressSegment(patch.path[index]!))
-    }
-    addAddress(address)
-  }
-  return addresses
+  )
 }
 
 function isPrimitive(value: unknown) {
@@ -297,16 +260,58 @@ function ownerAddress(value: unknown): readonly unknown[] {
   return [canonicalAddressSegment(value)]
 }
 
-/** Builds per-key runtime entries from Immer patches, with scalar owner routes. */
+function appendAddress(addresses: Array<readonly unknown[]>, address: readonly unknown[]) {
+  // Adjacent duplicates are the common case (a patch's previous and next
+  // paths coincide), so compare against the last address before scanning.
+  let last = addresses.at(-1)
+  if (last && sameAddress(last, address)) return
+  if (addresses.some((candidate) => sameAddress(candidate, address))) return
+  addresses.push(address)
+}
+
+/**
+ * Builds per-key runtime entries from Immer patches in one pass: each patch
+ * canonicalizes to the address it affects under its top-level key, and every
+ * key yields one entry carrying the slice's new value and its deduped routes.
+ * Scalar slices route by owner identity instead.
+ */
 function entriesFromPatches(
   previousState: EventDetails,
   nextState: EventDetails,
   patches: Patch[],
 ): CustomEventsRuntimeEntry[] {
-  let patchesByKey = Map.groupBy(patches, ({ path }) => path[0] as string)
+  let addressesByKey = new Map<string, Array<readonly unknown[]>>()
+  for (let patch of patches) {
+    let key = patch.path[0]
+    if (typeof key !== 'string') continue
+    let addresses = addressesByKey.get(key)
+    if (!addresses) {
+      addresses = []
+      addressesByKey.set(key, addresses)
+    }
+    let previous = previousState[key]
+    let next = nextState[key]
+    if (previous instanceof Set || next instanceof Set) {
+      // Set patches route by the added or removed value.
+      if (Object.hasOwn(patch, 'value')) {
+        appendAddress(addresses, [canonicalAddressSegment(patch.value)])
+      } else {
+        appendAddress(addresses, [])
+      }
+      continue
+    }
+    // Immer emits the raw path of every mutation it applied, so
+    // canonicalizing the segments directly yields the same logical address
+    // resolving the previous and next states would, without walking either.
+    let address: unknown[] = []
+    for (let index = 1; index < patch.path.length; index++) {
+      address.push(canonicalAddressSegment(patch.path[index]!))
+    }
+    appendAddress(addresses, address)
+  }
+
   let entries: CustomEventsRuntimeEntry[] = []
-  for (let [key, keyPatches] of patchesByKey) {
-    let addresses = normalizePatches(previousState, nextState, keyPatches)
+  for (let [key, addresses] of addressesByKey) {
     let nextValue = nextState[key]
     let previousOwner = previousState[key]
 
