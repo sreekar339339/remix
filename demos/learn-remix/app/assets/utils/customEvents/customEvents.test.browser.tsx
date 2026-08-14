@@ -747,6 +747,8 @@ describe('customEvents', () => {
             seen.push([detail, event?.type])
             if (false) {
               detail satisfies { readonly count: number }
+              // @ts-expect-error - the composite read is readonly-typed.
+              detail.count = 1
             }
             let last = event?.type === 'countDrafted' ? ` raw:${event.detail}` : ''
             return `count:${detail.count}${last}`
@@ -1683,12 +1685,16 @@ describe('remembered customEvents', () => {
     assert.equal(result.$('[aria-label="kind"]')?.textContent, 'return')
   })
 
-  it('freezes remembered seeds and rejects reserved names', () => {
+  it('keeps remembered seeds live and rejects reserved names', () => {
     let seeds = { count: 0 }
-    customEvents({ root: seeds })
+    let events = customEvents({ root: seeds })
+    events.dispatchEvent({ count: 1 })
+    assert.equal(seeds.count, 1)
+    events.dispatchEvent({ root: { count: 2 } })
+    assert.equal(seeds.count, 2)
     assert.throws(() => {
-      seeds.count = 1
-    })
+      customEvents({ root: Object.freeze({ count: 0 }) })
+    }, /must not be frozen/)
     assert.throws(() => {
       customEvents({ root: { on: 1 } } as any)
     }, /reserves the detail name/)
@@ -1696,12 +1702,12 @@ describe('remembered customEvents', () => {
       customEvents({ root: { count: 0 }, create: (_detail, root) => {} })
     }, /reserves "create"/)
 
-    let events = customEvents({ root: { count: 0 } })
-    assert.throws(() => events.dispatchEvent({ on: 1 } as any), /reserves "on"/)
-    assert.throws(() => events.dispatchEvent({ create: 1 } as any), /reserves "create"/)
-    assert.throws(() => events.dispatchEvent({ root: 5 } as any), /root must be an object/)
+    let events2 = customEvents({ root: { count: 0 } })
+    assert.throws(() => events2.dispatchEvent({ on: 1 } as any), /reserves "on"/)
+    assert.throws(() => events2.dispatchEvent({ create: 1 } as any), /reserves "create"/)
+    assert.throws(() => events2.dispatchEvent({ root: 5 } as any), /root must be an object/)
     assert.throws(
-      () => events.dispatchEvent({ root: { on: 1 } } as any),
+      () => events2.dispatchEvent({ root: { on: 1 } } as any),
       /reserves the detail name/,
     )
     // Pure descriptors have no composite, so `root` is not writable there.
@@ -1960,6 +1966,11 @@ describe('remembered customEvents', () => {
     let result = render(<View />)
     t.after(() => result.cleanup())
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
+
+    if (false) {
+      // @ts-expect-error - derived-detail callbacks read the composite readonly.
+      events.dispatchEvent({ count: (root) => (root.count = 1) })
+    }
 
     // A derived occurrence detail: computed from the live composite at dispatch.
     await result.act(async () => {

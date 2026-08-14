@@ -12,7 +12,8 @@ is a typed `EventTarget`: everything the DOM provides works on it exactly —
 - **Typed vocabulary** — declared event names with per-event detail types,
   checked at compile time.
 - **Remembered detail** — a descriptor can own a live composite detail (the
-  model); dispatching an event folds a new value into it.
+  model); dispatching an event folds a new value into it. The `root` seed
+  object is updated in place, so a held reference reads the current model.
 - **Addressable subscriptions** — `events.on.<name>` sources subscribe
   narrow consumers to one event and re-render exactly the affected
   addresses.
@@ -85,11 +86,18 @@ The `root` key is typed by hand — its keys are user-defined, so editors cannot
 suggest them — and everything else infers from it: the fold recipe's `detail`
 and `root` parameters, the `on.<name>` sources, and `dispatchEvent` inputs.
 
-The descriptor is the root composite event: `eventSource={events}` (or the
-named `events.root` source) re-reads the whole detail on every matched event.
-Every detail and fold event is exposed as a typed source. The descriptor
-carries native listeners, so native `addEventListener` works directly on the
-events object.
+The descriptor is the root composite event: `eventSource={events}` (or the named
+`events.root` source) re-reads the whole detail on every matched event. Every
+detail and fold event is exposed as a typed source. The descriptor carries
+native listeners, so native `addEventListener` works directly on the events
+object.
+
+The object passed as `root` is the **live composite**: dispatches fold in
+place into that same object, so a reference you hold reads the current model.
+That is the imperative read path — native listeners can read current values
+straight from the seed — while evented-views remain the addressed read path.
+Read values are readonly-typed (`Immutable`), so views and derived details
+cannot mutate the model at compile time; writes go through dispatch.
 
 ### The mental model
 
@@ -374,11 +382,16 @@ nothing but its own event. Immer patches drive the routing: keyed writes keep
 per-item granularity, scalar writes route by owner identity, and deep
 mutations reach exactly the affected addresses.
 
-**Reads are views only**: subscribe `eventSource={events}` (or the named
-`events.root` source) for the whole composite or
-`eventSource={events.on.<detail>}` for one remembered value. Handlers live
-inside a root view's render closure where the detail is in scope; timers and
-async work dispatch pure events that fold events interpret.
+**Reads are views or the live seed**: subscribe `eventSource={events}` (or the
+named `events.root` source) for the whole composite or
+`eventSource={events.on.<detail>}` for one remembered value. The object passed
+as `root` is the live composite — dispatches fold in place — so native
+listeners (`addEventListener`) read current values straight from the seed they
+created. Read values are readonly-typed (`Immutable`), so views and derived
+details cannot mutate the model at compile time; only fold drafts and the
+seed holder write. Handlers live inside a root view's render closure where the
+detail is in scope; timers and async work dispatch pure events that fold
+events interpret.
 
 ## Consumption patterns
 
@@ -557,7 +570,8 @@ where DOM semantics do not apply:
   every other descriptor, even under the same raw name.
 - **Live composite detail.** A remembered descriptor's composite detail is
   current and readable through sources; a DOM `CustomEvent.detail` is a
-  one-shot snapshot.
+  one-shot snapshot. Reads are guarded by readonly types, not runtime
+  freezing: the seed object stays the mutable live model.
 
 ## Sequencing
 

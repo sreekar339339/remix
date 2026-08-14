@@ -172,7 +172,7 @@ export type EventSources<
     }
   : {
       readonly [Type in keyof Events & string]: Type extends keyof State & string
-        ? RememberedEventSource<State[Type], Type>
+        ? RememberedEventSource<Immutable<State>[Type], Type>
         : OccurrenceEventSource<Events[Type], Type>
     }
 
@@ -292,7 +292,7 @@ type CustomEventsWildcardEvent<Events extends EventDetails> =
 export type CustomEventsRootSource<
   Events extends EventDetails,
   State extends EventDetails,
-> = EventSource<State, 'root', CustomEventsWildcardEvent<Events>> & {
+> = EventSource<Immutable<State>, 'root', CustomEventsWildcardEvent<Events>> & {
   readonly [rememberedEventSourceMarker]: true
 }
 
@@ -317,7 +317,7 @@ type CustomEventsRememberedDefaultElementProps<
   Tag extends keyof JSX.IntrinsicElements,
 > = CustomEventsViewProps<
   CustomEventsWildcardSource<Events, State>,
-  State,
+  Immutable<State>,
   CustomEventsWildcardEvent<Events>,
   Tag,
   never,
@@ -420,7 +420,7 @@ export type CustomEventsCreate<Events extends EventDetails> = {
 } & {
   <
     const Input extends {
-      [K in keyof Events]?: Events[K] | ((root: Events) => Events[K])
+      [K in keyof Events]?: Events[K] | ((root: Immutable<Events>) => Events[K])
     } & { root?: unknown },
   >(
     input: Input,
@@ -595,13 +595,13 @@ export type RememberedOnFunction = CustomEventsOnFunction<EventDetails>
  */
 type RememberedDispatchEvent<Events extends EventDetails, Root extends EventDetails = never> = {
   (
-    input: { root: Root | ((root: Root) => Root) } & {
-      [K in keyof Events]?: Events[K] | ((root: Root) => Events[K])
+    input: { root: Root | ((root: Immutable<Root>) => Root) } & {
+      [K in keyof Events]?: Events[K] | ((root: Immutable<Root>) => Events[K])
     },
     init?: CustomEventInit,
   ): Promise<void>
   (
-    input: { [K in keyof Events]?: Events[K] | ((root: Root) => Events[K]) },
+    input: { [K in keyof Events]?: Events[K] | ((root: Immutable<Root>) => Events[K]) },
     init?: CustomEventInit,
   ): Promise<void>
 } & CustomEventsDispatchEvent<Events>
