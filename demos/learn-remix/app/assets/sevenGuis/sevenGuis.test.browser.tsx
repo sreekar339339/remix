@@ -3,10 +3,12 @@ import { describe, it } from 'remix/test'
 import { render, type RenderResult } from 'remix/ui/test'
 import { SevenGuisCells } from './cells.tsx'
 import { SevenGuisCircleDrawer } from './circleDrawer.tsx'
+import { ColorPicker } from './colorPicker.tsx'
 import { SevenGuisCounter } from './counter.tsx'
 import { SevenGuisCrud } from './crud.tsx'
 import { SevenGuisFlightBooker } from './flightBooker.tsx'
 import { KeyedSelection } from './keyedSelection.tsx'
+import { LocationCascade } from './locationCascade.tsx'
 import { SevenGuisTemperatureConverter } from './temperatureConverter.tsx'
 import { SevenGuisTimer } from './timer.tsx'
 
@@ -17,6 +19,26 @@ async function settle(result: RenderResult) {
     await Promise.resolve()
     await Promise.resolve()
   })
+}
+
+function field(result: RenderResult, ariaLabel: string) {
+  return result.$(`[aria-label="${ariaLabel}"]`) as HTMLInputElement
+}
+
+function type(result: RenderResult, ariaLabel: string, value: string) {
+  return result.act(() => {
+    let input = field(result, ariaLabel)
+    input.value = value
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+  })
+}
+
+function select(result: RenderResult, ariaLabel: string) {
+  return result.$(`[aria-label="${ariaLabel}"]`) as HTMLSelectElement
+}
+
+function options(select: HTMLSelectElement) {
+  return [...select.options].map((option) => option.label)
 }
 
 describe('7GUIs custom-event choreography', () => {
@@ -532,5 +554,109 @@ describe('7GUIs custom-event choreography', () => {
     assert.equal(renderCount('C0'), before.C0! + 1)
     assert.equal(renderCount('B0'), before.B0)
     assert.equal(renderCount('D0'), before.D0)
+  })
+
+  it('derives each cascade level and resets the chain when a selection changes', async (t) => {
+    let result = render(<LocationCascade />)
+    t.after(() => result.cleanup())
+
+    let country = select(result, 'Country')
+    let state = select(result, 'State')
+    let city = select(result, 'City')
+
+    // Initially only the country can be selected.
+    assert.equal(state.disabled, true)
+    assert.equal(city.disabled, true)
+    assert.equal(
+      (result.$('[aria-label="Selection"]') as HTMLOutputElement).textContent,
+      '— / — / —',
+    )
+
+    await result.act(() => {
+      country.value = 'de'
+      country.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // The country fold shadowed its slice and derived the state options.
+    state = select(result, 'State')
+    assert.deepEqual(options(state), ['Select a state…', 'Bavaria', 'Berlin'])
+    assert.equal(city.disabled, true)
+
+    await result.act(() => {
+      state.value = 'by'
+      state.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // The state fold derived the city options.
+    city = select(result, 'City')
+    assert.deepEqual(options(city), ['Select a city…', 'Munich', 'Nuremberg'])
+
+    await result.act(() => {
+      city.value = 'mun'
+      city.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // City is a plain detail: the readout reflects the full chain.
+    assert.equal(
+      (result.$('[aria-label="Selection"]') as HTMLOutputElement).textContent,
+      'Germany / Bavaria / Munich',
+    )
+
+    // Changing the country resets the derived chain below it.
+    country = select(result, 'Country')
+    await result.act(() => {
+      country.value = 'us'
+      country.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    state = select(result, 'State')
+    city = select(result, 'City')
+    assert.equal(state.value, '')
+    assert.deepEqual(options(state), ['Select a state…', 'California', 'New York'])
+    assert.equal(city.disabled, true)
+    assert.equal(
+      (result.$('[aria-label="Selection"]') as HTMLOutputElement).textContent,
+      'United States / — / —',
+    )
+  })
+
+  it('keeps every color channel in sync through its shadowing fold', async (t) => {
+    let result = render(<ColorPicker />)
+    t.after(() => result.cleanup())
+
+    // The seeded model is consistent: black.
+    assert.equal(field(result, 'Hex').value, '#000000')
+    assert.equal(field(result, 'Red').value, '0')
+
+    // The hex fold derives every channel from its own input.
+    await type(result, 'Hex', '#ff0000')
+    assert.equal(field(result, 'Red').value, '255')
+    assert.equal(field(result, 'Green').value, '0')
+    assert.equal(field(result, 'Blue').value, '0')
+    assert.equal(field(result, 'Hue').value, '0')
+    assert.equal(field(result, 'Saturation').value, '100')
+    assert.equal(field(result, 'Lightness').value, '50')
+
+    // A channel fold cross-reads its siblings and derives the hex.
+    await type(result, 'Hue', '120')
+    assert.equal(field(result, 'Hex').value, '#00ff00')
+    assert.equal(field(result, 'Green').value, '255')
+    assert.equal(field(result, 'Red').value, '0')
+
+    // Invalid input writes the slice but leaves the model consistent.
+    await type(result, 'Red', '999')
+    assert.equal(field(result, 'Red').value, '999')
+    assert.equal(field(result, 'Hex').value, '#00ff00')
+    assert.equal(field(result, 'Green').value, '255')
+
+    await type(result, 'Hex', 'zzz')
+    assert.equal(field(result, 'Hex').value, 'zzz')
+    assert.equal(field(result, 'Hue').value, '120')
+
+    // Clearing a channel never disturbs the rest of the model.
+    await type(result, 'Green', '')
+    assert.equal(field(result, 'Green').value, '')
+    assert.equal(field(result, 'Hex').value, 'zzz')
+    assert.equal(field(result, 'Red').value, '999')
   })
 })

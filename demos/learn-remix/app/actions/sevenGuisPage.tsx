@@ -1,10 +1,12 @@
 import { css } from 'remix/ui'
 import { SevenGuisCells } from '../assets/sevenGuis/cells.tsx'
 import { SevenGuisCircleDrawer } from '../assets/sevenGuis/circleDrawer.tsx'
+import { ColorPicker } from '../assets/sevenGuis/colorPicker.tsx'
 import { SevenGuisCounter } from '../assets/sevenGuis/counter.tsx'
 import { SevenGuisCrud } from '../assets/sevenGuis/crud.tsx'
 import { SevenGuisFlightBooker } from '../assets/sevenGuis/flightBooker.tsx'
 import { KeyedSelection } from '../assets/sevenGuis/keyedSelection.tsx'
+import { LocationCascade } from '../assets/sevenGuis/locationCascade.tsx'
 import { SevenGuisTemperatureConverter } from '../assets/sevenGuis/temperatureConverter.tsx'
 import { SevenGuisTimer } from '../assets/sevenGuis/timer.tsx'
 import { Layout } from '../ui/layout.tsx'
@@ -24,7 +26,7 @@ export function SevenGuisPage() {
           <h1>7GUIs with CustomEvents</h1>
           <p>
             Seven small GUI tasks implemented with native dispatchEvent and the CustomEvents
-            descriptor API.
+            descriptor API, plus a location cascade and a three-way color picker.
           </p>
         </header>
         <SevenGuisCounter />
@@ -35,6 +37,8 @@ export function SevenGuisPage() {
         <SevenGuisCircleDrawer />
         <SevenGuisCells />
         <KeyedSelection />
+        <LocationCascade />
+        <ColorPicker />
       </section>
     </Layout>
   )

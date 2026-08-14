@@ -208,9 +208,9 @@ export const SevenGuisCircleDrawer = clientEntry(
               type="range"
               min={10}
               max={120}
-              defaultValue={([editingId, circles]) => {
-                return editingId === null ? 10 : (circles.get(editingId)?.diameter ?? 10)
-              }}
+              defaultValue={([editingId, circles]) =>
+                editingId === null ? 10 : (circles.get(editingId)?.diameter ?? 10)
+              }
               mix={[
                 inputCss,
                 on('input', ({ currentTarget }) => {
