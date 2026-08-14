@@ -54,6 +54,11 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
  *
  * `customEvents({ root: { count: 0, label: 'idle' }, inc: (detail, root) => { root.count += detail } })`
  *
+ * A fold that shares a root detail's name shadows the detail: dispatching the
+ * name runs the recipe instead of the implicit replace-itself fold, so the
+ * recipe owns the update. The detail's slice remains the read surface
+ * (`on.<name>` reads its current value); only the write semantics change.
+ *
  * Type the `root` key by hand: the composite's keys are user-defined, so
  * completion cannot suggest them (TypeScript cannot complete properties of an
  * argument that infers its own generic). Everything else — fold details and

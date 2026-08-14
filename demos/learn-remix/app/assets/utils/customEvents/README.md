@@ -106,6 +106,44 @@ event's own detail, and the second is the root event's detail as a mutable
 Immer draft. Running the recipe mutates the draft; the resulting patches
 become the fold's routing addresses.
 
+A fold that shares a root detail's name **shadows** the detail: dispatching
+the name runs the recipe instead of the implicit replace-itself fold, so the
+recipe owns the update — the typical pattern for related events, where one
+event's fold derives another detail from its payload. The detail's slice
+remains the read surface (`events.on.<name>` reads its current value); only
+the write semantics change. This is how related events express their
+relationship — no separate dependency machinery is needed:
+
+```ts
+let events = customEvents({
+  root: {
+    celsius: '',
+    fahrenheit: '',
+  },
+  celsius: (value: string, root) => {
+    root.celsius = value
+    let number = Number(value)
+    if (Number.isFinite(number)) {
+      root.fahrenheit = String((number * 9) / 5 + 32)
+    }
+  },
+  fahrenheit: (value: string, root) => {
+    root.fahrenheit = value
+    let number = Number(value)
+    if (Number.isFinite(number)) {
+      root.celsius = String((number - 32) * (5 / 9))
+    }
+  },
+})
+```
+
+Dispatching `{ celsius: '25' }` runs the celsius fold, which writes its own
+slice and derives `fahrenheit`; the fold's detail types the dispatch input,
+winning over the slice type. The recipe's `root` is a typed mutable Immer
+draft of the composite — inferred from the data in `root` — and the fold
+reads and writes the composite freely (the recipe's writes are the user's
+responsibility to keep consistent).
+
 A recipe with fewer than two parameters declares a **transient occurrence**: a
 detail-carrying recipe like `(text: string) => {}`, or a detail-less recipe
 like `() => {}`. An occurrence fires its event and forgets it, leaving the

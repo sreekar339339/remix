@@ -19,6 +19,23 @@ export const SevenGuisTemperatureConverter = clientEntry(
         celsius: '',
         fahrenheit: '',
       },
+      // Each fold shadows its root detail: dispatching the name runs the
+      // recipe instead of the implicit replace-itself fold, so editing either
+      // unit converts the other.
+      celsius: (value: string, root) => {
+        root.celsius = value
+        let number = parseTemperature(value)
+        if (number !== undefined) {
+          root.fahrenheit = formatTemperature(number * (9 / 5) + 32)
+        }
+      },
+      fahrenheit: (value: string, root) => {
+        root.fahrenheit = value
+        let number = parseTemperature(value)
+        if (number !== undefined) {
+          root.celsius = formatTemperature((number - 32) * (5 / 9))
+        }
+      },
     })
 
     return () => (
@@ -33,14 +50,8 @@ export const SevenGuisTemperatureConverter = clientEntry(
               inputCss,
               on('input', ({ currentTarget }) => {
                 let value = currentTarget.value
-                let number = parseTemperature(value)
-                if (number === undefined) return
-                events.dispatchEvent({
-                  celsius: value,
-                  // The fahrenheit leg derives from the freshly written celsius slice.
-                  fahrenheit: (root) =>
-                    formatTemperature(parseTemperature(root.celsius as string)! * (9 / 5) + 32),
-                })
+                if (parseTemperature(value) === undefined) return
+                events.dispatchEvent({ celsius: value })
               }),
             ]}
           />
@@ -53,12 +64,8 @@ export const SevenGuisTemperatureConverter = clientEntry(
               inputCss,
               on('input', ({ currentTarget }) => {
                 let value = currentTarget.value
-                let number = parseTemperature(value)
-                if (number === undefined) return
-                events.dispatchEvent({
-                  celsius: formatTemperature((number - 32) * (5 / 9)),
-                  fahrenheit: value,
-                })
+                if (parseTemperature(value) === undefined) return
+                events.dispatchEvent({ fahrenheit: value })
               }),
             ]}
           />

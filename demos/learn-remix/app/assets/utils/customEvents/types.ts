@@ -555,17 +555,29 @@ export type RememberedDetails = EventDetails & {
   readonly [Name in ReservedCustomEventsName | NativeDOMEventName]?: never
 }
 
+/**
+ * The detail type a declared fold carries: the recipe's first parameter.
+ */
 type RememberedFoldDetail<Folds, Name extends keyof Folds & string> = Folds[Name] extends () => void
   ? null
   : Folds[Name] extends (detail: infer Detail, root: any) => any
     ? Detail
     : unknown
 
-/** The event map of a remembered descriptor: remembered details and declared fold events. */
+/** Slice types of the remembered composite. */
+type RememberedSlices<Details extends EventDetails> = {
+  [K in keyof Details]: Immutable<Details[K]>
+}
+
+/**
+ * The event map of a remembered descriptor: remembered details and declared
+ * fold events. A fold that shares a root detail's name shadows the detail:
+ * the recipe owns the update, so the fold's detail type wins over the slice.
+ */
 export type RememberedEventsMap<
   Details extends EventDetails,
   Folds extends RememberedFolds<Details>,
-> = Immutable<Details> & {
+> = Omit<RememberedSlices<Details>, keyof Folds> & {
   [Name in keyof Folds & string]: RememberedFoldDetail<Folds, Name>
 }
 
@@ -605,10 +617,10 @@ type RememberedDispatchEvent<Events extends EventDetails, Root extends EventDeta
 export type RememberedDescriptor<
   Details extends EventDetails,
   Folds extends RememberedFolds<Details>,
-> = Omit<CustomEventsDescriptor<RememberedEventsMap<Details, Folds>, Immutable<Details>>, 'on'> & {
+> = Omit<CustomEventsDescriptor<RememberedEventsMap<Details, Folds>, Details>, 'on'> & {
   dispatchEvent: RememberedDispatchEvent<RememberedEventsMap<Details, Folds>, Details>
   on: { readonly '*': RememberedOnFunction } & CustomEventsOnNamespace<
     RememberedEventsMap<Details, Folds>,
-    Immutable<Details>
+    Details
   >
 }

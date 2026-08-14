@@ -1,4 +1,4 @@
-import { clientEntry, css, on } from 'remix/ui'
+import { clientEntry, css, Fragment, on } from 'remix/ui'
 import { customEvents, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
@@ -26,13 +26,16 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
       nextId: 4,
     },
 
-    selectPerson: (id: number, root) => {
-      let person = root.people.find((candidate) => candidate.id === id)
+    // The fold shadows the selectedId detail: dispatching selectedId sets the
+    // selection and derives the draft from the chosen person.
+    selectedId: (id: number | null, root) => {
+      root.selectedId = id
+      let person = root.people.find((candidate: Person) => candidate.id === id)
       if (!person) return
-      root.selectedId = person.id
       root.draft.name = person.name
       root.draft.surname = person.surname
     },
+
     createPerson: (_detail, root) => {
       let person = { id: root.nextId, ...root.draft }
       root.people.push(person)
@@ -90,7 +93,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
           mix={[
             inputCss,
             on('change', ({ currentTarget }) => {
-              events.dispatchEvent({ selectPerson: Number(currentTarget.value) })
+              events.dispatchEvent({ selectedId: Number(currentTarget.value) })
             }),
           ]}
         >

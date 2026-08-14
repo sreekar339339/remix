@@ -1751,6 +1751,103 @@ describe('remembered customEvents', () => {
     assert.deepEqual(seen[seen.length - 1], [{ count: 2, label: 'idle' }, 'count'])
   })
 
+  it('lets a fold shadow a same-named root detail', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+        label: 'idle',
+      },
+      // The fold shadows the count slice: dispatching count runs the recipe
+      // instead of the implicit replace-itself fold.
+      count: (value: string, root) => {
+        root.count = value.length
+        root.label = `len:${value}`
+      },
+    })
+
+    function View() {
+      return () => (
+        <evented.output eventSource={events} aria-label="root">
+          {(detail) => `${detail.label}:${detail.count}`}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
+
+    await result.act(async () => {
+      await events.dispatchEvent({ count: 'abcd' })
+      await settleEffects()
+    })
+    // The fold ran, not the slice replace: count derived from the detail.
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'len:abcd:4')
+
+    if (false) {
+      // @ts-expect-error - the shadowing fold's detail (string) wins over the slice (number).
+      events.dispatchEvent({ count: 5 })
+    }
+  })
+
+  it('derives sibling details through shadowing folds', async (t) => {
+    let events = customEvents({
+      root: {
+        celsius: '',
+        fahrenheit: '',
+      },
+      // Each fold shadows its root detail: dispatching the name runs the
+      // recipe instead of the implicit replace-itself fold, so the recipe
+      // derives the other unit from the detail.
+      celsius: (value: string, root) => {
+        root.celsius = value
+        let number = Number(value)
+        if (Number.isFinite(number) && value.trim() !== '') {
+          root.fahrenheit = String(number * (9 / 5) + 32)
+        }
+      },
+      fahrenheit: (value: string, root) => {
+        root.fahrenheit = value
+        let number = Number(value)
+        if (Number.isFinite(number) && value.trim() !== '') {
+          root.celsius = String((number - 32) * (5 / 9))
+        }
+      },
+    })
+
+    function View() {
+      return () => (
+        <evented.output eventSource={events} aria-label="root">
+          {(detail) => `${detail.celsius}/${detail.fahrenheit}`}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    // The composite starts from its root data.
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '/')
+
+    await result.act(async () => {
+      await events.dispatchEvent({ celsius: '25' })
+      await settleEffects()
+    })
+    // The celsius fold ran (shadowing the slice) and derived fahrenheit.
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '25/77')
+
+    await result.act(async () => {
+      await events.dispatchEvent({ fahrenheit: '212' })
+      await settleEffects()
+    })
+    // The fahrenheit fold derived celsius; its own write stands.
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '100/212')
+
+    if (false) {
+      // @ts-expect-error - the shadowing fold's detail (string) wins over the slice.
+      events.dispatchEvent({ celsius: 25 })
+    }
+  })
+
   it('declares transient occurrences with a single-parameter recipe', async (t) => {
     let events = customEvents({
       root: {
