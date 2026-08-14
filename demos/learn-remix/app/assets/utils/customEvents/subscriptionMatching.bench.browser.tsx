@@ -1,10 +1,41 @@
 import * as assert from 'remix/assert'
 import { it } from 'remix/test'
+import { customEvents } from './index.tsx'
 import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
 
 const subscriptionCount = 5_000
 const dispatchCount = 500
 const targetKey = String(subscriptionCount - 1)
+
+it('benchmarks fold-recipe dispatch', async () => {
+  let lastId = -1
+  let events = customEvents({
+    root: {
+      items: new Map<number, { id: number; label: string }>(),
+    },
+    update: (detail: { id: number; label: string }, root) => {
+      root.items.set(detail.id, detail)
+      lastId = detail.id
+    },
+  })
+  for (let index = 0; index < 1_000; index++) {
+    await events.dispatchEvent({ update: { id: index, label: `item-${index}` } })
+  }
+  lastId = -1
+
+  let started = performance.now()
+  for (let index = 0; index < dispatchCount; index++) {
+    await events.dispatchEvent({ update: { id: index, label: `item-${index}` } })
+  }
+  let duration = performance.now() - started
+
+  console.log('[customEvents fold dispatch]', {
+    dispatches: dispatchCount,
+    durationMs: Number(duration.toFixed(2)),
+    averageDispatchMs: Number((duration / dispatchCount).toFixed(4)),
+  })
+  assert.equal(lastId, dispatchCount - 1)
+})
 
 it('benchmarks no-subscriber dispatch', async () => {
   let runtime = createCustomEventsRuntimeState()

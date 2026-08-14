@@ -57,6 +57,14 @@ class ProductEvent extends CustomEvent<unknown> {
 
 export type EventAddress = readonly unknown[]
 
+/**
+ * The single addressing key of a route segment: strings and numbers
+ * canonicalise to their string form (they address the same Map key and the
+ * same route), while symbols and objects keep their identity. Sources,
+ * patches, and subscribers all produce exactly this canonical form, so the
+ * route trie is keyed by one consistent representation; value reads tolerate
+ * the same string/number equivalence via `samePropertyKey`.
+ */
 export function canonicalAddressSegment(value: unknown) {
   return typeof value === 'symbol'
     ? value
@@ -154,8 +162,11 @@ function collectBranch(selected: Set<ElementSubscription>, node: AddressNode) {
   for (let child of node.children.values()) collectBranch(selected, child)
 }
 
-function selectRoute(root: AddressNode, addresses: readonly EventAddress[] | undefined) {
-  let selected = new Set<ElementSubscription>()
+function selectRoute(
+  root: AddressNode,
+  addresses: readonly EventAddress[] | undefined,
+  selected: Set<ElementSubscription>,
+) {
   if (addresses === undefined) {
     collectBranch(selected, root)
     return selected
@@ -398,26 +409,18 @@ function matchesScope(
   )
 }
 
-const EMPTY_SUBSCRIPTIONS = new Set<ElementSubscription>()
-
 function matchingSubscriptions(
   runtime: CustomEventsRuntimeState,
   phase: SubscriptionPhase,
   entry: CustomEventsRuntimeEntry,
+  selected: Set<ElementSubscription>,
 ) {
   let index = runtime.subscriptions[phase]
   let wildcard = index.get(ALL_EVENTS)
   let typed = index.get(entry.type)
-  if (wildcard && typed) {
-    let selected = selectRoute(wildcard, entry.addresses)
-    for (let subscription of selectRoute(typed, entry.addresses)) {
-      selected.add(subscription)
-    }
-    return selected
-  }
-  if (wildcard) return selectRoute(wildcard, entry.addresses)
-  if (typed) return selectRoute(typed, entry.addresses)
-  return EMPTY_SUBSCRIPTIONS
+  if (wildcard) selectRoute(wildcard, entry.addresses, selected)
+  if (typed) selectRoute(typed, entry.addresses, selected)
+  return selected
 }
 
 function notifyEntries(
@@ -438,22 +441,25 @@ function notifyEntries(
     return event
   }
 
-  let matches = new Map<ElementSubscription, number>()
-  if (runtime.subscriptions.view.size > 0) {
-    for (let index = 0; index < entries.length; index++) {
-      let entry = entries[index]!
-      for (let subscription of matchingSubscriptions(runtime, 'view', entry)) {
-        if (matchesScope(runtime, subscription, carrier, originScope, originTarget)) {
-          matches.set(subscription, index)
-        }
-      }
-    }
-  }
-
   let source: Array<[ElementSubscription, number]> = []
   let remaining: Array<[ElementSubscription, number]> = []
-  for (let match of matches) {
-    ;(match[0].element === originTarget ? source : remaining).push(match)
+  let scratch = new Set<ElementSubscription>()
+  if (runtime.subscriptions.view.size > 0) {
+    // Iterate entries backwards so the first match a subscription sees is its
+    // last forward match: each subscription commits once, with the last
+    // matched entry, without a match map or a second pass.
+    let visited = new Set<ElementSubscription>()
+    for (let index = entries.length - 1; index >= 0; index--) {
+      let entry = entries[index]!
+      scratch.clear()
+      matchingSubscriptions(runtime, 'view', entry, scratch)
+      for (let subscription of scratch) {
+        if (visited.has(subscription)) continue
+        if (!matchesScope(runtime, subscription, carrier, originScope, originTarget)) continue
+        visited.add(subscription)
+        ;(subscription.element === originTarget ? source : remaining).push([subscription, index])
+      }
+    }
   }
   let commit = (selected: typeof source) => {
     let results: unknown[] = []
@@ -471,7 +477,9 @@ function notifyEntries(
     let effectResults: unknown[] = []
     for (let index = 0; index < entries.length; index++) {
       let entry = entries[index]!
-      for (let subscription of matchingSubscriptions(runtime, 'effect', entry)) {
+      scratch.clear()
+      matchingSubscriptions(runtime, 'effect', entry, scratch)
+      for (let subscription of scratch) {
         if (matchesScope(runtime, subscription, carrier, originScope, originTarget)) {
           collect(effectResults, () => subscription.notify(snapshotFor(index)))
         }
