@@ -2128,6 +2128,13 @@ describe('remembered customEvents', () => {
     })
     assert.equal(seed.items.has('a'), false)
     assert.deepEqual(calls, { whole: 5, item: 3 })
+
+    // A top-level replace sets the slice directly.
+    await result.act(async () => {
+      await events.applyPatches([{ op: 'replace', path: ['count'], value: 7 }])
+      await settleEffects()
+    })
+    assert.equal(seed.count, 7)
   })
 
   it('streams canonical patches through onPatch and stops on unsubscribe', async () => {

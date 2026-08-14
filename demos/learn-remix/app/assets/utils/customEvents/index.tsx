@@ -322,8 +322,9 @@ function applyCanonicalPatches(
       if (patch.op === 'remove') updated.delete(patch.value)
       else updated.add(patch.value)
       next[rootKey] = updated
-    } else if (patch.op === 'remove' && patch.path.length === 1) {
-      delete next[rootKey]
+    } else if (patch.path.length === 1) {
+      if (patch.op === 'remove') delete next[rootKey]
+      else next[rootKey] = patch.value
     } else {
       next[rootKey] = applyPatchValue(previous, patch.path, 1, patch)
     }
