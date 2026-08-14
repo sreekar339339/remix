@@ -5,10 +5,9 @@ import { render } from 'remix/ui/test'
 import {
   AppProvider,
   createAppContext,
-  EventSettingsDisplay,
   EventUserDisplay,
   SettingsDisplay,
-  UserDisplay,
+  UserDisplay2,
 } from './appContext.tsx'
 import type { AppContextValue } from './appContext.tsx'
 
@@ -19,7 +18,10 @@ async function settleEvents() {
 
 describe('AppContext', () => {
   it('updates its model and emits only the affected events', () => {
-    let context = createAppContext()
+    let context = createAppContext({
+      user: null,
+      settings: { layout: 'normal', theme: 'system' },
+    })
     let calls: string[] = []
     let controller = new AbortController()
 
@@ -44,7 +46,10 @@ describe('AppContext', () => {
   })
 
   it('supports explicit cleanup and AbortSignal-owned subscriptions', () => {
-    let context = createAppContext()
+    let context = createAppContext({
+      user: null,
+      settings: { layout: 'normal', theme: 'system' },
+    })
     let userController = new AbortController()
     let settingsController = new AbortController()
     let cleanedCalls = 0
@@ -78,16 +83,38 @@ describe('AppContext', () => {
     assert.equal(abortedCalls, 1)
   })
 
+  it('folds dispatches into the root seed object in place', async () => {
+    let value: AppContextValue = {
+      user: null,
+      settings: { layout: 'normal', theme: 'system' },
+    }
+    let context = createAppContext(value)
+
+    await context.dispatchEvent({ user: { name: 'Ada', age: 37 } })
+    assert.equal(value.user?.name, 'Ada')
+    assert.equal(value.settings.theme, 'system')
+
+    await context.dispatchEvent({ settings: { layout: 'zen', theme: 'dark' } })
+    assert.equal(value.settings.theme, 'dark')
+    assert.equal(value.user?.name, 'Ada')
+
+    await context.dispatchEvent({
+      root: { user: { name: 'Grace', age: 85 }, settings: { layout: 'normal', theme: 'light' } },
+    })
+    assert.equal(value.user?.name, 'Grace')
+    assert.equal(value.settings.theme, 'light')
+  })
+
   it('provides context and updates imperative and event-aware consumers', async (t) => {
     function Controls(handle: Handle) {
-      let context = handle.context.get(AppProvider)
+      let { events } = handle.context.get(AppProvider)
 
       return () => (
         <nav>
           <button
             data-action="user"
             mix={on('click', () => {
-              context.dispatchEvent({ user: { name: 'Ada', age: 37 } })
+              events.dispatchEvent({ user: { name: 'Ada', age: 37 } })
             })}
           >
             Set user
@@ -95,7 +122,7 @@ describe('AppContext', () => {
           <button
             data-action="settings"
             mix={on('click', () => {
-              context.dispatchEvent({ settings: { layout: 'normal', theme: 'dark' } })
+              events.dispatchEvent({ settings: { layout: 'normal', theme: 'dark' } })
             })}
           >
             Set settings
@@ -108,16 +135,13 @@ describe('AppContext', () => {
       <AppProvider>
         <section>
           <div data-consumer="user">
-            <UserDisplay />
+            <UserDisplay2 />
           </div>
           <div data-consumer="event-user">
             <EventUserDisplay />
           </div>
           <div data-consumer="settings">
             <SettingsDisplay />
-          </div>
-          <div data-consumer="event-settings">
-            <EventSettingsDisplay />
           </div>
           <Controls />
         </section>
@@ -129,12 +153,9 @@ describe('AppContext', () => {
 
     assert.equal(result.$('[data-consumer="user"]')?.textContent, 'Bob Lazar')
     assert.equal(result.$('[data-consumer="event-user"]')?.textContent, 'Bob Lazar')
+    assert.equal(result.$('[data-consumer="user"]')?.textContent, 'Bob Lazar')
     assert.equal(
       result.$('[data-consumer="settings"]')?.textContent?.trim(),
-      'Layout: zen, Theme: light',
-    )
-    assert.equal(
-      result.$('[data-consumer="event-settings"]')?.textContent,
       'Layout: zen, Theme: light',
     )
 
@@ -143,12 +164,9 @@ describe('AppContext', () => {
 
     assert.equal(result.$('[data-consumer="user"]')?.textContent, 'Ada')
     assert.equal(result.$('[data-consumer="event-user"]')?.textContent, 'Ada')
+    assert.equal(result.$('[data-consumer="user"]')?.textContent, 'Ada')
     assert.equal(
       result.$('[data-consumer="settings"]')?.textContent?.trim(),
-      'Layout: zen, Theme: light',
-    )
-    assert.equal(
-      result.$('[data-consumer="event-settings"]')?.textContent,
       'Layout: zen, Theme: light',
     )
 
@@ -157,12 +175,9 @@ describe('AppContext', () => {
 
     assert.equal(result.$('[data-consumer="user"]')?.textContent, 'Ada')
     assert.equal(result.$('[data-consumer="event-user"]')?.textContent, 'Ada')
+    assert.equal(result.$('[data-consumer="user"]')?.textContent, 'Ada')
     assert.equal(
       result.$('[data-consumer="settings"]')?.textContent?.trim(),
-      'Layout: normal, Theme: dark',
-    )
-    assert.equal(
-      result.$('[data-consumer="event-settings"]')?.textContent,
       'Layout: normal, Theme: dark',
     )
   })

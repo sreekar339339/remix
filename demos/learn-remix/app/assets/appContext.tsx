@@ -1,4 +1,4 @@
-import type { Handle, RemixNode } from 'remix/ui'
+import { addEventListeners, type Handle, type RemixNode } from 'remix/ui'
 import { customEvents, evented } from './utils/customEvents/index.tsx'
 
 export type AppContextValue = {
@@ -9,20 +9,23 @@ export type AppContextValue = {
   }
 }
 
-export function createAppContext() {
-  return customEvents({
-    root: {
-      user: null as AppContextValue['user'],
-      settings: { layout: 'normal', theme: 'system' },
-    },
+export const createAppContext = (value: AppContextValue) =>
+  customEvents({
+    root: value,
   })
-}
 
-export type AppContext = ReturnType<typeof createAppContext>
-
-export function AppProvider(handle: Handle<{ children?: RemixNode }, AppContext>) {
-  let events = createAppContext()
-  handle.context.set(events)
+export function AppProvider(
+  handle: Handle<
+    { children?: RemixNode },
+    { events: ReturnType<typeof createAppContext>; value: AppContextValue }
+  >,
+) {
+  let value: AppContextValue = {
+    user: null,
+    settings: { layout: 'normal', theme: 'system' },
+  }
+  let events = createAppContext(value)
+  handle.context.set({ events, value })
 
   handle.queueTask(async () => {
     // perform auth and other async stuff and dispatch context value
@@ -39,20 +42,24 @@ export function AppProvider(handle: Handle<{ children?: RemixNode }, AppContext>
 
 // Components subscribe to the shared descriptor with evented views or the
 // descriptor's own EventTarget channel (addEventListener/addEventListeners).
-export function UserDisplay(handle: Handle) {
-  let events = handle.context.get(AppProvider)
+export function UserDisplay2(handle: Handle) {
+  let { events, value } = handle.context.get(AppProvider)
+
+  addEventListeners(events, handle.signal, {
+    user() {
+      handle.update()
+    },
+  })
 
   return () => (
     <div>
-      <evented.div eventSource={events.on.user.name}>
-        {(name) => name ?? 'Not logged in'}
-      </evented.div>
+      <div>{value.user?.name ?? 'Not logged in'}</div>
     </div>
   )
 }
 
 export function EventUserDisplay(handle: Handle) {
-  let events = handle.context.get(AppProvider)
+  let { events } = handle.context.get(AppProvider)
 
   return () => (
     <div>
@@ -64,7 +71,7 @@ export function EventUserDisplay(handle: Handle) {
 }
 
 export function SettingsDisplay(handle: Handle) {
-  let events = handle.context.get(AppProvider)
+  let { events } = handle.context.get(AppProvider)
 
   return () => (
     <div>
@@ -72,15 +79,5 @@ export function SettingsDisplay(handle: Handle) {
         {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
       </evented.div>
     </div>
-  )
-}
-
-export function EventSettingsDisplay(handle: Handle) {
-  let events = handle.context.get(AppProvider)
-
-  return () => (
-    <evented.pre eventSource={events.on.settings}>
-      {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
-    </evented.pre>
   )
 }
