@@ -16,10 +16,9 @@ import {
   isPropertyKey,
   readPath,
   samePropertyKey,
-  subscribeView,
+  subscribeSource,
   type CustomEventsRuntimeEntry,
   type CustomEventsRuntimeState,
-  type EventAddress,
 } from './runtime.ts'
 import { reservedCustomEventsNames } from './types.ts'
 import type {
@@ -99,18 +98,15 @@ function customEventsOnMixin(
   >((handle) => (runtime, source, listener) => (
     <handle.element
       mix={ref((element, signal) => {
-        customEventsRuntime.subscribe(
+        subscribeSource(
           runtime,
           'effect',
           {
             element,
-            eventTypes: source ? new Set([source.type]) : null,
-            ...(source ? { addresses: new Map([[source.type, source.path]]) } : {}),
-            notify(event) {
-              return listener(createCurrentTargetEvent(event, element))
-            },
+            notify: (event: CustomEvent) => listener(createCurrentTargetEvent(event, element)),
           },
           signal,
+          source,
         )
       })}
     />
@@ -230,7 +226,7 @@ export function createCustomEventsDescriptor<
       type: ALL_EVENTS,
       ...(state ? { read: () => state.getState() } : {}),
       subscribe(subscriber, signal) {
-        subscribeView(getRuntime(), subscriber, signal, null, undefined)
+        subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
       },
     },
   }
@@ -271,6 +267,7 @@ export function createCustomEventsDescriptor<
   // The named root event of a remembered descriptor: the composite source
   // under the `events.root` handle, with the wildcard effect as its callable.
   // Pure descriptors have no root — the descriptor itself is their wildcard.
+  let rootMetadata = { type: 'root', path: [] as readonly unknown[] }
   let rootSource = state
     ? new Proxy(wildcardOn, {
         get(_, property) {
@@ -279,12 +276,12 @@ export function createCustomEventsDescriptor<
               type: 'root',
               read: () => state.getState(),
               subscribe(subscriber: EventSourceSubscriber, signal: AbortSignal) {
-                subscribeView(getRuntime(), subscriber, signal, null, undefined)
+                subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
               },
             } satisfies EventSourceProtocol
           }
           if (property === eventSourceMetadata) {
-            return { type: 'root', path: [] }
+            return rootMetadata
           }
           return undefined
         },
@@ -319,32 +316,25 @@ export function createCustomEventsDescriptor<
     path: readonly unknown[] = [],
     read?: () => unknown,
   ): object => {
-    let metadata: EventSourceMetadata = {
+    // One object is the source: evented views consume it through the
+    // EVENT_SOURCE protocol, while the internal eventSourceMetadata symbol
+    // resolves to the same representation.
+    let metadata: EventSourceMetadata & EventSourceProtocol = {
       type,
       path,
-      ...(readRoot ? { read: read ?? (() => readPath(readRoot(), path)) } : {}),
-    }
-    let protocol: EventSourceProtocol = {
-      type,
       // On a remembered descriptor every source yields detail-shaped input:
       // remembered properties read their current value, while occurrences fill
       // their slot from the matched event and read undefined otherwise.
-      ...(readRoot || state
-        ? {
-            read: metadata.read
-              ? () => metadata.read!()
-              : (trigger?: EventSourceEvent) =>
-                  trigger && trigger.type === type ? trigger.detail : undefined,
-          }
-        : {}),
+      ...(readRoot
+        ? { read: read ?? (() => readPath(readRoot(), path)) }
+        : state
+          ? {
+              read: (trigger?: EventSourceEvent) =>
+                trigger && trigger.type === type ? trigger.detail : undefined,
+            }
+          : {}),
       subscribe(subscriber, signal) {
-        subscribeView(
-          getRuntime(),
-          subscriber,
-          signal,
-          new Set([metadata.type]),
-          new Map([[metadata.type, metadata.path]]),
-        )
+        subscribeSource(getRuntime(), 'view', subscriber, signal, { type, path })
       },
     }
     // Sources are callable: invoking one with a listener registers an
@@ -366,8 +356,7 @@ export function createCustomEventsDescriptor<
       customEventsOnMixin(getRuntime(), metadata, listener)
     return new Proxy(onNode, {
       get(_, property) {
-        if (property === EVENT_SOURCE) return protocol
-        if (property === eventSourceMetadata) return metadata
+        if (property === EVENT_SOURCE || property === eventSourceMetadata) return metadata
         let current = metadata.read?.()
         if (property === 'get' && current instanceof Map) return (key: unknown) => at(key)
         if (property === 'has' && current instanceof Set) return (value: unknown) => at(value)

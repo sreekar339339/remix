@@ -1,6 +1,7 @@
 import type { EventSourceSubscriber } from 'remix/ui'
 
 export const ALL_EVENTS = '*'
+const ALL_SELECTORS = [ALL_EVENTS]
 
 const processListener = Symbol('customEvents.processListener')
 
@@ -163,14 +164,19 @@ function selectRoute(root: AddressNode, addresses: readonly EventAddress[] | und
   // per-item element subscriptions only.
   for (let subscription of root.subscriptions) selected.add(subscription)
   for (let address of addresses) {
-    let nodes = walkAddress(root, address)
-    for (let index = 1; index < nodes.length; index++) {
-      for (let subscription of nodes[index].subscriptions) {
+    let node = root
+    let depth = 0
+    for (let segment of address) {
+      let child = node.children.get(segment)
+      if (!child) break
+      node = child
+      depth++
+      for (let subscription of node.subscriptions) {
         selected.add(subscription)
       }
     }
-    if (nodes.length === address.length + 1) {
-      collectBranch(selected, nodes.at(-1)!)
+    if (depth === address.length) {
+      collectBranch(selected, node)
     }
   }
   return selected
@@ -287,7 +293,7 @@ function subscribe(
   signal?: AbortSignal,
 ) {
   let phase = runtime.subscriptions[phaseName]
-  let selectors = subscription.eventTypes ?? [ALL_EVENTS]
+  let selectors = subscription.eventTypes ?? ALL_SELECTORS
   let routes: Array<[string, AddressNode, EventAddress]> = []
 
   for (let selector of selectors) {
@@ -420,8 +426,9 @@ function notifyEntries(
   originScope: EventTarget,
   originTarget: EventTarget,
   carrier: CustomEvent,
+  prebuilt?: CustomEvent[],
 ) {
-  let snapshots: Array<CustomEvent | undefined> = []
+  let snapshots: Array<CustomEvent | undefined> = prebuilt ?? []
   let snapshotFor = (index: number) => {
     let event = snapshots[index]
     if (!event) {
@@ -484,24 +491,30 @@ function process(runtime: CustomEventsRuntimeState, event: Event) {
   if (originHost && event.composed !== true) {
     event.stopPropagation()
   }
-  if (event.transaction && originTarget === runtime.defaultHost && runtime.nativeListeners > 0) {
-    for (let entry of event.entries) {
-      EventTarget.prototype.dispatchEvent.call(
-        originTarget,
-        new CustomEvent(entry.type, {
-          bubbles: event.bubbles,
-          cancelable: false,
-          composed: event.composed,
-          detail: entry.detail,
-        }),
-      )
+  // Native listeners on the configured host receive one event per entry;
+  // those events double as the subscription snapshots, so each entry builds
+  // a single event serving both consumers.
+  let entryEvents: CustomEvent[] | undefined =
+    event.transaction && originTarget === runtime.defaultHost && runtime.nativeListeners > 0
+      ? event.entries.map((entry) => createEventSnapshot(entry, originTarget, event))
+      : undefined
+  if (entryEvents) {
+    for (let entryEvent of entryEvents) {
+      EventTarget.prototype.dispatchEvent.call(originTarget, entryEvent)
     }
   }
 
   let originScope =
     originHost ?? (isElement(originTarget) ? originTarget : (runtime.defaultHost ?? originTarget))
   try {
-    event.completion = notifyEntries(runtime, event.entries, originScope, originTarget, event)
+    event.completion = notifyEntries(
+      runtime,
+      event.entries,
+      originScope,
+      originTarget,
+      event,
+      entryEvents,
+    )
   } catch (error) {
     event.completion = Promise.reject(error)
   }
@@ -562,21 +575,25 @@ export const customEventsRuntime = {
   },
 }
 
-/** Registers an evented-view subscription, shared by wildcard and sub-sources. */
-export function subscribeView(
+/**
+ * Registers a subscription from one source (or the wildcard when absent),
+ * shared by evented views and element-owned effects. The source's type and
+ * path become the subscription's selectors and address routes.
+ */
+export function subscribeSource(
   runtime: CustomEventsRuntimeState,
+  phase: SubscriptionPhase,
   subscriber: EventSourceSubscriber,
   signal: AbortSignal,
-  eventTypes: ReadonlySet<string> | null,
-  addresses: ReadonlyMap<string, EventAddress> | undefined,
+  source: { type: string; path: readonly unknown[] } | undefined,
 ) {
   customEventsRuntime.subscribe(
     runtime,
-    'view',
+    phase,
     {
       element: subscriber.element,
-      eventTypes,
-      ...(addresses === undefined ? {} : { addresses }),
+      eventTypes: source ? new Set([source.type]) : null,
+      ...(source ? { addresses: new Map([[source.type, source.path]]) } : {}),
       notify(event) {
         return subscriber.notify(event)
       },
