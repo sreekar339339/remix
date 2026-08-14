@@ -10,8 +10,6 @@ import {
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
 import {
   canonicalAddressSegment,
-  isPropertyKey,
-  samePropertyKey,
   type CustomEventsPatch,
   type CustomEventsRuntimeEntry,
 } from './runtime.ts'
@@ -221,18 +219,6 @@ function createRemembered<
     return undefined
   }
 
-  /**
-   * Applies canonical patches to the live composite and returns the entries
-   * of the folded keys, ready for the descriptor to dispatch.
-   */
-  function applyPatches(patches: readonly CustomEventsPatch[]): CustomEventsRuntimeEntry[] {
-    let next = applyCanonicalPatches(live, patches)
-    let entries = entriesFromPatches(live, next, patches)
-    mirrorKeys(live, next, entries)
-    emitPatches(patches as CustomEventsPatch[])
-    return entries
-  }
-
   function onPatch(listener: (patches: readonly CustomEventsPatch[]) => void) {
     patchListeners.add(listener)
     return () => patchListeners.delete(listener)
@@ -241,7 +227,6 @@ function createRemembered<
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>({
     getState: () => live,
     fold: foldEntry,
-    applyPatches,
     onPatch,
   })
   return events as unknown as RememberedDescriptor<Details, Omit<Folds, 'root'>>
@@ -296,107 +281,6 @@ function canonicalPatch(patch: Patch): CustomEventsPatch {
   }
 }
 
-function findMapKey(map: Map<unknown, unknown>, segment: unknown) {
-  if (map.has(segment)) return segment
-  for (let key of map.keys()) {
-    if (samePropertyKey(key, segment)) return key
-  }
-  return undefined
-}
-
-/**
- * Applies canonical patches to a state, copying containers along the touched
- * paths so untouched subtrees keep their references.
- */
-function applyCanonicalPatches(
-  state: EventDetails,
-  patches: readonly CustomEventsPatch[],
-): EventDetails {
-  let next = { ...state } as EventDetails
-  for (let patch of patches) {
-    let rootKey = patch.path[0]
-    if (typeof rootKey !== 'string') continue
-    let previous = next[rootKey]
-    if (previous instanceof Set) {
-      let updated = new Set(previous)
-      if (patch.op === 'remove') updated.delete(patch.value)
-      else updated.add(patch.value)
-      next[rootKey] = updated
-    } else if (patch.path.length === 1) {
-      if (patch.op === 'remove') delete next[rootKey]
-      else next[rootKey] = patch.value
-    } else {
-      next[rootKey] = applyPatchValue(previous, patch.path, 1, patch)
-    }
-  }
-  return next
-}
-
-function applyPatchValue(
-  value: unknown,
-  path: readonly unknown[],
-  index: number,
-  patch: CustomEventsPatch,
-): unknown {
-  let segment = path[index]!
-  let last = index === path.length - 1
-  if (value instanceof Map) {
-    let key = findMapKey(value, segment)
-    let updated = new Map(value)
-    if (last) {
-      if (patch.op === 'remove') {
-        if (key === undefined) return value
-        updated.delete(key)
-      } else {
-        updated.set(key ?? segment, patch.value)
-      }
-    } else {
-      if (key === undefined) return value
-      updated.set(key, applyPatchValue(value.get(key), path, index + 1, patch))
-    }
-    return updated
-  }
-  if (Array.isArray(value)) {
-    if (typeof segment !== 'number') return value
-    let updated = value.slice()
-    if (last) {
-      if (patch.op === 'remove') {
-        if (!Object.hasOwn(value, segment)) return value
-        updated.splice(segment, 1)
-      } else {
-        updated[segment] = patch.value
-      }
-    } else {
-      if (!Object.hasOwn(value, segment)) return value
-      updated[segment] = applyPatchValue(value[segment], path, index + 1, patch)
-    }
-    return updated
-  }
-  if (value !== null && typeof value === 'object') {
-    if (!isPropertyKey(segment)) return value
-    let object = value as Record<string, unknown>
-    let updated = { ...object }
-    if (last) {
-      if (patch.op === 'remove') {
-        if (!Object.hasOwn(object, segment)) return value
-        delete updated[segment as string]
-      } else {
-        updated[segment as string] = patch.value
-      }
-    } else {
-      if (!Object.hasOwn(object, segment)) return value
-      updated[segment as string] = applyPatchValue(
-        object[segment as string],
-        path,
-        index + 1,
-        patch,
-      )
-    }
-    return updated
-  }
-  return value
-}
-
 function sameAddress(left: readonly unknown[], right: readonly unknown[]) {
   return (
     left.length === right.length && left.every((segment, index) => Object.is(segment, right[index]))
@@ -429,7 +313,7 @@ function appendAddress(addresses: Array<readonly unknown[]>, address: readonly u
 function entriesFromPatches(
   previousState: EventDetails,
   nextState: EventDetails,
-  patches: ReadonlyArray<Pick<CustomEventsPatch, 'op' | 'path' | 'value'>>,
+  patches: Patch[],
 ): CustomEventsRuntimeEntry[] {
   let addressesByKey = new Map<string, Array<readonly unknown[]>>()
   for (let patch of patches) {

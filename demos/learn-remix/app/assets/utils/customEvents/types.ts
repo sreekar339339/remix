@@ -512,8 +512,6 @@ export type CustomEventsDescriptor<
     ? {}
     : {
         root: CustomEventsRootSource<Events, State>
-        /** Applies canonical patches to the composite and dispatches them as one transaction. */
-        applyPatches(patches: readonly CustomEventsPatch[]): Promise<void>
         /** Subscribes to the canonical patch stream of every folding dispatch. */
         onPatch(listener: (patches: readonly CustomEventsPatch[]) => void): () => void
       })

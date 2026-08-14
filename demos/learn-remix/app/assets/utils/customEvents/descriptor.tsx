@@ -58,8 +58,6 @@ type RememberedEventContext = {
   getState(): EventDetails
   /** Folds a dispatched event into the remembered composite; absent for pure descriptors. */
   fold?(type: string, detail: unknown): CustomEventsRuntimeEntry[] | undefined
-  /** Applies canonical patches to the composite, returning the folded entries. */
-  applyPatches?(patches: readonly CustomEventsPatch[]): CustomEventsRuntimeEntry[]
   /** Registers a canonical patch-stream listener; returns the unsubscribe. */
   onPatch?(listener: (patches: readonly CustomEventsPatch[]) => void): () => void
 }
@@ -317,18 +315,7 @@ export function createCustomEventsDescriptor<
     dispatchEvent: typeof dispatchEvent
     on: typeof on
     asHost: typeof asHost
-    applyPatches?: (patches: readonly CustomEventsPatch[]) => Promise<void>
     onPatch?: (listener: (patches: readonly CustomEventsPatch[]) => void) => () => void
-  }
-  if (state?.applyPatches) {
-    descriptorTarget.applyPatches = (patches: readonly CustomEventsPatch[]) => {
-      let entries = state.applyPatches!(patches)
-      let target = customEventsRuntime.defaultHost(getRuntime())
-      if (target === undefined) {
-        throw new TypeError('customEvents applyPatches requires a registered host.')
-      }
-      return customEventsRuntime.dispatch(getRuntime(), target, createTransaction(entries))
-    }
   }
   if (state?.onPatch) {
     descriptorTarget.onPatch = (listener: (patches: readonly CustomEventsPatch[]) => void) =>
@@ -416,7 +403,6 @@ export function createCustomEventsDescriptor<
         property === 'dispatchEvent' ||
         property === 'on' ||
         property === 'asHost' ||
-        property === 'applyPatches' ||
         property === 'onPatch'
       ) {
         return Reflect.get(target, property, target)
