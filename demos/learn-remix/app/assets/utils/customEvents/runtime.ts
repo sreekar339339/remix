@@ -2,6 +2,8 @@ import type { EventSourceSubscriber } from 'remix/ui'
 
 export const ALL_EVENTS = '*'
 
+const processListener = Symbol('customEvents.processListener')
+
 export type SubscriptionPhase = 'view' | 'effect'
 
 type DispatchTargetRegistration = {
@@ -34,11 +36,6 @@ type ProductEventMetadata = {
   completion?: Promise<void>
   /** Transaction carriers do not natively deliver their entry types. */
   transaction?: boolean
-}
-
-type TransactionEvent = {
-  event: CustomEvent
-  addresses?: readonly EventAddress[]
 }
 
 export type EventAddress = readonly unknown[]
@@ -219,6 +216,10 @@ export type CustomEventsRuntimeState = {
   subscriptions: SubscriptionIndex
   dispatchTargets: WeakMap<EventTarget, DispatchTargetRegistration>
   hosts: WeakMap<Element, number>
+  /** Host targets whose native listeners are counted for re-dispatch. */
+  wrappedHosts: WeakSet<EventTarget>
+  /** Native listeners attached to wrapped host targets. */
+  nativeListeners: number
   defaultHost?: EventTarget
 }
 
@@ -234,6 +235,8 @@ export function createCustomEventsRuntimeState(): CustomEventsRuntimeState {
     },
     dispatchTargets: new WeakMap(),
     hosts: new WeakMap(),
+    wrappedHosts: new WeakSet(),
+    nativeListeners: 0,
   }
 }
 
@@ -304,6 +307,23 @@ function subscribe(
   }, signal)
 }
 
+function wrapHostListeners(runtime: CustomEventsRuntimeState, target: EventTarget) {
+  if (runtime.wrappedHosts.has(target)) return
+  runtime.wrappedHosts.add(target)
+  let originalAdd = target.addEventListener.bind(target)
+  let originalRemove = target.removeEventListener.bind(target)
+  target.addEventListener = ((type, listener, options) => {
+    if (typeof options !== 'object' || options === null || !(processListener in options)) {
+      runtime.nativeListeners += 1
+    }
+    return originalAdd(type, listener, options)
+  }) as typeof target.addEventListener
+  target.removeEventListener = ((type, listener, options) => {
+    if (runtime.nativeListeners > 0) runtime.nativeListeners -= 1
+    return originalRemove(type, listener, options)
+  }) as typeof target.removeEventListener
+}
+
 function registerHost(
   runtime: CustomEventsRuntimeState,
   target: EventTarget,
@@ -321,6 +341,7 @@ function registerHost(
     }, signal)
   }
 
+  wrapHostListeners(runtime, target)
   runtime.defaultHost = target
   return ownCleanup(() => {
     unregisterTarget()
@@ -341,41 +362,47 @@ function scopeFor(runtime: CustomEventsRuntimeState, element: Element | undefine
 function matchesScope(
   runtime: CustomEventsRuntimeState,
   subscription: ElementSubscription,
-  event: CustomEvent,
+  carrier: CustomEvent,
   originScope: EventTarget,
   originTarget: EventTarget,
 ) {
   if (isElement(originTarget) && subscription.element === originTarget) {
     return true
   }
-  if (!event.bubbles && isElement(originTarget) && subscription.element !== originTarget) {
+  if (!carrier.bubbles && isElement(originTarget) && subscription.element !== originTarget) {
     return false
   }
 
   let subscriptionScope = scopeFor(runtime, subscription.element) ?? subscription.element
   return (
     subscriptionScope === originScope ||
-    (event.composed &&
+    (carrier.composed &&
       isElement(subscriptionScope) &&
       isElement(originScope) &&
       subscriptionScope.contains(originScope))
   )
 }
 
-function* matchingSubscriptions(
+const EMPTY_SUBSCRIPTIONS = new Set<ElementSubscription>()
+
+function matchingSubscriptions(
   runtime: CustomEventsRuntimeState,
   phase: SubscriptionPhase,
-  transactionEvent: TransactionEvent,
+  entry: CustomEventsRuntimeEntry,
 ) {
   let index = runtime.subscriptions[phase]
   let wildcard = index.get(ALL_EVENTS)
-  if (wildcard) {
-    yield* selectRoute(wildcard, transactionEvent.addresses)
+  let typed = index.get(entry.type)
+  if (wildcard && typed) {
+    let selected = selectRoute(wildcard, entry.addresses)
+    for (let subscription of selectRoute(typed, entry.addresses)) {
+      selected.add(subscription)
+    }
+    return selected
   }
-  let typed = index.get(transactionEvent.event.type)
-  if (typed) {
-    yield* selectRoute(typed, transactionEvent.addresses)
-  }
+  if (wildcard) return selectRoute(wildcard, entry.addresses)
+  if (typed) return selectRoute(typed, entry.addresses)
+  return EMPTY_SUBSCRIPTIONS
 }
 
 function notifyEntries(
@@ -385,42 +412,46 @@ function notifyEntries(
   originTarget: EventTarget,
   carrier: CustomEvent,
 ) {
-  let events: TransactionEvent[] = entries.map((entry) => {
-    let event = createEventSnapshot(entry, originTarget, carrier)
-    return {
-      event,
-      ...(entry.addresses === undefined ? {} : { addresses: entry.addresses }),
+  let snapshots = new Map<number, CustomEvent>()
+  let snapshotFor = (index: number) => {
+    let event = snapshots.get(index)
+    if (!event) {
+      event = createEventSnapshot(entries[index]!, originTarget, carrier)
+      snapshots.set(index, event)
     }
-  })
+    return event
+  }
 
-  let matches = new Map<ElementSubscription, TransactionEvent>()
-  for (let transactionEvent of events) {
-    for (let subscription of matchingSubscriptions(runtime, 'view', transactionEvent)) {
-      if (matchesScope(runtime, subscription, transactionEvent.event, originScope, originTarget)) {
-        matches.set(subscription, transactionEvent)
+  let matches = new Map<ElementSubscription, number>()
+  for (let index = 0; index < entries.length; index++) {
+    let entry = entries[index]!
+    for (let subscription of matchingSubscriptions(runtime, 'view', entry)) {
+      if (matchesScope(runtime, subscription, carrier, originScope, originTarget)) {
+        matches.set(subscription, index)
       }
     }
   }
 
-  let source: Array<[ElementSubscription, TransactionEvent]> = []
-  let remaining: Array<[ElementSubscription, TransactionEvent]> = []
+  let source: Array<[ElementSubscription, number]> = []
+  let remaining: Array<[ElementSubscription, number]> = []
   for (let match of matches) {
     ;(match[0].element === originTarget ? source : remaining).push(match)
   }
   let commit = (selected: typeof source) =>
-    Promise.all(selected.values().map(([subscription, match]) => subscription.notify(match.event)))
+    Promise.all(
+      selected.values().map(([subscription, index]) => subscription.notify(snapshotFor(index))),
+    )
   let viewsCommitted = source.length
     ? commit(source).then(() => commit(remaining))
     : commit(remaining)
 
   let viewsAndEffectsSettled = viewsCommitted.then(() => {
     let effectResults: unknown[] = []
-    for (let transactionEvent of events) {
-      for (let subscription of matchingSubscriptions(runtime, 'effect', transactionEvent)) {
-        if (
-          matchesScope(runtime, subscription, transactionEvent.event, originScope, originTarget)
-        ) {
-          collect(effectResults, () => subscription.notify(transactionEvent.event))
+    for (let index = 0; index < entries.length; index++) {
+      let entry = entries[index]!
+      for (let subscription of matchingSubscriptions(runtime, 'effect', entry)) {
+        if (matchesScope(runtime, subscription, carrier, originScope, originTarget)) {
+          collect(effectResults, () => subscription.notify(snapshotFor(index)))
         }
       }
     }
@@ -442,7 +473,7 @@ function process(runtime: CustomEventsRuntimeState, event: Event) {
   if (originHost && event.composed !== true) {
     event.stopPropagation()
   }
-  if (metadata.transaction && originTarget === runtime.defaultHost) {
+  if (metadata.transaction && originTarget === runtime.defaultHost && runtime.nativeListeners > 0) {
     for (let entry of metadata.entries) {
       EventTarget.prototype.dispatchEvent.call(
         originTarget,
@@ -477,7 +508,11 @@ function registerDispatchTarget(runtime: CustomEventsRuntimeState, target: Event
   let listen = (type: string) => {
     if (listenedTypes.has(type)) return
     listenedTypes.add(type)
-    target.addEventListener(type, (event) => process(runtime, event), { signal: controller.signal })
+    let listenerOptions = {
+      signal: controller.signal,
+      [processListener]: true,
+    } as AddEventListenerOptions & Record<typeof processListener, boolean>
+    target.addEventListener(type, (event) => process(runtime, event), listenerOptions)
   }
   runtime.eventTypeListeners.add(listen)
   for (let type of runtime.eventTypes) listen(type)

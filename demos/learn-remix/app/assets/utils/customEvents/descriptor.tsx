@@ -335,14 +335,25 @@ export function createCustomEventsDescriptor<
     }
     // Sources are callable: invoking one with a listener registers an
     // element-owned effect scoped to this source.
+    let nested = new Map<unknown, object>()
+    let at = (segment: unknown, read?: () => unknown) => {
+      let canonical = canonicalAddressSegment(segment)
+      if (read === undefined) {
+        let source = nested.get(canonical)
+        if (!source) {
+          source = createSource(type, readRoot, [...path, canonical])
+          nested.set(canonical, source)
+        }
+        return source
+      }
+      return createSource(type, readRoot, [...path, canonical], read)
+    }
     let onNode = (listener: (event: Event) => void | Promise<unknown>) =>
       customEventsOnMixin(getRuntime(), metadata, listener)
     return new Proxy(onNode, {
       get(_, property) {
         if (property === EVENT_SOURCE) return protocol
         if (property === eventSourceMetadata) return metadata
-        let at = (segment: unknown, read?: () => unknown) =>
-          createSource(type, readRoot, [...path, canonicalAddressSegment(segment)], read)
         let current = metadata.read?.()
         if (property === 'get' && current instanceof Map) return (key: unknown) => at(key)
         if (property === 'has' && current instanceof Set) return (value: unknown) => at(value)
@@ -364,7 +375,9 @@ export function createCustomEventsDescriptor<
         return wildcardSource[EVENT_SOURCE]
       }
       if (property === 'addEventListener' || property === 'removeEventListener') {
-        return Reflect.get(EventTarget.prototype, property, base).bind(base)
+        // Resolve the base's own methods so native listeners on the default
+        // host are counted for transaction re-dispatch.
+        return Reflect.get(base, property, base).bind(base)
       }
       if (property === 'root') {
         return rootSource
