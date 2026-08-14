@@ -58,6 +58,17 @@ class ProductEvent extends CustomEvent<unknown> {
 export type EventAddress = readonly unknown[]
 
 /**
+ * A canonical structural change: the address starts at the top-level key and
+ * every segment is the canonical form, so patches are serializable and can be
+ * replayed on any compatible composite.
+ */
+export type CustomEventsPatch = {
+  op: 'add' | 'remove' | 'replace'
+  path: EventAddress
+  value?: unknown
+}
+
+/**
  * The single addressing key of a route segment: strings and numbers
  * canonicalise to their string form (they address the same Map key and the
  * same route), while symbols and objects keep their identity. Sources,

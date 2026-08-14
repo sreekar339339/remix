@@ -8,7 +8,13 @@ import {
   setAutoFreeze,
 } from 'immer'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
-import { canonicalAddressSegment, type CustomEventsRuntimeEntry } from './runtime.ts'
+import {
+  canonicalAddressSegment,
+  isPropertyKey,
+  samePropertyKey,
+  type CustomEventsPatch,
+  type CustomEventsRuntimeEntry,
+} from './runtime.ts'
 import { reservedCustomEventsNames } from './types.ts'
 import type {
   CustomEventsDescriptor,
@@ -137,6 +143,12 @@ function createRemembered<
     foldFns.set(name, fold as RememberedFoldFn<Details>)
   }
 
+  let patchListeners = new Set<(patches: readonly CustomEventsPatch[]) => void>()
+  let emitPatches = (patches: CustomEventsPatch[]) => {
+    if (patchListeners.size === 0) return
+    for (let listener of patchListeners) listener(patches)
+  }
+
   function foldEntry(type: string, detail: unknown) {
     // The root event replaces the whole composite: its detail is the model,
     // with the same validation the declaration applies to its seed.
@@ -151,10 +163,12 @@ function createRemembered<
         }
       }
       let entries: CustomEventsRuntimeEntry[] = []
+      let patches: CustomEventsPatch[] = []
       for (let key of Object.keys(next)) {
         let previous = live[key]
         if (!Object.is(previous, next[key])) {
           entries.push(detailEntry(key, previous, next[key]))
+          patches.push({ op: 'replace', path: [key], value: next[key] })
           live[key] = next[key]
         }
       }
@@ -162,6 +176,7 @@ function createRemembered<
         if (!Object.hasOwn(next, key)) {
           let previous = live[key]
           delete live[key]
+          patches.push({ op: 'remove', path: [key] })
           entries.push(
             previous instanceof Set
               ? { type: key, detail: undefined, addresses: [[]] }
@@ -169,6 +184,7 @@ function createRemembered<
           )
         }
       }
+      emitPatches(patches)
       return entries
     }
 
@@ -181,6 +197,7 @@ function createRemembered<
       if (patches.length > 0) {
         entries = entriesFromPatches(live, next, patches)
         mirrorKeys(live, next, entries)
+        emitPatches(patches.map(canonicalPatch))
       }
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
@@ -198,14 +215,34 @@ function createRemembered<
       let previous = live[type]
       if (Object.is(previous, detail)) return []
       live[type] = detail
+      emitPatches([{ op: 'replace', path: [type], value: detail }])
       return [detailEntry(type, previous, detail)]
     }
     return undefined
   }
 
+  /**
+   * Applies canonical patches to the live composite and returns the entries
+   * of the folded keys, ready for the descriptor to dispatch.
+   */
+  function applyPatches(patches: readonly CustomEventsPatch[]): CustomEventsRuntimeEntry[] {
+    let next = applyCanonicalPatches(live, patches)
+    let entries = entriesFromPatches(live, next, patches)
+    mirrorKeys(live, next, entries)
+    emitPatches(patches as CustomEventsPatch[])
+    return entries
+  }
+
+  function onPatch(listener: (patches: readonly CustomEventsPatch[]) => void) {
+    patchListeners.add(listener)
+    return () => patchListeners.delete(listener)
+  }
+
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>({
     getState: () => live,
     fold: foldEntry,
+    applyPatches,
+    onPatch,
   })
   return events as unknown as RememberedDescriptor<Details, Omit<Folds, 'root'>>
 }
@@ -246,6 +283,119 @@ function mirrorKeys(live: EventDetails, next: EventDetails, entries: CustomEvent
   }
 }
 
+/** Converts an Immer patch to the canonical patch protocol. */
+function canonicalPatch(patch: Patch): CustomEventsPatch {
+  let path: unknown[] = []
+  for (let segment of patch.path) {
+    path.push(canonicalAddressSegment(segment))
+  }
+  return {
+    op: patch.op,
+    path,
+    ...(Object.hasOwn(patch, 'value') ? { value: patch.value } : {}),
+  }
+}
+
+function findMapKey(map: Map<unknown, unknown>, segment: unknown) {
+  if (map.has(segment)) return segment
+  for (let key of map.keys()) {
+    if (samePropertyKey(key, segment)) return key
+  }
+  return undefined
+}
+
+/**
+ * Applies canonical patches to a state, copying containers along the touched
+ * paths so untouched subtrees keep their references.
+ */
+function applyCanonicalPatches(
+  state: EventDetails,
+  patches: readonly CustomEventsPatch[],
+): EventDetails {
+  let next = { ...state } as EventDetails
+  for (let patch of patches) {
+    let rootKey = patch.path[0]
+    if (typeof rootKey !== 'string') continue
+    let previous = next[rootKey]
+    if (previous instanceof Set) {
+      let updated = new Set(previous)
+      if (patch.op === 'remove') updated.delete(patch.value)
+      else updated.add(patch.value)
+      next[rootKey] = updated
+    } else if (patch.op === 'remove' && patch.path.length === 1) {
+      delete next[rootKey]
+    } else {
+      next[rootKey] = applyPatchValue(previous, patch.path, 1, patch)
+    }
+  }
+  return next
+}
+
+function applyPatchValue(
+  value: unknown,
+  path: readonly unknown[],
+  index: number,
+  patch: CustomEventsPatch,
+): unknown {
+  let segment = path[index]!
+  let last = index === path.length - 1
+  if (value instanceof Map) {
+    let key = findMapKey(value, segment)
+    let updated = new Map(value)
+    if (last) {
+      if (patch.op === 'remove') {
+        if (key === undefined) return value
+        updated.delete(key)
+      } else {
+        updated.set(key ?? segment, patch.value)
+      }
+    } else {
+      if (key === undefined) return value
+      updated.set(key, applyPatchValue(value.get(key), path, index + 1, patch))
+    }
+    return updated
+  }
+  if (Array.isArray(value)) {
+    if (typeof segment !== 'number') return value
+    let updated = value.slice()
+    if (last) {
+      if (patch.op === 'remove') {
+        if (!Object.hasOwn(value, segment)) return value
+        updated.splice(segment, 1)
+      } else {
+        updated[segment] = patch.value
+      }
+    } else {
+      if (!Object.hasOwn(value, segment)) return value
+      updated[segment] = applyPatchValue(value[segment], path, index + 1, patch)
+    }
+    return updated
+  }
+  if (value !== null && typeof value === 'object') {
+    if (!isPropertyKey(segment)) return value
+    let object = value as Record<string, unknown>
+    let updated = { ...object }
+    if (last) {
+      if (patch.op === 'remove') {
+        if (!Object.hasOwn(object, segment)) return value
+        delete updated[segment as string]
+      } else {
+        updated[segment as string] = patch.value
+      }
+    } else {
+      if (!Object.hasOwn(object, segment)) return value
+      updated[segment as string] = applyPatchValue(
+        object[segment as string],
+        path,
+        index + 1,
+        patch,
+      )
+    }
+    return updated
+  }
+  return value
+}
+
 function sameAddress(left: readonly unknown[], right: readonly unknown[]) {
   return (
     left.length === right.length && left.every((segment, index) => Object.is(segment, right[index]))
@@ -278,7 +428,7 @@ function appendAddress(addresses: Array<readonly unknown[]>, address: readonly u
 function entriesFromPatches(
   previousState: EventDetails,
   nextState: EventDetails,
-  patches: Patch[],
+  patches: ReadonlyArray<Pick<CustomEventsPatch, 'op' | 'path' | 'value'>>,
 ): CustomEventsRuntimeEntry[] {
   let addressesByKey = new Map<string, Array<readonly unknown[]>>()
   for (let patch of patches) {

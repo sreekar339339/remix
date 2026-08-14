@@ -1,5 +1,6 @@
 import { clientEntry, css, on } from 'remix/ui'
 import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import type { CustomEventsPatch } from '../utils/customEvents/runtime.ts'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 type Circle = {
@@ -9,15 +10,11 @@ type Circle = {
   diameter: number
 }
 
-type CircleHistory = {
-  snapshots: Array<Map<number, Circle>>
-  index: number
-}
-
-function recordDrawingSnapshot(circles: Map<number, Circle>, history: CircleHistory) {
-  history.snapshots.splice(history.index + 1)
-  history.snapshots.push(new Map(circles))
-  history.index++
+type Drawing = {
+  /** The circles before the change, for inverse patches. */
+  previous: Map<number, Circle>
+  /** The canonical patches of the change, for replay. */
+  patches: readonly CustomEventsPatch[]
 }
 
 function hitCircle(circles: Iterable<Circle>, x: number, y: number) {
@@ -45,100 +42,126 @@ function getCanvasPoint(canvas: SVGSVGElement, clientX: number, clientY: number)
   }
 }
 
+function readAt(value: unknown, path: readonly unknown[]) {
+  let current = value
+  for (let index = 1; index < path.length; index++) {
+    if (current instanceof Map) {
+      current = current.get(Number(path[index]))
+    } else if (current !== null && typeof current === 'object') {
+      current = Reflect.get(current, path[index] as PropertyKey)
+    } else {
+      return undefined
+    }
+  }
+  return current
+}
+
+/** The inverse of a drawing's patches against its pre-change circles. */
+function undoPatches(drawing: Drawing): CustomEventsPatch[] {
+  return drawing.patches.flatMap((patch): CustomEventsPatch[] => {
+    if (patch.path[0] !== 'circles' || patch.op === 'remove') return []
+    let previousValue = readAt(drawing.previous, patch.path)
+    return previousValue === undefined
+      ? [{ op: 'remove', path: patch.path }]
+      : [{ op: 'replace', path: patch.path, value: previousValue }]
+  })
+}
+
 export const SevenGuisCircleDrawer = clientEntry(
   import.meta.url,
   function SevenGuisCircleDrawer(handle) {
+    let root = {
+      circles: new Map<number, Circle>(),
+      editingCircleById: null as number | null,
+      nextCircleId: 1,
+    }
     let events = customEvents({
-      root: {
-        circles: new Map<number, Circle>(),
-        editingCircleById: null as number | null,
-        history: { snapshots: [new Map<number, Circle>()], index: 0 },
-        nextCircleId: 1,
-      },
-
-      addCircle: (point: { x: number; y: number }, root) => {
-        if (root.editingCircleById !== null) return
-        if (hitCircle(root.circles.values(), point.x, point.y)) return
+      root,
+      addCircle: (point: { x: number; y: number }, draft) => {
+        if (draft.editingCircleById !== null) return
+        if (hitCircle(draft.circles.values(), point.x, point.y)) return
         let circle = {
-          id: root.nextCircleId,
+          id: draft.nextCircleId,
           ...point,
           diameter: 30,
         }
-        root.circles.set(circle.id, circle)
-        recordDrawingSnapshot(root.circles, root.history)
-        root.nextCircleId += 1
+        draft.circles.set(circle.id, circle)
+        draft.nextCircleId += 1
       },
-      openEditor: (id: number, root) => {
-        if (root.editingCircleById !== null) return
-        root.editingCircleById = id
+      openEditor: (id: number, draft) => {
+        if (draft.editingCircleById !== null) return
+        draft.editingCircleById = id
       },
-      setDiameter: (diameter: number, root) => {
-        let id = root.editingCircleById
+      setDiameter: (diameter: number, draft) => {
+        let id = draft.editingCircleById
         if (id === null) return
-        let circle = root.circles.get(id)
+        let circle = draft.circles.get(id)
         if (!circle || circle.diameter === diameter) return
         circle.diameter = diameter
       },
-      closeEditor: (_detail, root) => {
-        let id = root.editingCircleById
-        if (id === null) return
-        let circle = root.circles.get(id)
-        let committed = root.history.snapshots[root.history.index]?.get(id)
-        if (circle && committed && circle.diameter !== committed.diameter) {
-          recordDrawingSnapshot(root.circles, root.history)
-        }
-        root.editingCircleById = null
-      },
-      undo: (_detail, root) => {
-        let index = root.history.index - 1
-        if (index < 0) return
-        root.circles = new Map(
-          root.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
-        )
-        root.editingCircleById = null
-        root.history.index = index
-      },
-      redo: (_detail, root) => {
-        let index = root.history.index + 1
-        if (index >= root.history.snapshots.length) return
-        root.circles = new Map(
-          root.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
-        )
-        root.editingCircleById = null
-        root.history.index = index
+      closeEditor: (_detail, draft) => {
+        draft.editingCircleById = null
       },
     })
+
+    let history: Drawing[] = []
+    let historyIndex = -1
+    let pending: readonly CustomEventsPatch[] = []
+    events.onPatch((patches) => {
+      pending = patches
+    })
+
+    // The change point of a drawing: captures the circles before a mutating
+    // dispatch and records the patches the dispatch streamed.
+    function recordDrawing(previous: Map<number, Circle>) {
+      if (pending.length === 0) return
+      history.splice(historyIndex + 1)
+      history.push({ previous, patches: pending })
+      historyIndex++
+      handle.update()
+    }
+
+    let editorPrevious: Map<number, Circle> | undefined
 
     return () => (
       <section mix={taskCss}>
         <h2>Circle Drawer</h2>
         <div mix={rowCss}>
-          <evented.button
-            eventSource={events.on.history}
+          <button
             type="button"
-            disabled={(history) => history.index === 0}
+            disabled={historyIndex < 0}
             mix={[
               buttonCss,
-              on('click', () => {
-                events.dispatchEvent('undo')
+              on('click', async () => {
+                if (historyIndex < 0) return
+                let drawing = history[historyIndex]!
+                historyIndex--
+                editorPrevious = undefined
+                await events.applyPatches(undoPatches(drawing))
+                events.dispatchEvent('closeEditor')
+                handle.update()
               }),
             ]}
           >
             Undo
-          </evented.button>
-          <evented.button
-            eventSource={events.on.history}
+          </button>
+          <button
             type="button"
-            disabled={(history) => history.index === history.snapshots.length - 1}
+            disabled={historyIndex === history.length - 1}
             mix={[
               buttonCss,
-              on('click', () => {
-                events.dispatchEvent('redo')
+              on('click', async () => {
+                let drawing = history[historyIndex + 1]!
+                historyIndex++
+                editorPrevious = undefined
+                await events.applyPatches(drawing.patches)
+                events.dispatchEvent('closeEditor')
+                handle.update()
               }),
             ]}
           >
             Redo
-          </evented.button>
+          </button>
         </div>
         <svg
           viewBox="0 0 420 220"
@@ -153,7 +176,10 @@ export const SevenGuisCircleDrawer = clientEntry(
             on('click', ({ currentTarget, clientX, clientY }) => {
               let point = getCanvasPoint(currentTarget, clientX, clientY)
               if (!point) return
+              let previous = new Map(root.circles)
+              pending = []
               events.dispatchEvent({ addCircle: point })
+              recordDrawing(previous)
             }),
           ]}
         >
@@ -181,6 +207,8 @@ export const SevenGuisCircleDrawer = clientEntry(
                       }),
                       on('contextmenu', (event) => {
                         event.preventDefault()
+                        editorPrevious = new Map(root.circles)
+                        pending = []
                         events.dispatchEvent({ openEditor: id })
                       }),
                     ]}
@@ -197,6 +225,10 @@ export const SevenGuisCircleDrawer = clientEntry(
             rowCss,
             on('submit', (event) => {
               event.preventDefault()
+              if (editorPrevious !== undefined) {
+                recordDrawing(editorPrevious)
+                editorPrevious = undefined
+              }
               events.dispatchEvent('closeEditor')
             }),
           ]}
@@ -214,6 +246,7 @@ export const SevenGuisCircleDrawer = clientEntry(
               mix={[
                 inputCss,
                 on('input', ({ currentTarget }) => {
+                  pending = []
                   events.dispatchEvent({ setDiameter: currentTarget.valueAsNumber })
                 }),
               ]}

@@ -8,6 +8,7 @@ import {
   type RemixNode,
   type TypedEventTarget,
 } from 'remix/ui'
+import type { CustomEventsPatch } from './runtime.ts'
 
 export type EventDetails = Record<string, unknown>
 
@@ -507,7 +508,15 @@ export type CustomEventsDescriptor<
     /** Registers an element host (mixin) or a domain `EventTarget` (bridge). */
     asHost: CustomEventsAsHost<Events, State>
     /** The root event source: matches every descriptor event and reads the composite. */
-  } & ([State] extends [never] ? {} : { root: CustomEventsRootSource<Events, State> })
+  } & ([State] extends [never]
+    ? {}
+    : {
+        root: CustomEventsRootSource<Events, State>
+        /** Applies canonical patches to the composite and dispatches them as one transaction. */
+        applyPatches(patches: readonly CustomEventsPatch[]): Promise<void>
+        /** Subscribes to the canonical patch stream of every folding dispatch. */
+        onPatch(listener: (patches: readonly CustomEventsPatch[]) => void): () => void
+      })
 
 /**
  * How a declared fold event folds into the root event: the first parameter

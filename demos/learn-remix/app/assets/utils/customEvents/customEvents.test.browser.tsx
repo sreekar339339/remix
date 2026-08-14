@@ -2054,4 +2054,117 @@ describe('remembered customEvents', () => {
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'built:9')
   })
+
+  it('applies canonical patches and routes them like the equivalent fold', async (t) => {
+    let seed = {
+      items: new Map<string, { label: string }>(),
+      count: 0,
+    }
+    let events = customEvents({
+      root: seed,
+      add: (item: { label: string }, root) => {
+        root.items.set(item.label, item)
+        root.count += 1
+      },
+    })
+    let calls = { whole: 0, item: 0 }
+    let patches: Array<readonly import('./runtime.ts').CustomEventsPatch[]> = []
+    events.onPatch((batch) => patches.push(batch))
+
+    function Board() {
+      return () => (
+        <section>
+          <evented.output eventSource={events.on.items}>
+            {() => String(++calls.whole)}
+          </evented.output>
+          <evented.output eventSource={events.on.items.get('a')}>
+            {() => String(++calls.item)}
+          </evented.output>
+        </section>
+      )
+    }
+
+    let result = render(<Board />)
+    t.after(() => result.cleanup())
+    assert.deepEqual(calls, { whole: 1, item: 1 })
+
+    // A canonical replace under a Map key reaches only the addressed item
+    // and the whole-key view, exactly like the fold that sets the key.
+    await result.act(async () => {
+      await events.applyPatches([{ op: 'replace', path: ['items', 'a'], value: { label: 'A' } }])
+      await settleEffects()
+    })
+    assert.equal(seed.items.get('a')?.label, 'A')
+    assert.deepEqual(calls, { whole: 2, item: 2 })
+    assert.deepEqual(patches[patches.length - 1], [
+      { op: 'replace', path: ['items', 'a'], value: { label: 'A' } },
+    ])
+
+    // Applying the same patches a fold would have produced keeps the
+    // composite and the subscribers consistent with the fold itself.
+    await result.act(async () => {
+      await events.dispatchEvent({ add: { label: 'b' } })
+      await settleEffects()
+    })
+    assert.equal(seed.count, 1)
+    assert.equal(seed.items.get('b')?.label, 'b')
+    assert.deepEqual(patches[patches.length - 1], [
+      { op: 'add', path: ['items', 'b'], value: { label: 'b' } },
+      { op: 'replace', path: ['count'], value: 1 },
+    ])
+
+    // Replaying that batch through applyPatches yields the same state.
+    await result.act(async () => {
+      await events.applyPatches(patches[patches.length - 1])
+      await settleEffects()
+    })
+    assert.equal(seed.count, 1)
+    assert.equal(seed.items.get('b')?.label, 'b')
+
+    // A removal patch deletes the key from the live seed and routes the same.
+    await result.act(async () => {
+      await events.applyPatches([{ op: 'remove', path: ['items', 'a'] }])
+      await settleEffects()
+    })
+    assert.equal(seed.items.has('a'), false)
+    assert.deepEqual(calls, { whole: 5, item: 3 })
+  })
+
+  it('streams canonical patches through onPatch and stops on unsubscribe', async () => {
+    let events = customEvents({
+      root: {
+        count: 0,
+        label: 'idle',
+      },
+      inc: (amount: number, root) => {
+        root.count += amount
+      },
+    })
+    let streams: Array<readonly import('./runtime.ts').CustomEventsPatch[]> = []
+    let unregister = events.onPatch((batch) => streams.push(batch))
+
+    events.dispatchEvent({ label: 'ready' })
+    assert.deepEqual(streams[streams.length - 1], [
+      { op: 'replace', path: ['label'], value: 'ready' },
+    ])
+
+    events.dispatchEvent({ inc: 2 })
+    assert.deepEqual(streams[streams.length - 1], [{ op: 'replace', path: ['count'], value: 2 }])
+
+    // Transient occurrences never touch the composite and stream nothing.
+    let before = streams.length
+    events.dispatchEvent('refresh')
+    assert.equal(streams.length, before)
+
+    // A root write streams a replace per kept slice and a remove per dropped one.
+    events.dispatchEvent({ root: { count: 9 } } as any)
+    assert.deepEqual(streams[streams.length - 1], [
+      { op: 'replace', path: ['count'], value: 9 },
+      { op: 'remove', path: ['label'] },
+    ])
+
+    unregister()
+    events.dispatchEvent({ label: 'done' })
+    assert.equal(streams.length, 3)
+  })
 })
