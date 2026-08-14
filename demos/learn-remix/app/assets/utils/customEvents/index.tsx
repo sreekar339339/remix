@@ -8,7 +8,7 @@ import {
   setAutoFreeze,
 } from 'immer'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
-import { canonicalAddressSegment, isPropertyKey, type CustomEventsRuntimeEntry } from './runtime.ts'
+import { canonicalAddressSegment, type CustomEventsRuntimeEntry } from './runtime.ts'
 import { reservedCustomEventsNames } from './types.ts'
 import type {
   CustomEventsDescriptor,
@@ -246,45 +246,6 @@ function mirrorKeys(live: EventDetails, next: EventDetails, entries: CustomEvent
   }
 }
 
-function resolvePatchPath(
-  state: EventDetails,
-  rootKey: string,
-  path: readonly unknown[],
-  offset = 0,
-): readonly unknown[] | undefined {
-  let logicalPath: unknown[] = []
-  let value = state[rootKey]
-  for (let index = offset; index < path.length; index++) {
-    let segment = path[index]!
-    if (value instanceof Map) {
-      if (!value.has(segment)) return
-      let item = value.get(segment)
-      logicalPath.push(canonicalAddressSegment(segment))
-      value = item
-      continue
-    }
-    if (Array.isArray(value)) {
-      if (typeof segment !== 'number' || !Object.hasOwn(value, segment)) {
-        return
-      }
-      let item = value[segment]
-      logicalPath.push(canonicalAddressSegment(segment))
-      value = item
-      continue
-    }
-    if (value !== null && typeof value === 'object') {
-      if (!isPropertyKey(segment) || !Object.hasOwn(value, segment)) {
-        return
-      }
-      logicalPath.push(segment)
-      value = Reflect.get(value, segment)
-      continue
-    }
-    return
-  }
-  return logicalPath
-}
-
 function normalizePatches(previousState: EventDetails, nextState: EventDetails, patches: Patch[]) {
   let rootKey = patches[0]?.path[0]
   if (typeof rootKey !== 'string') {
@@ -308,8 +269,6 @@ function normalizePatches(previousState: EventDetails, nextState: EventDetails, 
   }
 
   for (let patch of patches) {
-    let addressCount = addresses.length
-
     if (previous instanceof Set || next instanceof Set) {
       if (!Object.hasOwn(patch, 'value')) {
         addAddress([])
@@ -318,13 +277,14 @@ function normalizePatches(previousState: EventDetails, nextState: EventDetails, 
       addAddress([canonicalAddressSegment(patch.value)])
       continue
     }
-
-    let previousPath = resolvePatchPath(previousState, rootKey, patch.path, 1)
-    let nextPath = resolvePatchPath(nextState, rootKey, patch.path, 1)
-
-    addAddress(previousPath)
-    addAddress(nextPath)
-    if (addresses.length === addressCount) addAddress([])
+    // Immer emits the raw path of every mutation it applied, so
+    // canonicalizing the segments directly yields the same logical address
+    // resolving the previous and next states would, without walking either.
+    let address: unknown[] = []
+    for (let index = 1; index < patch.path.length; index++) {
+      address.push(canonicalAddressSegment(patch.path[index]!))
+    }
+    addAddress(address)
   }
   return addresses
 }
