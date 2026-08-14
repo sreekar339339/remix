@@ -45,8 +45,12 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
 ): CustomEventsDescriptor<NormalizeCustomEventsDefinition<Definition>>
 /**
  * Creates a remembered descriptor: the `root` key declares the root event's
- * initial composite, and every other key declares a fold event that folds its
- * detail into the root (`(detail, root) => void`).
+ * initial composite, and every other key declares an event as a recipe — a
+ * `(detail, root) => void` fold that folds its detail into the composite, or
+ * a recipe with fewer than two parameters (`(detail) => void` or `() => void`)
+ * that declares a transient occurrence. Every property of the argument is an
+ * event name: dispatching `root` (`dispatchEvent({ root: {...} })`) replaces
+ * the whole composite.
  *
  * `customEvents({ root: { count: 0, label: 'idle' }, inc: (detail, root) => { root.count += detail } })`
  *
@@ -99,10 +103,40 @@ function createRemembered<
     if (typeof fold !== 'function') {
       throw new TypeError(`customEvents expects a recipe as the fold for "${name}".`)
     }
+    if ((reservedCustomEventsNames as readonly string[]).includes(name)) {
+      throw new TypeError(`customEvents reserves "${name}" for its API.`)
+    }
+    // A recipe with fewer than two parameters declares a transient
+    // occurrence: it fires its event with a detail (or none at all) and
+    // forgets it, leaving the composite untouched. `foldEntry` falls through
+    // to the plain occurrence entry for it.
+    if (fold.length <= 1) continue
     foldFns.set(name, fold as RememberedFoldFn<Details>)
   }
 
   function foldEntry(type: string, detail: unknown) {
+    // The root event replaces the whole composite: its detail is the model,
+    // with the same validation the declaration applies to its seed.
+    if (type === 'root') {
+      if (detail === null || typeof detail !== 'object' || Array.isArray(detail)) {
+        throw new TypeError('customEvents root must be an object of remembered details.')
+      }
+      for (let name of Object.keys(detail)) {
+        if (name === '*' || (reservedCustomEventsNames as readonly string[]).includes(name)) {
+          throw new TypeError(`customEvents reserves the detail name "${name}".`)
+        }
+      }
+      let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {
+        for (let key of Object.keys(draft)) {
+          delete (draft as EventDetails)[key]
+        }
+        Object.assign(draft, detail)
+      })
+      let entries = entriesFromPatches(snapshot, nextSnapshot, patches)
+      snapshot = nextSnapshot
+      return entries
+    }
+
     let foldFn = foldFns.get(type)
     if (foldFn) {
       let [nextSnapshot, patches] = produceWithPatches(snapshot, (draft) => {

@@ -85,23 +85,15 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
       values: calculate(formulas),
       formulas,
       focusTarget: cellId('A', 0),
-      drafted: { id: null as CellId | null, text: '' },
     },
 
-    beginEdit: (id: string, root) => {
-      root.drafted = { id: id as CellId, text: root.formulas[id as CellId] ?? '' }
-    },
-    draftCell: (payload: { id: string; text: string }, root) => {
-      root.drafted = { id: payload.id as CellId, text: payload.text }
-    },
+    // A single-parameter recipe declares a transient occurrence. cellDrafted
+    // is dispatched on the cell element itself, so only that cell's draft
+    // view re-resolves while the composite stays untouched.
+    cellDrafted: (text: string) => {},
     commitCell: (payload: { id: string; text: string }, root) => {
-      let committed = root.values[payload.id as CellId]
       root.formulas[payload.id as CellId] = payload.text
-      let nextValues = calculate(root.formulas)
-      Object.assign(root.values, nextValues)
-      if (Object.is(committed, nextValues[payload.id as CellId])) {
-        root.drafted = { id: payload.id as CellId, text: nextValues[payload.id as CellId] ?? '' }
-      }
+      Object.assign(root.values, calculate(root.formulas))
     },
   })
   return () => (
@@ -137,7 +129,7 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                 {columns.map((column, __, _, id = cellId(column, row)) => (
                   <td key={id}>
                     <evented.input
-                      eventSource={[events.on.values[id], events.on.drafted]}
+                      eventSource={[events.on.values[id], events.on.cellDrafted]}
                       aria-label={id}
                       data-render-count={() => {
                         let count = (renderCounts.get(id) ?? 0) + 1
@@ -145,10 +137,8 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                         return String(count)
                       }}
                       type="text"
-                      defaultValue={([committed, draft]) =>
-                        draft?.id === id ? draft.text : committed
-                      }
-                      value={([committed, draft]) => (draft?.id === id ? draft.text : committed)}
+                      defaultValue={([committed, draft]) => draft ?? committed}
+                      value={([committed, draft]) => draft ?? committed}
                       mix={[
                         cellCss,
                         events.on.focusTarget.as(id)(({ currentTarget }) => {
@@ -158,13 +148,21 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                           events.dispatchEvent({
                             commitCell: { id, text: currentTarget.value },
                           })
+                          // Clear the local draft with the freshly committed value.
+                          currentTarget.dispatchEvent(
+                            events.create({ cellDrafted: (root) => root.values[id] ?? '' }),
+                          )
                         }),
                         on('focus', ({ currentTarget }) => {
-                          events.dispatchEvent({ beginEdit: id })
+                          currentTarget.dispatchEvent(
+                            events.create({ cellDrafted: (root) => root.formulas[id] ?? '' }),
+                          )
                           currentTarget.select()
                         }),
                         on('input', ({ currentTarget }) => {
-                          events.dispatchEvent({ draftCell: { id, text: currentTarget.value } })
+                          currentTarget.dispatchEvent(
+                            events.create({ cellDrafted: currentTarget.value }),
+                          )
                         }),
                         on('keydown', (event) => {
                           if (!isCellNavigationShortcut(event)) return

@@ -21,6 +21,7 @@ import {
   type CustomEventsRuntimeState,
   type EventAddress,
 } from './runtime.ts'
+import { reservedCustomEventsNames } from './types.ts'
 import type {
   CustomEventsAsHost,
   CustomEventsDescriptor,
@@ -124,6 +125,22 @@ export function createCustomEventsDescriptor<
     options?.signal?.throwIfAborted()
     if (type === ALL_EVENTS) {
       throw new TypeError('customEvents reserves "*" for subscriptions.')
+    }
+    // A function detail is a derived-detail callback: it is invoked with the
+    // live composite and its return value becomes the detail.
+    if (typeof detail === 'function') {
+      if (!state) {
+        throw new TypeError('customEvents derived details require a remembered descriptor.')
+      }
+      detail = (detail as (root: EventDetails) => unknown)(state.getState())
+    }
+    // Descriptor API names cannot be events; `root` is the composite event
+    // and exists only on remembered descriptors.
+    if (type !== 'root' && (reservedCustomEventsNames as readonly string[]).includes(type)) {
+      throw new TypeError(`customEvents reserves "${type}" for its API.`)
+    }
+    if (type === 'root' && !state?.fold) {
+      throw new TypeError('customEvents reserves "root" for remembered composites.')
     }
     if (state?.fold) {
       let folded = state.fold(type, detail)

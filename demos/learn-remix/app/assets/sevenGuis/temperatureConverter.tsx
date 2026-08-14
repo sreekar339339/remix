@@ -37,7 +37,9 @@ export const SevenGuisTemperatureConverter = clientEntry(
                 if (number === undefined) return
                 events.dispatchEvent({
                   celsius: value,
-                  fahrenheit: formatTemperature(number * (9 / 5) + 32),
+                  // The fahrenheit leg derives from the freshly written celsius slice.
+                  fahrenheit: (root) =>
+                    formatTemperature(parseTemperature(root.celsius as string)! * (9 / 5) + 32),
                 })
               }),
             ]}

@@ -33,7 +33,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
       root.draft.name = person.name
       root.draft.surname = person.surname
     },
-    create: (_detail, root) => {
+    createPerson: (_detail, root) => {
       let person = { id: root.nextId, ...root.draft }
       root.people.push(person)
       root.selectedId = person.id
@@ -116,7 +116,9 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                   mix={[
                     inputCss,
                     on('input', ({ currentTarget }) => {
-                      events.dispatchEvent({ draft: { ...draft, name: currentTarget.value } })
+                      events.dispatchEvent({
+                        draft: (root) => ({ ...root.draft, name: currentTarget.value }),
+                      })
                     }),
                   ]}
                 />
@@ -129,7 +131,9 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                   mix={[
                     inputCss,
                     on('input', ({ currentTarget }) => {
-                      events.dispatchEvent({ draft: { ...draft, surname: currentTarget.value } })
+                      events.dispatchEvent({
+                        draft: (root) => ({ ...root.draft, surname: currentTarget.value }),
+                      })
                     }),
                   ]}
                 />
@@ -141,7 +145,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                   mix={[
                     buttonCss,
                     on('click', () => {
-                      events.dispatchEvent('create')
+                      events.dispatchEvent('createPerson')
                     }),
                   ]}
                 >

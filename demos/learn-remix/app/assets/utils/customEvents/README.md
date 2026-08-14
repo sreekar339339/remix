@@ -106,8 +106,71 @@ event's own detail, and the second is the root event's detail as a mutable
 Immer draft. Running the recipe mutates the draft; the resulting patches
 become the fold's routing addresses.
 
-Every name that is neither a detail nor a fold event is a transient
-occurrence: it fires its event and forgets it.
+A recipe with fewer than two parameters declares a **transient occurrence**: a
+detail-carrying recipe like `(text: string) => {}`, or a detail-less recipe
+like `() => {}`. An occurrence fires its event and forgets it, leaving the
+composite untouched. Occurrences are typed and addressable like folds
+(`events.on.<name>`, with detail `null` for detail-less ones) but never
+produce patches. A fold's recipe takes exactly two parameters; default and
+rest parameters are treated as folds.
+
+Every property of the declaration is an event name, and every event name is
+writable. The object form of `dispatchEvent` and `create` names declared
+events — slices, folds, occurrences, and `root` — so an unknown key is a
+compile error. The bare-name form (`dispatchEvent('name')`) and the native
+channel (`addEventListener`, bridged targets) dispatch any name as an
+occurrence.
+
+A detail may be a **function of the composite**, computed at dispatch time:
+the callback receives the live composite and its return value becomes the
+detail. Handlers never hold the model, so derived details cannot go stale,
+and entries apply in order — a later callback sees earlier entries' effects:
+
+```tsx
+<input
+  mix={on('input', ({ currentTarget }) => {
+    events.dispatchEvent({
+      celsius: currentTarget.value,
+      // The fahrenheit leg derives from the freshly written celsius slice.
+      fahrenheit: (root) => formatTemperature((parseTemperature(root.celsius) * 9) / 5 + 32),
+    })
+  })}
+/>
+```
+
+Derived details work for every event kind, including the `root` write
+(`{ root: (root) => ({ ... }) }`), and `events.create` accepts the same
+callbacks for element-scoped dispatch — the detail is computed when the event
+is created:
+
+```tsx
+currentTarget.dispatchEvent(events.create({ cellDrafted: (root) => root.formulas[id] ?? '' }))
+```
+
+Details are data: a function value is treated as a derived-detail callback.
+
+Dispatching `{ root: {...} }` is the **root event**: its detail is
+the model, so it replaces the whole composite (the implicit "replace itself"
+fold at the composite level) — it does not merge, and slices it omits are
+gone. Use `root` for whole-model writes like hydration or reset; partial
+updates use slice writes (`{ count: 5 }`) or a declared fold.
+
+Dispatching an occurrence on a specific element keeps it local to that
+element:
+
+```tsx
+<input
+  mix={on('input', ({ currentTarget }) => {
+    currentTarget.dispatchEvent(events.create({ drafted: currentTarget.value }))
+  })}
+/>
+```
+
+Only that element's own views and effects re-resolve; the composite is not
+involved. This is the element-scoped dispatch pattern for per-element
+transient state. Composite-changing events — slices, folds, and the `root`
+write — are dispatched on the descriptor itself, so every subscribed view
+stays in sync.
 
 ### Occurrence descriptors — `customEvents<Definition>()`
 
@@ -117,9 +180,9 @@ A typed vocabulary of transient events with no remembered detail:
 const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
 ```
 
-Reserved names cannot be events: `root`, `create`, `on`, `asHost`,
-`dispatchEvent`, `addEventListener`, `removeEventListener`, and native DOM
-event names.
+`root` is reserved for the remembered composite; the descriptor API names
+(`create`, `on`, `asHost`, `dispatchEvent`, `addEventListener`,
+`removeEventListener`) and native DOM event names cannot be events.
 
 ### Building events — `events.create`
 
@@ -255,6 +318,7 @@ draft of the composite:
 let events = customEvents({ root: { count: 0 } })
 
 await events.dispatchEvent({ count: 5 }) // replaces the count detail
+await events.dispatchEvent({ root: { count: 5 } }) // replaces the whole composite
 ```
 
 ```ts

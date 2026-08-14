@@ -498,13 +498,15 @@ describe('7GUIs custom-event choreography', () => {
     assert.equal(document.activeElement, b1)
   })
 
-  it('rerenders only cells whose calculated values are patched', async (t) => {
+  it('rerenders only the drafting cell locally, and only patched cells on commit', async (t) => {
     let result = render(<SevenGuisCells />)
     t.after(() => result.cleanup())
 
     let cell = (id: string) => result.$(`input[aria-label="${id}"]`) as HTMLInputElement
     let renderCount = (id: string) => Number(cell(id).dataset.renderCount)
     let a0 = cell('A0')
+
+    let before = Object.fromEntries(['A0', 'B0', 'C0', 'D0'].map((id) => [id, renderCount(id)]))
 
     await result.act(() => a0.focus())
     await settle(result)
@@ -514,12 +516,19 @@ describe('7GUIs custom-event choreography', () => {
     })
     await settle(result)
 
-    let before = Object.fromEntries(['A0', 'B0', 'C0', 'D0'].map((id) => [id, renderCount(id)]))
+    // Drafting is element-scoped: focus and input re-render only the focused
+    // cell (once each); no other cell sees the draft events.
+    assert.equal(renderCount('A0'), before.A0! + 2)
+    assert.equal(renderCount('B0'), before.B0)
+    assert.equal(renderCount('C0'), before.C0)
+    assert.equal(renderCount('D0'), before.D0)
 
     await result.act(() => a0.blur())
     await settle(result)
 
-    assert.equal(renderCount('A0'), before.A0! + 1)
+    // The commit re-renders the patched cells; the local draft clear
+    // re-renders the committing cell once more.
+    assert.equal(renderCount('A0'), before.A0! + 3)
     assert.equal(renderCount('C0'), before.C0! + 1)
     assert.equal(renderCount('B0'), before.B0)
     assert.equal(renderCount('D0'), before.D0)

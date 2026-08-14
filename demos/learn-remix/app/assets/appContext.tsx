@@ -27,8 +27,10 @@ export function AppProvider(handle: Handle<{ children?: RemixNode }, AppContext>
   handle.queueTask(async () => {
     // perform auth and other async stuff and dispatch context value
     events.dispatchEvent({
-      user: { age: 23, name: 'Bob Lazar' },
-      settings: { layout: 'zen', theme: 'light' },
+      root: {
+        user: { age: 23, name: 'Bob Lazar' },
+        settings: { layout: 'zen', theme: 'light' },
+      },
     })
   })
 

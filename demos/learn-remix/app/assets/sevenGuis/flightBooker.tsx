@@ -43,8 +43,12 @@ export const SevenGuisFlightBooker = clientEntry(
         startDate: today,
         returnDate: today,
       },
+
+      // A derived occurrence: the Book click derives the confirmation payload
+      // from the live composite at dispatch time, so the handler never holds
+      // the model.
+      bookingConfirmed: (flight: Flight) => {},
     })
-    let confirmedFlight: Flight | null = null
     return () => (
       <evented.section eventSource={events} mix={[taskCss]}>
         {(flight) => (
@@ -94,24 +98,25 @@ export const SevenGuisFlightBooker = clientEntry(
               mix={[
                 buttonCss,
                 on('click', () => {
-                  confirmedFlight = {
-                    kind: flight.kind,
-                    startDate: flight.startDate,
-                    returnDate: flight.returnDate,
-                  }
-                  events.dispatchEvent('bookingConfirmed')
+                  events.dispatchEvent({
+                    bookingConfirmed: (root) => ({
+                      kind: root.kind,
+                      startDate: root.startDate,
+                      returnDate: root.returnDate,
+                    }),
+                  })
                 }),
               ]}
             >
               Book
             </button>
-            <output hidden={confirmedFlight === null}>
-              {confirmedFlight?.kind === 'one-way flight'
-                ? `You have booked a one-way flight on ${confirmedFlight.startDate}.`
-                : confirmedFlight
-                  ? `You have booked a return flight from ${confirmedFlight.startDate} to ${confirmedFlight.returnDate}.`
-                  : null}
-            </output>
+            <evented.output eventSource={events.on.bookingConfirmed} hidden={(flight) => !flight}>
+              {(flight) =>
+                flight?.kind === 'one-way flight'
+                  ? `You have booked a one-way flight on ${flight?.startDate}.`
+                  : `You have booked a return flight from ${flight?.startDate} to ${flight?.returnDate}.`
+              }
+            </evented.output>
           </>
         )}
       </evented.section>

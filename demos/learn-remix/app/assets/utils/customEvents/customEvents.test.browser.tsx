@@ -683,7 +683,7 @@ describe('customEvents', () => {
       increment: (amount: number, root) => {
         root.count += amount
       },
-      countDrafted: () => {},
+      countDrafted: (count: number) => {},
     })
     let drafts = 0
     let listenerRenders = 0
@@ -736,6 +736,7 @@ describe('customEvents', () => {
       increment: (amount: number, root) => {
         root.count += amount
       },
+      countDrafted: (count: number) => {},
     })
     let seen: Array<[{ count: number }, unknown]> = []
 
@@ -915,13 +916,13 @@ describe('customEvents', () => {
             eventSource={events.on.submitted}
             initial={events.create({ submitted: { id: 'idle' } })}
             aria-label="form"
-            class={(order, event) => (order.id === 'idle' ? '' : 'pending')}
-            aria-busy={(order, event) => order.id !== 'idle'}
+            class={(order, event) => (order?.id === 'idle' ? '' : 'pending')}
+            aria-busy={(order, event) => order?.id !== 'idle'}
             mix={events.on.submitted(({ currentTarget }) => {
               currentTarget.dataset.committed = String(currentTarget.classList.contains('pending'))
             })}
           >
-            {(order, event) => <output>{order.id}</output>}
+            {(order, event) => <output>{order?.id}</output>}
           </evented.form>
         </section>
       )
@@ -960,10 +961,10 @@ describe('customEvents', () => {
           <evented.output
             eventSource={events.on.submitted}
             initial={events.create({ submitted: { id: 'initial' } })}
-            hidden={(order, event) => order.id === 'hidden'}
+            hidden={(order, event) => order?.id === 'hidden'}
             aria-label="initial-confirmation"
           >
-            {(order, event) => order.id}
+            {(order, event) => order?.id}
           </evented.output>
         </section>
       )
@@ -1051,7 +1052,7 @@ describe('customEvents', () => {
                 currentTarget.dataset.effect = type
               })}
             >
-              {([order], event) => (event.type === 'submitted' ? order.id : 'idle')}
+              {(input, event) => (event.type === 'submitted' ? (input?.[0]?.id ?? '') : 'idle')}
             </evented.output>
           ))}
           <evented.output eventSource={events} initial={initialOutcome} aria-label="all">
@@ -1522,8 +1523,14 @@ describe('remembered customEvents', () => {
     }
   })
 
-  it('dispatches implicit occurrences with and without details', async (t) => {
-    let events = customEvents({ root: { count: 0 } })
+  it('dispatches occurrences with and without details', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+      },
+      // A declared occurrence with a detail.
+      countDrafted: (count: number) => {},
+    })
     let seen: Array<[unknown, unknown]> = []
 
     function View() {
@@ -1685,6 +1692,21 @@ describe('remembered customEvents', () => {
     assert.throws(() => {
       customEvents({ root: { on: 1 } } as any)
     }, /reserves the detail name/)
+    assert.throws(() => {
+      customEvents({ root: { count: 0 }, create: (_detail, root) => {} })
+    }, /reserves "create"/)
+
+    let events = customEvents({ root: { count: 0 } })
+    assert.throws(() => events.dispatchEvent({ on: 1 } as any), /reserves "on"/)
+    assert.throws(() => events.dispatchEvent({ create: 1 } as any), /reserves "create"/)
+    assert.throws(() => events.dispatchEvent({ root: 5 } as any), /root must be an object/)
+    assert.throws(
+      () => events.dispatchEvent({ root: { on: 1 } } as any),
+      /reserves the detail name/,
+    )
+    // Pure descriptors have no composite, so `root` is not writable there.
+    let pure = customEvents<'querySubmitted'>()
+    assert.throws(() => pure.dispatchEvent({ root: { query: 'x' } } as any), /reserves "root"/)
   })
 
   it('exposes the root composite as the named events.root source', async (t) => {
@@ -1727,5 +1749,201 @@ describe('remembered customEvents', () => {
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
     assert.deepEqual(seen[seen.length - 1], [{ count: 2, label: 'idle' }, 'count'])
+  })
+
+  it('declares transient occurrences with a single-parameter recipe', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+      },
+      drafted: (text: string) => {},
+    })
+    let drafts: Array<unknown> = []
+
+    function View() {
+      return () => (
+        <section>
+          <evented.output eventSource={events.on.drafted} aria-label="draft">
+            {(draft) => {
+              drafts.push(draft)
+              return `${draft}`
+            }}
+          </evented.output>
+          <evented.output eventSource={events} aria-label="root">
+            {(detail) => `${detail.count}`}
+          </evented.output>
+        </section>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '0')
+
+    await result.act(async () => {
+      await events.dispatchEvent({ drafted: 'one' })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="draft"]')?.textContent, 'one')
+    // The occurrence leaves the composite untouched.
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '0')
+
+    await result.act(async () => {
+      await events.dispatchEvent({ drafted: 'two' })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="draft"]')?.textContent, 'two')
+    assert.deepEqual(drafts.slice(-2), ['one', 'two'])
+  })
+
+  it('declares detail-less occurrences with a zero-parameter recipe', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+      },
+      bookingConfirmed: () => {},
+    })
+    let seen: unknown[] = []
+
+    function View() {
+      return () => (
+        <section>
+          <evented.output eventSource={events.on.bookingConfirmed} aria-label="signal">
+            {(detail) => {
+              seen.push(detail)
+              return detail === null ? 'idle' : 'matched'
+            }}
+          </evented.output>
+          <evented.output eventSource={events} aria-label="root">
+            {(detail) => `${detail.count}`}
+          </evented.output>
+        </section>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '0')
+
+    await result.act(async () => {
+      await events.dispatchEvent('bookingConfirmed')
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="signal"]')?.textContent, 'idle')
+    // The detail-less occurrence leaves the composite untouched.
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '0')
+    assert.deepEqual(seen.slice(-1), [null])
+  })
+
+  it('derives details from the composite at dispatch time', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+        label: 'idle',
+      },
+      inc: (amount: number, root) => {
+        root.count += amount
+      },
+      drafted: (text: string) => {},
+    })
+
+    function View() {
+      return () => (
+        <section>
+          <evented.output eventSource={events} aria-label="root">
+            {(detail) => `${detail.label}:${detail.count}`}
+          </evented.output>
+          <evented.output eventSource={events.on.drafted} aria-label="draft">
+            {(draft) => `${draft}`}
+          </evented.output>
+        </section>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
+
+    // A derived occurrence detail: computed from the live composite at dispatch.
+    await result.act(async () => {
+      await events.dispatchEvent({ drafted: (root) => `count=${root.count}` })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="draft"]')?.textContent, 'count=0')
+
+    // Derived slice and fold details, in transaction order: the later
+    // callback sees the earlier entry's effect.
+    await result.act(async () => {
+      await events.dispatchEvent({
+        count: (root) => root.count + 1,
+        inc: (root) => root.count,
+      })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
+
+    // A derived root write replaces the composite with the returned model.
+    await result.act(async () => {
+      await events.dispatchEvent({
+        root: (root) => ({ count: root.count * 10, label: 'derived' }),
+      })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'derived:20')
+
+    // Derived details require a composite: pure descriptors reject them.
+    let pure = customEvents<'ping'>()
+    assert.throws(() => pure.dispatchEvent({ ping: () => 1 } as any), /remembered descriptor/)
+  })
+
+  it('replaces the whole composite via a root write', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+        label: 'idle',
+      },
+      inc: (amount: number, root) => {
+        root.count += amount
+      },
+    })
+
+    function View() {
+      return () => (
+        <evented.output eventSource={events} aria-label="root">
+          {(detail) => `${detail.label}:${detail.count}`}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
+
+    await result.act(async () => {
+      await events.dispatchEvent({ root: { count: 5, label: 'ready' } })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'ready:5')
+
+    // A root write replaces the composite wholesale: slices it omits are gone.
+    await result.act(async () => {
+      await events.dispatchEvent({ root: { count: 7 } } as any)
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'undefined:7')
+
+    // The composite is replaced before later entries in the same transaction.
+    await result.act(async () => {
+      await events.dispatchEvent({ root: { count: 1, label: 'folded' }, inc: 2 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'folded:3')
+
+    // The built event carries the composite as the root event's detail.
+    await result.act(async () => {
+      await events.dispatchEvent(events.create({ root: { count: 9, label: 'built' } }))
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'built:9')
   })
 })
