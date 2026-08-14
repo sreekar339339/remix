@@ -2054,42 +2054,4 @@ describe('remembered customEvents', () => {
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'built:9')
   })
-
-  it('streams canonical patches through onPatch and stops on unsubscribe', async () => {
-    let events = customEvents({
-      root: {
-        count: 0,
-        label: 'idle',
-      },
-      inc: (amount: number, root) => {
-        root.count += amount
-      },
-    })
-    let streams: Array<readonly import('./runtime.ts').CustomEventsPatch[]> = []
-    let unregister = events.onPatch((batch) => streams.push(batch))
-
-    events.dispatchEvent({ label: 'ready' })
-    assert.deepEqual(streams[streams.length - 1], [
-      { op: 'replace', path: ['label'], value: 'ready' },
-    ])
-
-    events.dispatchEvent({ inc: 2 })
-    assert.deepEqual(streams[streams.length - 1], [{ op: 'replace', path: ['count'], value: 2 }])
-
-    // Transient occurrences never touch the composite and stream nothing.
-    let before = streams.length
-    events.dispatchEvent('refresh')
-    assert.equal(streams.length, before)
-
-    // A root write streams a replace per kept slice and a remove per dropped one.
-    events.dispatchEvent({ root: { count: 9 } } as any)
-    assert.deepEqual(streams[streams.length - 1], [
-      { op: 'replace', path: ['count'], value: 9 },
-      { op: 'remove', path: ['label'] },
-    ])
-
-    unregister()
-    events.dispatchEvent({ label: 'done' })
-    assert.equal(streams.length, 3)
-  })
 })

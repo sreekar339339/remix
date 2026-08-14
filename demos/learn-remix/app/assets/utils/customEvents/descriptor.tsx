@@ -17,7 +17,6 @@ import {
   readPath,
   samePropertyKey,
   subscribeSource,
-  type CustomEventsPatch,
   type CustomEventsRuntimeEntry,
   type CustomEventsRuntimeState,
 } from './runtime.ts'
@@ -58,8 +57,6 @@ type RememberedEventContext = {
   getState(): EventDetails
   /** Folds a dispatched event into the remembered composite; absent for pure descriptors. */
   fold?(type: string, detail: unknown): CustomEventsRuntimeEntry[] | undefined
-  /** Registers a canonical patch-stream listener; returns the unsubscribe. */
-  onPatch?(listener: (patches: readonly CustomEventsPatch[]) => void): () => void
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -310,17 +307,7 @@ export function createCustomEventsDescriptor<
 
   // The descriptor's own members and native EventTarget channel ride on the
   // plain target; the `on` namespace owns every event source.
-  let descriptorTarget = Object.assign({}, { create, dispatchEvent, on, asHost }) as {
-    create: typeof create
-    dispatchEvent: typeof dispatchEvent
-    on: typeof on
-    asHost: typeof asHost
-    onPatch?: (listener: (patches: readonly CustomEventsPatch[]) => void) => () => void
-  }
-  if (state?.onPatch) {
-    descriptorTarget.onPatch = (listener: (patches: readonly CustomEventsPatch[]) => void) =>
-      state.onPatch!(listener)
-  }
+  let descriptorTarget = Object.assign({}, { create, dispatchEvent, on, asHost })
   customEventsRuntime.registerHost(getRuntime(), base)
 
   let createSource = (
@@ -402,8 +389,7 @@ export function createCustomEventsDescriptor<
         property === 'create' ||
         property === 'dispatchEvent' ||
         property === 'on' ||
-        property === 'asHost' ||
-        property === 'onPatch'
+        property === 'asHost'
       ) {
         return Reflect.get(target, property, target)
       }

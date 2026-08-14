@@ -8,11 +8,7 @@ import {
   setAutoFreeze,
 } from 'immer'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
-import {
-  canonicalAddressSegment,
-  type CustomEventsPatch,
-  type CustomEventsRuntimeEntry,
-} from './runtime.ts'
+import { canonicalAddressSegment, type CustomEventsRuntimeEntry } from './runtime.ts'
 import { reservedCustomEventsNames } from './types.ts'
 import type {
   CustomEventsDescriptor,
@@ -141,12 +137,6 @@ function createRemembered<
     foldFns.set(name, fold as RememberedFoldFn<Details>)
   }
 
-  let patchListeners = new Set<(patches: readonly CustomEventsPatch[]) => void>()
-  let emitPatches = (patches: CustomEventsPatch[]) => {
-    if (patchListeners.size === 0) return
-    for (let listener of patchListeners) listener(patches)
-  }
-
   function foldEntry(type: string, detail: unknown) {
     // The root event replaces the whole composite: its detail is the model,
     // with the same validation the declaration applies to its seed.
@@ -161,12 +151,10 @@ function createRemembered<
         }
       }
       let entries: CustomEventsRuntimeEntry[] = []
-      let patches: CustomEventsPatch[] = []
       for (let key of Object.keys(next)) {
         let previous = live[key]
         if (!Object.is(previous, next[key])) {
           entries.push(detailEntry(key, previous, next[key]))
-          patches.push({ op: 'replace', path: [key], value: next[key] })
           live[key] = next[key]
         }
       }
@@ -174,7 +162,6 @@ function createRemembered<
         if (!Object.hasOwn(next, key)) {
           let previous = live[key]
           delete live[key]
-          patches.push({ op: 'remove', path: [key] })
           entries.push(
             previous instanceof Set
               ? { type: key, detail: undefined, addresses: [[]] }
@@ -182,7 +169,6 @@ function createRemembered<
           )
         }
       }
-      emitPatches(patches)
       return entries
     }
 
@@ -195,7 +181,6 @@ function createRemembered<
       if (patches.length > 0) {
         entries = entriesFromPatches(live, next, patches)
         mirrorKeys(live, next, entries)
-        emitPatches(patches.map(canonicalPatch))
       }
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
@@ -213,21 +198,14 @@ function createRemembered<
       let previous = live[type]
       if (Object.is(previous, detail)) return []
       live[type] = detail
-      emitPatches([{ op: 'replace', path: [type], value: detail }])
       return [detailEntry(type, previous, detail)]
     }
     return undefined
   }
 
-  function onPatch(listener: (patches: readonly CustomEventsPatch[]) => void) {
-    patchListeners.add(listener)
-    return () => patchListeners.delete(listener)
-  }
-
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>({
     getState: () => live,
     fold: foldEntry,
-    onPatch,
   })
   return events as unknown as RememberedDescriptor<Details, Omit<Folds, 'root'>>
 }
@@ -265,19 +243,6 @@ function mirrorKeys(live: EventDetails, next: EventDetails, entries: CustomEvent
     let key = entry.type
     if (Object.hasOwn(next, key)) live[key] = next[key]
     else delete live[key]
-  }
-}
-
-/** Converts an Immer patch to the canonical patch protocol. */
-function canonicalPatch(patch: Patch): CustomEventsPatch {
-  let path: unknown[] = []
-  for (let segment of patch.path) {
-    path.push(canonicalAddressSegment(segment))
-  }
-  return {
-    op: patch.op,
-    path,
-    ...(Object.hasOwn(patch, 'value') ? { value: patch.value } : {}),
   }
 }
 
