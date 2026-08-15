@@ -758,18 +758,20 @@ function runEventedHostUpdate(state: EventedHostState): void {
     ) as RuntimeHostProps
     node._mixedProps = nextProps
 
+    // Patch props before resolving children so callbacks read the element's
+    // freshly resolved attributes (dataset, value, ...).
     if (nextProps.innerHTML != null) {
       if (currProps.innerHTML !== nextProps.innerHTML) {
         node._dom.innerHTML = nextProps.innerHTML
       }
-    } else {
-      if (currProps.innerHTML != null) {
-        node._dom.innerHTML = ''
-      }
+    } else if (currProps.innerHTML != null) {
+      node._dom.innerHTML = ''
+    }
+    patchHostProps(currProps, nextProps, node._dom)
+    if (nextProps.innerHTML == null) {
       let childInputs = resolveEventedChildInputs(state.rawChildren, state.input, state.event)
       node._children = diffChildren(node._children, childInputs, node._dom, node, state.context)
     }
-    patchHostProps(currProps, nextProps, node._dom)
 
     if (node._controlledState || shouldTrackControlledReflection(nextProps)) {
       ensureControlledReflection(node, state.context.scheduler)

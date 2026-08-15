@@ -2017,6 +2017,44 @@ describe('remembered customEvents', () => {
     }
   })
 
+  it('renders children against the freshly patched props of the same update', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+      },
+    })
+
+    function View() {
+      return () => (
+        <evented.button
+          on={events.on.count}
+          data-count={(count) => `count-${count}`}
+          aria-label="button"
+        >
+          {(_, event) => event?.currentTarget?.dataset.count ?? 'none'}
+        </evented.button>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="button"]')?.textContent, 'none')
+
+    // The children callback runs after the reactive props were patched to
+    // the DOM, so the element's dataset reflects the same update's value.
+    await result.act(async () => {
+      await events.dispatchEvent({ count: 1 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="button"]')?.textContent, 'count-1')
+
+    await result.act(async () => {
+      await events.dispatchEvent({ count: 2 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="button"]')?.textContent, 'count-2')
+  })
+
   it('derives dispatch inputs from the composite at dispatch time', async (t) => {
     let events = customEvents({
       root: {
