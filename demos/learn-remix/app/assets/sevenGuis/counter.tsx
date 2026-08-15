@@ -10,13 +10,9 @@ export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisC
       <evented.button
         initial={events.create('increment')}
         on={events}
-        data-count={(_, event) => {
-          // Only delivered events carry the button as their currentTarget;
-          // the initial event precedes any element, so no value is written.
-          let button = event?.currentTarget
-          if (!button) return undefined
-          return Number(button.dataset.count ?? '0') + incrementOffset
-        }}
+        data-count={(_, event) =>
+          Number(event?.currentTarget?.dataset.count ?? '0') + incrementOffset
+        }
         mix={[
           buttonCss,
           on('click', () => {
@@ -24,7 +20,7 @@ export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisC
           }),
         ]}
       >
-        {(_, event) => <span>{event?.currentTarget?.dataset.count ?? '0'}</span>}
+        {(_, event) => event?.currentTarget?.dataset.count ?? '0'}
       </evented.button>
       <label>
         Increment by{' '}
