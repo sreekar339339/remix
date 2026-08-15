@@ -17,8 +17,9 @@ is a typed `EventTarget`: everything the DOM provides works on it exactly —
 - **Addressable subscriptions** — `events.on.<name>` sources subscribe
   narrow consumers to one event and re-render exactly the affected
   addresses.
-- **Element lifecycles** — Remix mixins (`on`, `on`, `asHost`) wire
-  subscriptions and effects to mounted elements.
+- **Element lifecycles** — Remix mixins (`on('click', ...)` for native events,
+  `events.on.<source>(listener)` for element-owned effects, `asHost()` for
+  hosts) wire subscriptions and effects to mounted elements.
 
 The library is organized around these concepts:
 
@@ -228,7 +229,8 @@ const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
 
 `root` is reserved for the remembered composite; the descriptor API names
 (`create`, `on`, `asHost`, `dispatchEvent`, `addEventListener`,
-`removeEventListener`) and native DOM event names cannot be events.
+`removeEventListener`), the `'*'` wildcard, and native DOM event names cannot
+be events.
 
 ### Building events — `events.create`
 

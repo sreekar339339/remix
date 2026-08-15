@@ -742,7 +742,7 @@ describe('customEvents', () => {
 
     function Snapshot() {
       return () => (
-        <evented.output on={events} aria-label="snapshot">
+        <evented.output on={events} aria-label="composite">
           {(detail, event) => {
             seen.push([detail, event?.type])
             if (false) {
@@ -760,7 +760,7 @@ describe('customEvents', () => {
     let result = render(<Snapshot />)
     t.after(() => result.cleanup())
 
-    assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'count:0')
+    assert.equal(result.$('[aria-label="composite"]')?.textContent, 'count:0')
     assert.equal(seen.length, 1)
     assert.equal(seen[0]?.[0]?.count, 0)
     assert.equal(seen[0]?.[1], undefined)
@@ -769,7 +769,7 @@ describe('customEvents', () => {
       await events.dispatchEvent({ increment: 1 })
       await settleEffects()
     })
-    assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'count:1')
+    assert.equal(result.$('[aria-label="composite"]')?.textContent, 'count:1')
     assert.deepEqual(seen[seen.length - 1], [{ count: 1 }, 'count'])
 
     await result.act(async () => {
@@ -778,7 +778,7 @@ describe('customEvents', () => {
     })
     // The wildcard reads the composite for every event; occurrences ride along
     // as the matched event instead of replacing the input.
-    assert.equal(result.$('[aria-label="snapshot"]')?.textContent, 'count:1 raw:2')
+    assert.equal(result.$('[aria-label="composite"]')?.textContent, 'count:1 raw:2')
     assert.deepEqual(seen[seen.length - 1], [{ count: 1 }, 'countDrafted'])
   })
 
