@@ -103,7 +103,7 @@ function customEventsOnMixin(
           'effect',
           {
             element,
-            notify: (event: CustomEvent) => listener(createCurrentTargetEvent(event, element)),
+            notify: (event: CustomEvent) => listener(event),
           },
           signal,
           source,

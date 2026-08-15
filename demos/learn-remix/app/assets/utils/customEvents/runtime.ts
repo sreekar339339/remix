@@ -607,7 +607,11 @@ export function subscribeSource(
       eventTypes: source ? new Set([source.type]) : null,
       ...(source ? { addresses: new Map([[source.type, source.path]]) } : {}),
       notify(event) {
-        return subscriber.notify(event)
+        // Every element-owned subscription receives the matched event with
+        // its element as the currentTarget, like a native listener.
+        return subscriber.notify(
+          subscriber.element ? createCurrentTargetEvent(event, subscriber.element) : event,
+        )
       },
     },
     signal,

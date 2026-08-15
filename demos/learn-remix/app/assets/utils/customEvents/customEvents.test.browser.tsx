@@ -1978,6 +1978,45 @@ describe('remembered customEvents', () => {
     assert.throws(() => customEvents({ count: 5 } as any), /expects a recipe/)
   })
 
+  it('delivers the owning element as the currentTarget of view callbacks', async (t) => {
+    let events = customEvents({
+      root: {
+        count: 0,
+      },
+    })
+    let current: unknown
+
+    function View() {
+      return () => (
+        <evented.output on={events} aria-label="root">
+          {(detail, event) => {
+            current = event?.currentTarget
+            return `${detail.count}`
+          }}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+
+    await result.act(async () => {
+      await events.dispatchEvent({ count: 1 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]'), current)
+
+    if (false) {
+      // The matched event's currentTarget is the element type, not EventTarget.
+      ;<evented.button on={events.on.count}>
+        {(_, event) => {
+          event?.currentTarget.focus()
+          return null
+        }}
+      </evented.button>
+    }
+  })
+
   it('derives dispatch inputs from the composite at dispatch time', async (t) => {
     let events = customEvents({
       root: {

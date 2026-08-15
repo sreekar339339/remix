@@ -228,6 +228,21 @@ type CustomEventsReactiveElementProps<
 type CustomEventsIntrinsicChildren<Tag extends keyof JSX.IntrinsicElements> =
   Props<Tag> extends { children?: infer Children } ? Children : RemixNode
 
+/** The DOM element type a JSX intrinsic tag creates. */
+type IntrinsicElementOf<Tag extends keyof JSX.IntrinsicElements> =
+  Tag extends keyof HTMLElementTagNameMap
+    ? HTMLElementTagNameMap[Tag]
+    : Tag extends keyof SVGElementTagNameMap
+      ? SVGElementTagNameMap[Tag]
+      : Tag extends keyof MathMLElementTagNameMap
+        ? MathMLElementTagNameMap[Tag]
+        : Element
+
+/** The matched event of an evented-view callback, owned by its element. */
+type EventedViewEvent<Event, Tag extends keyof JSX.IntrinsicElements> = Event & {
+  readonly currentTarget: IntrinsicElementOf<Tag>
+}
+
 /**
  * Shared props of every evented-view. Occurrence aliases pass `undefined`
  * inputs before a first match; `Initialized` gates the `initial` prop;
@@ -241,11 +256,18 @@ type CustomEventsViewProps<
   Initial,
   Initialized extends boolean,
   Direct extends boolean = false,
-> = Omit<CustomEventsReactiveElementProps<Input, Event, Tag, Direct>, 'children' | 'on'> & {
+> = Omit<
+  CustomEventsReactiveElementProps<Input, EventedViewEvent<Event, Tag>, Tag, Direct>,
+  'children' | 'on'
+> & {
   on: On
   children?:
     | CustomEventsIntrinsicChildren<Tag>
-    | CustomEventsReactiveProp<Direct extends true ? Input : NoInfer<Input>, Event, RemixNode>
+    | CustomEventsReactiveProp<
+        Direct extends true ? Input : NoInfer<Input>,
+        EventedViewEvent<Event, Tag>,
+        RemixNode
+      >
 } & (Initialized extends true ? { initial: Initial } : { initial?: never })
 
 type SourceSelection<Source> = Source | readonly Source[]

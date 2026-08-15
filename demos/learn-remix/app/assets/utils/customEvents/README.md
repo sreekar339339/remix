@@ -312,7 +312,8 @@ events.on.<source>(listener) // MixinDescriptor; active only while mounted
 is the string `'button'` at runtime. A render function's first argument is the
 **detail** the `on` selects — the matched event's detail at that
 source (the whole composite for the descriptor's wildcard). The matched event
-is the second argument, always called `event`:
+is the second argument, always called `event`, and its `currentTarget` is the
+evented element itself:
 
 ```tsx
 <evented.output on={events.on.startDate}>{(detail) => detail}</evented.output>
