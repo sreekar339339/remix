@@ -215,16 +215,20 @@ function createRemembered<
  * previous and next values: primitives route by owner identity, Sets by the
  * new value, and everything else by the whole-key route.
  */
+function ownerAddresses(previous: unknown, detail: unknown) {
+  let addresses: Array<readonly unknown[]> = []
+  if (previous !== undefined && previous !== null) {
+    addresses.push([canonicalAddressSegment(previous)])
+  }
+  if (detail !== undefined && detail !== null) {
+    addresses.push([canonicalAddressSegment(detail)])
+  }
+  return addresses
+}
+
 function detailEntry(type: string, previous: unknown, detail: unknown): CustomEventsRuntimeEntry {
   if (isPrimitive(previous) && isPrimitive(detail)) {
-    return {
-      type,
-      detail,
-      addresses: [
-        ...(previous !== undefined && previous !== null ? [ownerAddress(previous)] : []),
-        ...(detail !== undefined && detail !== null ? [ownerAddress(detail)] : []),
-      ],
-    }
+    return { type, detail, addresses: ownerAddresses(previous, detail) }
   }
   if (previous instanceof Set || detail instanceof Set) {
     return { type, detail, addresses: [ownerAddress(detail)] }
@@ -316,12 +320,7 @@ function entriesFromPatches(
     let previousOwner = previousState[key]
 
     if (isPrimitive(previousOwner) && isPrimitive(nextValue)) {
-      addresses = [
-        ...(previousOwner !== undefined && previousOwner !== null
-          ? [ownerAddress(previousOwner)]
-          : []),
-        ...(nextValue !== undefined && nextValue !== null ? [ownerAddress(nextValue)] : []),
-      ]
+      addresses = ownerAddresses(previousOwner, nextValue)
     }
     entries.push({ type: key, detail: nextValue, addresses })
   }

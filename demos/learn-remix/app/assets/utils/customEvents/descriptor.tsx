@@ -166,6 +166,22 @@ export function createCustomEventsDescriptor<
     )
   }
 
+  // A single resolved entry builds the event under its own name (like the
+  // string form); several entries commit as one transaction carrier.
+  let buildProduct = (entries: CustomEventsRuntimeEntry[], init?: CustomEventInit) => {
+    if (entries.length === 1) {
+      let entry = entries[0]!
+      return customEventsRuntime.createProductEvent(
+        getRuntime(),
+        entry.type,
+        entry.detail,
+        getEventInit(init),
+        entries,
+      )
+    }
+    return createTransaction(entries, init)
+  }
+
   // The builder member: a bare name builds a detail-less event, an object of
   // event-named details builds a single-event or transaction carrier.
   let create = (...args: Array<unknown>) => {
@@ -186,33 +202,28 @@ export function createCustomEventsDescriptor<
 
     if (isRecord(typeOrEvents)) {
       let init = args.length >= 2 ? (detailOrInit as CustomEventInit | undefined) : undefined
-      // A single resolved entry builds the event under its own name (like the
-      // string form); several entries commit as one transaction carrier.
-      let product = (entries: CustomEventsRuntimeEntry[]) => {
-        if (entries.length === 1) {
-          let entry = entries[0]!
-          return customEventsRuntime.createProductEvent(
-            getRuntime(),
-            entry.type,
-            entry.detail,
-            getEventInit(init),
-            entries,
-          )
+      // A single-key object dispatches its one event without allocating a
+      // keys array or Object.entries pairs.
+      let singleType: string | undefined
+      let multi = false
+      for (let key in typeOrEvents) {
+        if (!Object.hasOwn(typeOrEvents, key)) continue
+        if (singleType !== undefined) {
+          multi = true
+          break
         }
-        return createTransaction(entries, init)
+        singleType = key
       }
-      let keys = Object.keys(typeOrEvents)
-      if (keys.length === 1) {
-        // A single-key object dispatches its one event without allocating an
-        // entries array or Object.entries pairs.
-        let type = keys[0]!
-        return product(resolveEntry(type, typeOrEvents[type], init))
+      if (singleType !== undefined && !multi) {
+        return buildProduct(resolveEntry(singleType, typeOrEvents[singleType], init), init)
       }
       let entries: CustomEventsRuntimeEntry[] = []
-      for (let key of keys) {
-        entries.push(...resolveEntry(key, typeOrEvents[key]!, init))
+      for (let key in typeOrEvents) {
+        if (Object.hasOwn(typeOrEvents, key)) {
+          entries.push(...resolveEntry(key, typeOrEvents[key]!, init))
+        }
       }
-      return product(entries)
+      return buildProduct(entries, init)
     }
 
     throw new TypeError('customEvents create expects an event name or an object of details.')
