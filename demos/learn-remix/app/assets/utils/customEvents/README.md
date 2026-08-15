@@ -313,7 +313,8 @@ is the string `'button'` at runtime. A render function's first argument is the
 **detail** the `on` selects — the matched event's detail at that
 source (the whole composite for the descriptor's wildcard). The matched event
 is the second argument, always called `event`, and its `currentTarget` is the
-evented element itself:
+evented element itself (null for the `initial` event, which precedes any
+element):
 
 ```tsx
 <evented.output on={events.on.startDate}>{(detail) => detail}</evented.output>

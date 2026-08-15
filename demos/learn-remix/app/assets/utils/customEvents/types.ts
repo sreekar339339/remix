@@ -240,7 +240,7 @@ type IntrinsicElementOf<Tag extends keyof JSX.IntrinsicElements> =
 
 /** The matched event of an evented-view callback, owned by its element. */
 type EventedViewEvent<Event, Tag extends keyof JSX.IntrinsicElements> = Event & {
-  readonly currentTarget: IntrinsicElementOf<Tag>
+  readonly currentTarget: IntrinsicElementOf<Tag> | null
 }
 
 /**

@@ -2010,7 +2010,7 @@ describe('remembered customEvents', () => {
       // The matched event's currentTarget is the element type, not EventTarget.
       ;<evented.button on={events.on.count}>
         {(_, event) => {
-          event?.currentTarget.focus()
+          event?.currentTarget?.focus()
           return null
         }}
       </evented.button>
