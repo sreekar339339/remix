@@ -13,7 +13,6 @@ export const routes = route({
     index: get('/'),
     todos: form('todos'),
   }),
-  kitchenSink: get('kitchenSink'),
   sevenGuis: get('sevenGuis'),
   kanban: get('kanban'),
   listUpdates: get('listUpdates'),

@@ -14,7 +14,6 @@ import { TodoItemsClientEntryMarked as TodoItemsCustomEventsClientEntryMarked } 
 import * as coerce from 'remix/data-schema/coerce'
 import { SearchBooksWithoutFramePage } from './searchBooksWithoutFramePage.tsx'
 import { SearchBooksWithFramePage } from './searchBooksWithFramePage.tsx'
-import { KistchenSinkPage } from './kitchenSinkPage.tsx'
 import { SevenGuisPage } from './sevenGuisPage.tsx'
 import { KanbanPage } from './kanbanPage.tsx'
 import { ListUpdatesPage } from './listUpdatesPage.tsx'
@@ -31,9 +30,6 @@ export const rootController = createController(routes, {
       return (
         (await assetServer.fetch(context.request)) ?? new Response('Not Found', { status: 404 })
       )
-    },
-    kitchenSink({ render }) {
-      return render(<KistchenSinkPage />)
     },
     sevenGuis({ render }) {
       return render(<SevenGuisPage />)
@@ -68,16 +64,16 @@ const openLibrarySchema = s.union([
 export const searchBooksController = createController(routes.searchBooks, {
   actions: {
     withFrame({ render, url }) {
-      const initialQuery = (url.searchParams.get('q') || '').trim()
+      let initialQuery = (url.searchParams.get('q') || '').trim()
       return render(<SearchBooksWithFramePage initialQuery={initialQuery} />)
     },
     withoutFrame({ url, render }) {
-      const initialQuery = (url.searchParams.get('q') || '').trim()
+      let initialQuery = (url.searchParams.get('q') || '').trim()
       return render(<SearchBooksWithoutFramePage initialQuery={initialQuery} />)
     },
     async books({ render, url, headers }) {
       await delay(2000)
-      const openLibraryUrl = new URL('https://openlibrary.org/search.json')
+      let openLibraryUrl = new URL('https://openlibrary.org/search.json')
       openLibraryUrl.searchParams.set('q', (url.searchParams.get('q') || '').trim())
       openLibraryUrl.searchParams.set('limit', '20')
       let resp: Response
@@ -170,7 +166,7 @@ export const searchBooksController = createController(routes.searchBooks, {
   },
 })
 
-let delay = (ms = 1000) => new Promise((res) => setTimeout(res, ms))
+const delay = (ms = 1000) => new Promise((res) => setTimeout(res, ms))
 
 export const todolistController = createController(routes.todolist, {
   actions: {

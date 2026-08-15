@@ -7,10 +7,6 @@ export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisC
     root: {
       count: 0,
     },
-
-    increment: (offset: number, root) => {
-      root.count += offset
-    },
   })
   let incrementOffset = 1
   return () => (
@@ -19,11 +15,11 @@ export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisC
         mix={[
           buttonCss,
           on('click', () => {
-            events.dispatchEvent({ increment: incrementOffset })
+            events.dispatchEvent({ count: ({count}) => count + incrementOffset })
           }),
         ]}
       >
-        <evented.span on={events}>{({ count }) => count}</evented.span>
+        <evented.span on={events.on.count}>{(count) => count}</evented.span>
       </button>
       <label>
         Increment by{' '}
