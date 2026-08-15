@@ -49,9 +49,7 @@ export const SevenGuisTemperatureConverter = clientEntry(
             mix={[
               inputCss,
               on('input', ({ currentTarget }) => {
-                let value = currentTarget.value
-                if (parseTemperature(value) === undefined) return
-                events.dispatchEvent({ celsius: value })
+                events.dispatchEvent({ celsius: currentTarget.value })
               }),
             ]}
           />
@@ -63,9 +61,7 @@ export const SevenGuisTemperatureConverter = clientEntry(
             mix={[
               inputCss,
               on('input', ({ currentTarget }) => {
-                let value = currentTarget.value
-                if (parseTemperature(value) === undefined) return
-                events.dispatchEvent({ fahrenheit: value })
+                events.dispatchEvent({ fahrenheit: currentTarget.value })
               }),
             ]}
           />
