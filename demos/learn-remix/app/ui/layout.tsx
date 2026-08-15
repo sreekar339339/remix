@@ -27,7 +27,6 @@ export function Layout(handle: Handle<{ children: RemixNode; url?: URL; params?:
           <a href={routes.searchBooks.withoutFrame.href()}>Search books without Frame</a>
           <a href={routes.searchBooks.withFrame.href()}>Search books with Frame</a>
           <a href={routes.todolist.index.href()}>Todo list</a>
-          <a href={routes.kitchenSink.href()}>Kitchen Sink</a>
           <a href={routes.sevenGuis.href()}>7GUIs</a>
           <a href={routes.kanban.href()}>Kanban experiment</a>
           <a href={routes.listUpdates.href()}>List updates</a>
