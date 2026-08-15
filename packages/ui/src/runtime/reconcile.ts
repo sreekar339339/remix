@@ -39,6 +39,7 @@ import type { ElementFunction } from './element-function.ts'
 import {
   createEventedHostState,
   resolveEventedProps,
+  collectReactivePropKeys,
   resolveEventSourceProtocols,
   subscribeEventedHostNode,
   type EventedHostState,
@@ -594,6 +595,7 @@ function diffHost(
       // input; the element's value follows the event stream, not the parent
       // re-render.
       eventedState.rawProps = resolved.props
+      eventedState.reactiveKeys = collectReactivePropKeys(resolved.props)
       eventedState.rawChildren = resolved.props.children
     } else {
       eventedState = createEventedHostState(
@@ -608,6 +610,7 @@ function diffHost(
       resolved.props,
       eventedState.input,
       eventedState.event,
+      eventedState.reactiveKeys,
     ) as RuntimeHostProps
     resolved = { ...resolved, props: nextProps }
     childInputs =
@@ -712,7 +715,12 @@ function prepareEventedHostNode(
   return {
     resolved: {
       ...resolved,
-      props: resolveEventedProps(resolved.props, state.input, state.event) as RuntimeHostProps,
+      props: resolveEventedProps(
+        resolved.props,
+        state.input,
+        state.event,
+        state.reactiveKeys,
+      ) as RuntimeHostProps,
     },
     childInputs:
       resolved.props.innerHTML != null
@@ -746,6 +754,7 @@ function runEventedHostUpdate(state: EventedHostState): void {
       state.rawProps,
       state.input,
       state.event,
+      state.reactiveKeys,
     ) as RuntimeHostProps
     node._mixedProps = nextProps
 

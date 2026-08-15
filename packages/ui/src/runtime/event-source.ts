@@ -98,17 +98,22 @@ export function resolveEventSourceProtocols(input: unknown): EventSourceProtocol
   return sources
 }
 
+function computeSourceDetail(
+  source: EventSourceProtocol,
+  trigger: EventSourceEvent | undefined,
+): unknown {
+  if (source.read) return source.read(trigger)
+  return trigger !== undefined && (source.type === '*' || trigger.type === source.type)
+    ? trigger.detail
+    : undefined
+}
+
 function computeEventDetail(
   trigger: EventSourceEvent | undefined,
   sources: readonly EventSourceProtocol[],
 ): unknown {
-  let detail = sources.map((source) => {
-    if (source.read) return source.read(trigger)
-    return trigger !== undefined && (source.type === '*' || trigger.type === source.type)
-      ? trigger.detail
-      : undefined
-  })
-  return detail.length === 1 ? detail[0] : detail
+  if (sources.length === 1) return computeSourceDetail(sources[0]!, trigger)
+  return sources.map((source) => computeSourceDetail(source, trigger))
 }
 
 function hasRetainedSource(sources: readonly EventSourceProtocol[]): boolean {
@@ -172,26 +177,45 @@ function isNonReactiveProp(key: string): boolean {
 }
 
 /**
+ * The reactive prop keys of a raw prop bag: function-valued props the
+ * evented element resolves against its event input. Cached per element so
+ * notifications resolve props without rescanning every key.
+ */
+export function collectReactivePropKeys(props: Record<string, unknown>): string[] | undefined {
+  let keys: string[] | undefined
+  for (let key of Object.keys(props)) {
+    if (typeof props[key] === 'function' && !isNonReactiveProp(key)) {
+      ;(keys ??= []).push(key)
+    }
+  }
+  return keys
+}
+
+/**
  * Resolves reactive element props: function-valued props are called with the
  * callback input and the matched event, everything else passes through
- * unchanged.
+ * unchanged. When a cached key list is supplied, only those keys are visited.
  * @param props Props to resolve.
  * @param input The callback input.
  * @param event The matched event, when the element is occurrence-driven.
+ * @param reactiveKeys Cached reactive keys of `props`, when known.
  * @returns The resolved props.
  */
 export function resolveEventedProps(
   props: Record<string, unknown>,
   input: unknown,
   event?: EventSourceEvent,
+  reactiveKeys?: readonly string[],
 ): Record<string, unknown> {
+  let keys = reactiveKeys ?? collectReactivePropKeys(props)
+  if (!keys) return props
   let resolved: Record<string, unknown> | undefined
-  for (let key of Object.keys(props)) {
-    let value = props[key]
-    if (typeof value === 'function' && !isNonReactiveProp(key)) {
-      resolved ??= { ...props }
-      resolved[key] = value(input, event)
-    }
+  for (let key of keys) {
+    resolved ??= { ...props }
+    resolved[key] = (props[key] as (input: unknown, event?: EventSourceEvent) => unknown)(
+      input,
+      event,
+    )
   }
   return resolved ?? props
 }
@@ -208,6 +232,8 @@ export type EventedHostState = {
   event?: EventSourceEvent
   /** Mixin-resolved props with reactive callbacks still intact. */
   rawProps: Record<string, unknown>
+  /** Reactive prop keys of `rawProps`, resolved on adoption. */
+  reactiveKeys?: readonly string[]
   /** Raw children value: a callback of the event input or static nodes. */
   rawChildren: unknown
   /** Reconcile context captured at setup, used by event-driven updates. */
@@ -241,6 +267,7 @@ export function createEventedHostState(
     input: computeInitialEventInput(sources, initial),
     event: computeInitialEvent(sources, initial),
     rawProps,
+    reactiveKeys: collectReactivePropKeys(rawProps),
     rawChildren: rawProps.children,
     context,
     controller: new AbortController(),
