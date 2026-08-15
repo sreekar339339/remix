@@ -2054,4 +2054,61 @@ describe('remembered customEvents', () => {
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'built:9')
   })
+
+  it('reads and routes deep number-keyed collections by canonical segment', async (t) => {
+    let events = customEvents({
+      root: {
+        boards: new Map([
+          [
+            1,
+            {
+              cards: new Map([
+                [10, { label: 'ten' }],
+                [20, { label: 'twenty' }],
+              ]),
+            },
+          ],
+        ]),
+      },
+      rename: (id: number, root) => {
+        let card = root.boards.get(1)?.cards.get(id)
+        if (card) card.label = `${card.label}!`
+      },
+    })
+    let calls = { board: 0, ten: 0, twenty: 0 }
+
+    function Board() {
+      return () => (
+        <section>
+          <evented.output eventSource={events.on.boards}>
+            {() => String(++calls.board)}
+          </evented.output>
+          <evented.output eventSource={events.on.boards.get(1).cards.get(10).label}>
+            {() => String(++calls.ten)}
+          </evented.output>
+          <evented.output eventSource={events.on.boards.get(1).cards.get(20).label}>
+            {() => String(++calls.twenty)}
+          </evented.output>
+        </section>
+      )
+    }
+
+    let result = render(<Board />)
+    t.after(() => result.cleanup())
+    assert.deepEqual(calls, { board: 1, ten: 1, twenty: 1 })
+
+    // A deep recipe write reaches only the addressed card and the whole-key
+    // view, resolving through number keys by their canonical string form.
+    await result.act(async () => {
+      await events.dispatchEvent({ rename: 10 })
+      await settleEffects()
+    })
+    assert.deepEqual(calls, { board: 2, ten: 2, twenty: 1 })
+
+    await result.act(async () => {
+      await events.dispatchEvent({ rename: 20 })
+      await settleEffects()
+    })
+    assert.deepEqual(calls, { board: 3, ten: 2, twenty: 2 })
+  })
 })

@@ -93,6 +93,10 @@ export function readPath(value: unknown, path: readonly unknown[]) {
     if (value instanceof Map) {
       if (value.has(segment)) {
         value = value.get(segment)
+      } else if (typeof segment === 'string' && value.has(Number(segment))) {
+        // Numbers canonicalise to strings, so a canonical segment's numeric
+        // twin is its direct key and reads stay O(1).
+        value = value.get(Number(segment))
       } else {
         value = value.entries().find(([key]) => samePropertyKey(key, segment))?.[1]
       }
