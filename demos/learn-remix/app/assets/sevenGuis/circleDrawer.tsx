@@ -114,7 +114,7 @@ export const SevenGuisCircleDrawer = clientEntry(
         <h2>Circle Drawer</h2>
         <div mix={rowCss}>
           <evented.button
-            eventSource={events.on.history}
+            on={events.on.history}
             type="button"
             disabled={(history) => history.index === 0}
             mix={[
@@ -127,7 +127,7 @@ export const SevenGuisCircleDrawer = clientEntry(
             Undo
           </evented.button>
           <evented.button
-            eventSource={events.on.history}
+            on={events.on.history}
             type="button"
             disabled={(history) => history.index === history.snapshots.length - 1}
             mix={[
@@ -157,13 +157,13 @@ export const SevenGuisCircleDrawer = clientEntry(
             }),
           ]}
         >
-          <evented.svg eventSource={events.on.circles}>
+          <evented.svg on={events.on.circles}>
             {(circles) => (
               <>
                 {[...circles.entries()].map(([id, circle]) => (
                   <evented.circle
                     key={id}
-                    eventSource={[
+                    on={[
                       events.on.circles.get(id).diameter,
                       events.on.editingCircleById.as(id),
                     ]}
@@ -191,7 +191,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           </evented.svg>
         </svg>
         <evented.form
-          eventSource={events.on.editingCircleById}
+          on={events.on.editingCircleById}
           hidden={(circleId) => circleId === null}
           mix={[
             rowCss,
@@ -204,7 +204,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           <label>
             Diameter{' '}
             <evented.input
-              eventSource={[events.on.editingCircleById, events.on.circles]}
+              on={[events.on.editingCircleById, events.on.circles]}
               type="range"
               min={10}
               max={120}

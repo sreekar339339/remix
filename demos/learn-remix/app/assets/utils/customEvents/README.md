@@ -17,7 +17,7 @@ is a typed `EventTarget`: everything the DOM provides works on it exactly —
 - **Addressable subscriptions** — `events.on.<name>` sources subscribe
   narrow consumers to one event and re-render exactly the affected
   addresses.
-- **Element lifecycles** — Remix mixins (`eventSource`, `on`, `asHost`) wire
+- **Element lifecycles** — Remix mixins (`on`, `on`, `asHost`) wire
   subscriptions and effects to mounted elements.
 
 The library is organized around these concepts:
@@ -30,7 +30,7 @@ The library is organized around these concepts:
   vocabulary of transient events with no remembered detail.
 - **Event source** — a typed, addressable subscription handle for one event.
 - **Evented-view** — an intrinsic element (`evented.<tag>`) that subscribes
-  to sources through the `eventSource` host prop and re-renders from matched
+  to sources through the `on` host prop and re-renders from matched
   events.
 - **Effect** — an element-owned listener run after views update.
 - **Subscription** — the runtime registration that routes events to an
@@ -86,7 +86,7 @@ The `root` key is typed by hand — its keys are user-defined, so editors cannot
 suggest them — and everything else infers from it: the fold recipe's `detail`
 and `root` parameters, the `on.<name>` sources, and `dispatchEvent` inputs.
 
-The descriptor is the root composite event: `eventSource={events}` (or the named
+The descriptor is the root composite event: `on={events}` (or the named
 `events.root` source) re-reads the whole detail on every matched event. Every
 detail and fold event is exposed as a typed source. The descriptor carries
 native listeners, so native `addEventListener` works directly on the events
@@ -293,19 +293,19 @@ events.on.<source>(listener) // MixinDescriptor; active only while mounted
 
 `evented.<tag>` is a type-only alias over the intrinsic tag: `evented.button`
 is the string `'button'` at runtime. A render function's first argument is the
-**detail** the `eventSource` selects — the matched event's detail at that
+**detail** the `on` selects — the matched event's detail at that
 source (the whole composite for the descriptor's wildcard). The matched event
 is the second argument, always called `event`:
 
 ```tsx
-<evented.output eventSource={events.on.startDate}>{(detail) => detail}</evented.output>
+<evented.output on={events.on.startDate}>{(detail) => detail}</evented.output>
 ```
 
 Evented-view props:
 
 | Prop             | Meaning                                                                                                                                                                                                                |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `eventSource`    | A source, an array of sources, or the descriptor itself. The first callback argument is the selected detail (one source), a tuple (several), or the whole composite (the descriptor); the matched event is the second. |
+| `on`    | A source, an array of sources, or the descriptor itself. The first callback argument is the selected detail (one source), a tuple (several), or the whole composite (the descriptor); the matched event is the second. |
 | `initial`        | A defined event to render before an occurrence first matches; callbacks receive it as the matched event. Remembered views need no `initial`.                                                                           |
 | `children`       | Static children, or a render function of the selected detail and matched event.                                                                                                                                        |
 | _reactive props_ | Any native prop may be a function of the selected detail and matched event.                                                                                                                                            |
@@ -382,9 +382,9 @@ nothing but its own event. Immer patches drive the routing: keyed writes keep
 per-item granularity, scalar writes route by owner identity, and deep
 mutations reach exactly the affected addresses.
 
-**Reads are views or the live seed**: subscribe `eventSource={events}` (or the
+**Reads are views or the live seed**: subscribe `on={events}` (or the
 named `events.root` source) for the whole composite or
-`eventSource={events.on.<detail>}` for one remembered value. The object passed
+`on={events.on.<detail>}` for one remembered value. The object passed
 as `root` is the live composite — dispatches fold in place — so native
 listeners (`addEventListener`) read current values straight from the seed they
 created. Read values are readonly-typed (`Immutable`), so views and derived
@@ -398,17 +398,17 @@ events interpret.
 ### Narrow evented-views
 
 ```tsx
-<evented.button eventSource={events.on.selected.as(item.id)} aria-pressed={(selected) => selected}>
+<evented.button on={events.on.selected.as(item.id)} aria-pressed={(selected) => selected}>
   {item.label}
 </evented.button>
 ```
 
 Listen to several explicit sources with an array; the selected detail becomes
-a tuple index-aligned with `eventSource`:
+a tuple index-aligned with `on`:
 
 ```tsx
 <evented.button
-  eventSource={[events.on.position.get(index), events.on.result]}
+  on={[events.on.position.get(index), events.on.result]}
   disabled={([, result]) => result !== null}
 >
   {([pos]) => pos}
@@ -422,12 +422,12 @@ reconcile additions, removals, and reorders with minimal DOM work while item
 edits stay on item views:
 
 ```tsx
-<evented.svg eventSource={events.on.circles}>
+<evented.svg on={events.on.circles}>
   {(circles) =>
     [...circles.values()].map((circle) => (
       <evented.circle
         key={circle.id}
-        eventSource={[
+        on={[
           events.on.circles.get(circle.id).diameter,
           events.on.editingCircleById.as(circle.id),
         ]}
@@ -444,13 +444,13 @@ edits re-render exactly the touched item.
 
 ### Whole-model wildcard view
 
-Pass the descriptor itself to `eventSource` to subscribe to every event; the
+Pass the descriptor itself to `on` to subscribe to every event; the
 named `events.root` source is the same root subscription with an explicit
 handle. The first argument is always the whole composite; the matched event
 is the second:
 
 ```tsx
-<evented.output eventSource={events}>
+<evented.output on={events}>
   {(detail, event) =>
     event?.type === 'bookingConfirmed'
       ? `You have booked a ${detail.kind}.`
@@ -466,7 +466,7 @@ neither a detail nor a fold event. Subscribe a wildcard view to a descriptor
 to see them all:
 
 ```tsx
-<evented.div eventSource={searchEvents} initial={initialEvent}>
+<evented.div on={searchEvents} initial={initialEvent}>
   {(_, event) => {
     switch (event.type) {
       case 'queryEmpty':
@@ -535,7 +535,7 @@ Identity-valued details (which row is selected, which cell is focused) route
 by value via `.as(ownerId)`:
 
 ```tsx
-<evented.button eventSource={events.on.selected.as(item.id)} aria-pressed={(selected) => selected}>
+<evented.button on={events.on.selected.as(item.id)} aria-pressed={(selected) => selected}>
   {item.label}
 </evented.button>
 ```

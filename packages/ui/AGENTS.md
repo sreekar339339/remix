@@ -1349,13 +1349,13 @@ Keys can be any type (string, number, bigint, object, symbol), but should be sta
 }
 ```
 
-### Event-Aware Elements (eventSource)
+### Event-Aware Elements (on)
 
-Any host element can subscribe to event sources directly with the `eventSource` prop — no wrapper component and no `handle.update()` bookkeeping. The element becomes event-aware: on every matched event it re-resolves its reactive props and children through the normal vdom diff:
+Any host element can subscribe to event sources directly with the `on` prop — no wrapper component and no `handle.update()` bookkeeping. The element becomes event-aware: on every matched event it re-resolves its reactive props and children through the normal vdom diff:
 
 ```tsx
 <select
-  eventSource={[events.people, events.prefix, events.selectedId]}
+  on={[events.people, events.prefix, events.selectedId]}
   value={([, , selectedId]) => selectedId ?? ''}
 >
   {([people, prefix]) =>
@@ -1370,9 +1370,9 @@ Any host element can subscribe to event sources directly with the `eventSource` 
 
 Rules:
 
-- `eventSource` accepts one source or an array (empty slots allowed); an element accepts one source per event type.
-- Any prop may be a function of the event input (except `children`, `key`, `mix`, `innerHTML`, `eventSource`, `initial`, and `on*` props); `children` may be a function returning `RemixNode`.
-- A callback's first argument is the input: the source's current value for one source, a tuple index-aligned with `eventSource` for several. It is typed `unknown` — narrow it in the callback. The matched event is passed as a second argument.
+- `on` accepts one source or an array (empty slots allowed); an element accepts one source per event type.
+- Any prop may be a function of the event input (except `children`, `key`, `mix`, `innerHTML`, `on`, `initial`, and `on*` props); `children` may be a function returning `RemixNode`.
+- A callback's first argument is the input: the source's current value for one source, a tuple index-aligned with `on` for several. It is typed `unknown` — narrow it in the callback. The matched event is passed as a second argument.
 - `initial` is an event rendered before an occurrence first matches: its detail fills the slot of the source it matches, as if it had just fired, and callbacks receive it as the event argument. Sources that retain a value ignore it.
 - The element keeps the event's value across parent re-renders; unsubscribing happens automatically when the element is removed.
 - Server rendering resolves the initial input only; subscriptions are client-side.
@@ -1385,7 +1385,7 @@ Event sources are any objects exposing the `EVENT_SOURCE` protocol brand with `{
 A children function on an event-aware element is a live keyed list. The callback re-resolves from the event input on every matched event, and the vdom diffs the result by `key`, so keyed children mount, unmount, and reorder in place while unkeyed updates patch an existing element:
 
 ```tsx
-<evented.div eventSource={events.circles}>
+<evented.div on={events.circles}>
   {(circles) =>
     [...circles.entries()].map(([id, circle]) => (
       <evented.circle key={id} cx={circle.x} />

@@ -129,7 +129,7 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                 {columns.map((column, __, _, id = cellId(column, row)) => (
                   <td key={id}>
                     <evented.input
-                      eventSource={[events.on.values[id], events.on.cellDrafted]}
+                      on={[events.on.values[id], events.on.cellDrafted]}
                       aria-label={id}
                       data-render-count={() => {
                         let count = (renderCounts.get(id) ?? 0) + 1

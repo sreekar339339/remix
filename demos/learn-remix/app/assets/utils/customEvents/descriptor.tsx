@@ -39,7 +39,7 @@ const DEFAULT_CUSTOM_EVENTS_INIT: EventInit = {
 const reservedNames = new Set<string>(reservedCustomEventsNames)
 const customEventInitKeys = new Set(['bubbles', 'composed', 'signal'])
 // Runtime twin of the type-only marker; the source proxy exposes its metadata.
-const eventSourceMetadata = Symbol('eventSource')
+const onMetadata = Symbol('on')
 
 // Evented-view namespace: `evented.<tag>` resolves to the tag string itself, so
 // JSX creates a host element directly with no component runtime layer. The
@@ -291,7 +291,7 @@ export function createCustomEventsDescriptor<
               },
             } satisfies EventSourceProtocol
           }
-          if (property === eventSourceMetadata) {
+          if (property === onMetadata) {
             return rootMetadata
           }
           return undefined
@@ -328,7 +328,7 @@ export function createCustomEventsDescriptor<
     read?: () => unknown,
   ): object => {
     // One object is the source: evented views consume it through the
-    // EVENT_SOURCE protocol, while the internal eventSourceMetadata symbol
+    // EVENT_SOURCE protocol, while the internal onMetadata symbol
     // resolves to the same representation.
     let metadata: EventSourceMetadata & EventSourceProtocol = {
       type,
@@ -367,7 +367,7 @@ export function createCustomEventsDescriptor<
       customEventsOnMixin(getRuntime(), metadata, listener)
     return new Proxy(onNode, {
       get(_, property) {
-        if (property === EVENT_SOURCE || property === eventSourceMetadata) return metadata
+        if (property === EVENT_SOURCE || property === onMetadata) return metadata
         let current = metadata.read?.()
         if (property === 'get' && current instanceof Map) return (key: unknown) => at(key)
         if (property === 'has' && current instanceof Set) return (value: unknown) => at(value)

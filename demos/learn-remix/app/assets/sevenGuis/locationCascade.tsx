@@ -82,7 +82,7 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
         <label>
           Country{' '}
           <evented.select
-            eventSource={events.on.country}
+            on={events.on.country}
             aria-label="Country"
             value={(country) => country}
             mix={[
@@ -105,7 +105,7 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
         <label>
           State{' '}
           <evented.select
-            eventSource={[events.on.states, events.on.state]}
+            on={[events.on.states, events.on.state]}
             aria-label="State"
             value={([, state]) => state ?? ''}
             disabled={([states]) => states.length === 0}
@@ -129,7 +129,7 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
         <label>
           City{' '}
           <evented.select
-            eventSource={[events.on.cities, events.on.city]}
+            on={[events.on.cities, events.on.city]}
             aria-label="City"
             value={([, city]) => city ?? ''}
             disabled={([cities]) => cities.length === 0}
@@ -152,7 +152,7 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
         </label>
       </div>
       <evented.output
-        eventSource={[events.on.country, events.on.state, events.on.city]}
+        on={[events.on.country, events.on.state, events.on.city]}
         aria-label="Selection"
       >
         {([country, state, city]) =>

@@ -114,7 +114,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
       >
         {Array.from({ length: 9 }, (_, index) => (
           <evented.button
-            eventSource={[events.on.position.get(index), events.on.result]}
+            on={[events.on.position.get(index), events.on.result]}
             key={index}
             data-idx={String(index)}
             aria-label={`Cell ${index}`}
@@ -166,7 +166,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
           }),
         ]}
       >
-        <evented.span eventSource={events.on.result}>
+        <evented.span on={events.on.result}>
           {(result) => {
             if (!result) return 'Game in progress'
             if (result === 'Draw') return 'Game is drawn.'

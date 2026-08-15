@@ -63,7 +63,7 @@ export function EventUserDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div eventSource={events.on.user.name}>
+      <evented.div on={events.on.user.name}>
         {(user) => user ?? 'Not logged in'}
       </evented.div>
     </div>
@@ -75,7 +75,7 @@ export function SettingsDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div eventSource={events.on.settings}>
+      <evented.div on={events.on.settings}>
         {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
       </evented.div>
     </div>

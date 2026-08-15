@@ -33,13 +33,13 @@ describe('customEvents', () => {
       return () => (
         <section mix={events.asHost()}>
           <evented.output
-            eventSource={events.on.submitted}
+            on={events.on.submitted}
             aria-label="typed"
             data-id={(order) => order?.id}
           >
             {(order) => order?.id ?? ''}
           </evented.output>
-          <evented.output eventSource={events} aria-label="wildcard">
+          <evented.output on={events} aria-label="wildcard">
             {(value, event) => (event ? event.type : '')}
           </evented.output>
         </section>
@@ -85,19 +85,19 @@ describe('customEvents', () => {
     function Collections() {
       return () => (
         <section>
-          <evented.output eventSource={events.on.position.get('a')}>
+          <evented.output on={events.on.position.get('a')}>
             {(mark) => `${++calls.mapA}:${mark ?? ''}`}
           </evented.output>
-          <evented.output eventSource={events.on.position.get('b')}>
+          <evented.output on={events.on.position.get('b')}>
             {(mark) => `${++calls.mapB}:${mark ?? ''}`}
           </evented.output>
-          <evented.output eventSource={events.on.position}>
+          <evented.output on={events.on.position}>
             {(positions) => `${++calls.mapAll}:${positions.size}`}
           </evented.output>
-          <evented.output eventSource={events.on.selected.has('red')}>
+          <evented.output on={events.on.selected.has('red')}>
             {(selected) => `${++calls.red}:${selected}`}
           </evented.output>
-          <evented.output eventSource={events.on.selected.has('blue')}>
+          <evented.output on={events.on.selected.has('blue')}>
             {(selected) => `${++calls.blue}:${selected}`}
           </evented.output>
         </section>
@@ -161,12 +161,12 @@ describe('customEvents', () => {
 
     function Canvas() {
       return () => (
-        <evented.svg eventSource={events.on.circles}>
+        <evented.svg on={events.on.circles}>
           {(circles) =>
             [...circles.values()].map((circle) => (
               <evented.circle
                 key={circle.id}
-                eventSource={events.on.circles.get(circle.id).r}
+                on={events.on.circles.get(circle.id).r}
                 cx={circle.x}
                 r={(radius) => radius ?? circle.r}
               />
@@ -236,12 +236,12 @@ describe('customEvents', () => {
 
     function Canvas() {
       return () => (
-        <evented.svg eventSource={events.on.circles}>
+        <evented.svg on={events.on.circles}>
           {(circles) =>
             [...circles.entries()].map(([id, circle]) => (
               <evented.circle
                 key={id}
-                eventSource={events.on.circles.get(id).r}
+                on={events.on.circles.get(id).r}
                 cx={circle.x}
                 r={(radius) => radius ?? circle.r}
               />
@@ -305,7 +305,7 @@ describe('customEvents', () => {
     function Items() {
       return () => (
         <section>
-          <evented.div eventSource={events.on.items}>
+          <evented.div on={events.on.items}>
             {(items) => {
               viewCalls++
               return (
@@ -381,20 +381,20 @@ describe('customEvents', () => {
     function Board() {
       return () => (
         <section>
-          <evented.output eventSource={events.on.columns.get('column:todo')}>
+          <evented.output on={events.on.columns.get('column:todo')}>
             {() => String(++calls.todo)}
           </evented.output>
-          <evented.output eventSource={events.on.columns.get('column:done')}>
+          <evented.output on={events.on.columns.get('column:done')}>
             {() => String(++calls.done)}
           </evented.output>
-          <evented.output eventSource={events.on.columns.get('column:todo').cards.get('card:one')}>
+          <evented.output on={events.on.columns.get('column:todo').cards.get('card:one')}>
             {() => String(++calls.one)}
           </evented.output>
-          <evented.output eventSource={events.on.columns.get('column:todo').cards.get('card:two')}>
+          <evented.output on={events.on.columns.get('column:todo').cards.get('card:two')}>
             {() => String(++calls.two)}
           </evented.output>
           <evented.output
-            eventSource={events.on.columns.get('column:done').cards.get('card:three')}
+            on={events.on.columns.get('column:done').cards.get('card:three')}
           >
             {() => String(++calls.three)}
           </evented.output>
@@ -435,7 +435,7 @@ describe('customEvents', () => {
 
     function RecordValue() {
       return () => (
-        <evented.output eventSource={events.on.records.get(recordKey).value}>
+        <evented.output on={events.on.records.get(recordKey).value}>
           {(value) => `${++renders}:${value}`}
         </evented.output>
       )
@@ -474,13 +474,13 @@ describe('customEvents', () => {
     function Items() {
       return () => (
         <section>
-          <evented.output eventSource={events.on.items[0]}>
+          <evented.output on={events.on.items[0]}>
             {() => String(++calls.first)}
           </evented.output>
-          <evented.output eventSource={events.on.items[1]} aria-label="1">
+          <evented.output on={events.on.items[1]} aria-label="1">
             {() => String(++calls.second)}
           </evented.output>
-          <evented.output eventSource={events.on.items}>{() => String(++calls.all)}</evented.output>
+          <evented.output on={events.on.items}>{() => String(++calls.all)}</evented.output>
         </section>
       )
     }
@@ -537,16 +537,16 @@ describe('customEvents', () => {
     function Collections() {
       return () => (
         <section>
-          <evented.output eventSource={events.on.circles[0]}>
+          <evented.output on={events.on.circles[0]}>
             {() => String(++calls.circle0)}
           </evented.output>
-          <evented.output eventSource={events.on.circles[1]} aria-label="1">
+          <evented.output on={events.on.circles[1]} aria-label="1">
             {() => String(++calls.circle1)}
           </evented.output>
-          <evented.output eventSource={events.on.values.A0}>
+          <evented.output on={events.on.values.A0}>
             {() => String(++calls.A0)}
           </evented.output>
-          <evented.output eventSource={events.on.values.B0}>
+          <evented.output on={events.on.values.B0}>
             {() => String(++calls.B0)}
           </evented.output>
         </section>
@@ -601,7 +601,7 @@ describe('customEvents', () => {
       return () => (
         <section>
           <evented.button
-            eventSource={events.on.selected.as('1')}
+            on={events.on.selected.as('1')}
             aria-label="1"
             type="button"
             aria-pressed={(selected) => selected}
@@ -615,7 +615,7 @@ describe('customEvents', () => {
             {() => String(++calls.first)}
           </evented.button>
           <evented.button
-            eventSource={events.on.selected.as('2')}
+            on={events.on.selected.as('2')}
             aria-label="2"
             type="button"
             aria-pressed={(selected) => selected}
@@ -628,7 +628,7 @@ describe('customEvents', () => {
           >
             {() => String(++calls.second)}
           </evented.button>
-          <evented.output eventSource={events.on.selected}>
+          <evented.output on={events.on.selected}>
             {() => String(++calls.all)}
           </evented.output>
         </section>
@@ -702,7 +702,7 @@ describe('customEvents', () => {
               }),
             ]}
           />
-          <evented.output aria-label="listener" eventSource={events.on.countDrafted}>
+          <evented.output aria-label="listener" on={events.on.countDrafted}>
             {(count) => (count === undefined ? 'idle' : `${count}:${++listenerRenders}`)}
           </evented.output>
         </section>
@@ -742,7 +742,7 @@ describe('customEvents', () => {
 
     function Snapshot() {
       return () => (
-        <evented.output eventSource={events} aria-label="snapshot">
+        <evented.output on={events} aria-label="snapshot">
           {(detail, event) => {
             seen.push([detail, event?.type])
             if (false) {
@@ -871,16 +871,16 @@ describe('customEvents', () => {
     function CollidingEventNames() {
       return () => (
         <section mix={events.asHost()}>
-          <evented.output eventSource={events.on.name} aria-label="name">
+          <evented.output on={events.on.name} aria-label="name">
             {(value, event) => event?.type}
           </evented.output>
-          <evented.output eventSource={events.on.length} aria-label="length">
+          <evented.output on={events.on.length} aria-label="length">
             {(value, event) => event?.type}
           </evented.output>
-          <evented.output eventSource={events.on.bind} aria-label="bind">
+          <evented.output on={events.on.bind} aria-label="bind">
             {(value, event) => event?.type}
           </evented.output>
-          <evented.output eventSource={events.on.toString} aria-label="toString">
+          <evented.output on={events.on.toString} aria-label="toString">
             {(value, event) => event?.type}
           </evented.output>
         </section>
@@ -915,7 +915,7 @@ describe('customEvents', () => {
             Submit
           </button>
           <evented.form
-            eventSource={events.on.submitted}
+            on={events.on.submitted}
             initial={events.create({ submitted: { id: 'idle' } })}
             aria-label="form"
             class={(order, event) => (order?.id === 'idle' ? '' : 'pending')}
@@ -954,14 +954,14 @@ describe('customEvents', () => {
       return () => (
         <section mix={events.asHost()} aria-label="confirmation-host">
           <evented.output
-            eventSource={events.on.submitted}
+            on={events.on.submitted}
             hidden={(order, event) => order === undefined}
             aria-label="confirmation"
           >
             {(order, event) => order?.id ?? null}
           </evented.output>
           <evented.output
-            eventSource={events.on.submitted}
+            on={events.on.submitted}
             initial={events.create({ submitted: { id: 'initial' } })}
             hidden={(order, event) => order?.id === 'hidden'}
             aria-label="initial-confirmation"
@@ -997,7 +997,7 @@ describe('customEvents', () => {
     function Form() {
       return () => (
         <evented.form
-          eventSource={events}
+          on={events}
           aria-label="source"
           data-action={(value, event) => event?.type}
           mix={[
@@ -1008,7 +1008,7 @@ describe('customEvents', () => {
           ]}
         >
           <evented.input
-            eventSource={events}
+            on={events}
             aria-label="input"
             disabled={(value, event) => event?.type === 'submitted'}
           />
@@ -1047,7 +1047,7 @@ describe('customEvents', () => {
           />
           {['first', 'second'].map((id) => (
             <evented.output
-              eventSource={[events.on.submitted, events.on.paid]}
+              on={[events.on.submitted, events.on.paid]}
               initial={initialOutcome}
               aria-label={id}
               mix={events.on['*'](({ currentTarget, type }) => {
@@ -1057,7 +1057,7 @@ describe('customEvents', () => {
               {(input, event) => (event.type === 'submitted' ? (input?.[0]?.id ?? '') : 'idle')}
             </evented.output>
           ))}
-          <evented.output eventSource={events} initial={initialOutcome} aria-label="all">
+          <evented.output on={events} initial={initialOutcome} aria-label="all">
             {(value, event) => (event.type === 'paid' ? 'idle' : event.type)}
           </evented.output>
         </section>
@@ -1225,7 +1225,7 @@ describe('customEvents', () => {
             })}
           />
           <evented.output
-            eventSource={events}
+            on={events}
             aria-label="view"
             mix={events.on['*'](async ({ type, currentTarget }) => {
               await Promise.resolve()
@@ -1481,7 +1481,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events} aria-label="root">
+        <evented.output on={events} aria-label="root">
           {(detail, event) => {
             seen.push([detail, event?.type])
             return `${detail.label}:${detail.count}`
@@ -1537,7 +1537,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events} aria-label="root">
+        <evented.output on={events} aria-label="root">
           {(detail, event) => {
             seen.push([detail, event?.type])
             if (event?.type === 'refreshRequested') return `refresh:${detail.count}`
@@ -1585,17 +1585,17 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output eventSource={events} aria-label="root">
+          <evented.output on={events} aria-label="root">
             {(detail) => {
               rootCalls++
               return `${detail.items.size} items`
             }}
           </evented.output>
-          <evented.div eventSource={events.on.items}>
+          <evented.div on={events.on.items}>
             {(items) => (
               <>
                 {[...items.entries()].map(([id, item]) => (
-                  <evented.div key={id} className="item" eventSource={events.on.items.get(id)}>
+                  <evented.div key={id} className="item" on={events.on.items.get(id)}>
                     {(current) => current?.label ?? item.label}
                   </evented.div>
                 ))}
@@ -1638,7 +1638,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events.on.tick} aria-label="tick">
+        <evented.output on={events.on.tick} aria-label="tick">
           {(delta, latest) => {
             seen.push([delta, latest?.type])
             return delta === undefined ? '' : `${delta}`
@@ -1665,7 +1665,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events.on.kind} aria-label="kind">
+        <evented.output on={events.on.kind} aria-label="kind">
           {(kind) => {
             seen.push(kind)
             return `${kind}`
@@ -1729,7 +1729,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events.root} aria-label="root">
+        <evented.output on={events.root} aria-label="root">
           {(detail, event) => {
             seen.push([detail, event?.type])
             return `${detail.label}:${detail.count}`
@@ -1773,7 +1773,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events} aria-label="root">
+        <evented.output on={events} aria-label="root">
           {(detail) => `${detail.label}:${detail.count}`}
         </evented.output>
       )
@@ -1823,7 +1823,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events} aria-label="root">
+        <evented.output on={events} aria-label="root">
           {(detail) => `${detail.celsius}/${detail.fahrenheit}`}
         </evented.output>
       )
@@ -1866,13 +1866,13 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output eventSource={events.on.drafted} aria-label="draft">
+          <evented.output on={events.on.drafted} aria-label="draft">
             {(draft) => {
               drafts.push(draft)
               return `${draft}`
             }}
           </evented.output>
-          <evented.output eventSource={events} aria-label="root">
+          <evented.output on={events} aria-label="root">
             {(detail) => `${detail.count}`}
           </evented.output>
         </section>
@@ -1911,13 +1911,13 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output eventSource={events.on.bookingConfirmed} aria-label="signal">
+          <evented.output on={events.on.bookingConfirmed} aria-label="signal">
             {(detail) => {
               seen.push(detail)
               return detail === null ? 'idle' : 'matched'
             }}
           </evented.output>
-          <evented.output eventSource={events} aria-label="root">
+          <evented.output on={events} aria-label="root">
             {(detail) => `${detail.count}`}
           </evented.output>
         </section>
@@ -1953,10 +1953,10 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output eventSource={events} aria-label="root">
+          <evented.output on={events} aria-label="root">
             {(detail) => `${detail.label}:${detail.count}`}
           </evented.output>
-          <evented.output eventSource={events.on.drafted} aria-label="draft">
+          <evented.output on={events.on.drafted} aria-label="draft">
             {(draft) => `${draft}`}
           </evented.output>
         </section>
@@ -2017,7 +2017,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output eventSource={events} aria-label="root">
+        <evented.output on={events} aria-label="root">
           {(detail) => `${detail.label}:${detail.count}`}
         </evented.output>
       )
@@ -2080,13 +2080,13 @@ describe('remembered customEvents', () => {
     function Board() {
       return () => (
         <section>
-          <evented.output eventSource={events.on.boards}>
+          <evented.output on={events.on.boards}>
             {() => String(++calls.board)}
           </evented.output>
-          <evented.output eventSource={events.on.boards.get(1).cards.get(10).label}>
+          <evented.output on={events.on.boards.get(1).cards.get(10).label}>
             {() => String(++calls.ten)}
           </evented.output>
-          <evented.output eventSource={events.on.boards.get(1).cards.get(20).label}>
+          <evented.output on={events.on.boards.get(1).cards.get(20).label}>
             {() => String(++calls.twenty)}
           </evented.output>
         </section>

@@ -34,7 +34,6 @@ export const FRAMEWORK_PROPS = new Set([
   'animate',
   'innerHTML',
   'on',
-  'eventSource',
   'initial',
 ])
 

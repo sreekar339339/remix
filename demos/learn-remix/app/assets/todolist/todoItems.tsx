@@ -137,7 +137,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
         <li key={id} mix={todoItemCss}>
           <form method="POST" action={routes.todolist.todos.action.href()} mix={events.asHost()}>
             <evented.button
-              eventSource={events}
+              on={events}
               mix={[todoActionButtonCss, deleteTodoButtonCss]}
               name="intent"
               value="delete"
@@ -149,7 +149,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
             <input hidden name="id" value={id} />
           </form>
           <evented.form
-            eventSource={events}
+            on={events}
             data-action={(_, event) => event?.type}
             mix={[
               events.asHost(),
@@ -167,7 +167,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
             <button hidden name="intent" value="update" />
             <input hidden name="id" value={id} />
             <evented.input
-              eventSource={events}
+              on={events}
               mix={[editTodoInputCss]}
               defaultValue={text}
               name="text"
@@ -179,7 +179,7 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
             <input hidden name="completed" value={String(!completed)} />
             <input hidden name="id" value={id} />
             <evented.button
-              eventSource={events}
+              on={events}
               initial={events.create({ actionSucceeded: { completed } })}
               disabled={(_, event) => event.type === 'actionSubmitted'}
               class={(_, event) => (event.type === 'actionSubmitted' ? 'pending' : '')}

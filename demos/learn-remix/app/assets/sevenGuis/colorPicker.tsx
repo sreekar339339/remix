@@ -188,7 +188,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
         <label>
           Hex{' '}
           <evented.input
-            eventSource={events.on.hex}
+            on={events.on.hex}
             aria-label="Hex"
             value={(hex) => hex}
             mix={[
@@ -212,7 +212,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
               <label>
                 {label}{' '}
                 <evented.input
-                  eventSource={events.on[channel]}
+                  on={events.on[channel]}
                   aria-label={label}
                   value={(value) => value}
                   mix={[
@@ -241,7 +241,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
               <label>
                 {label}{' '}
                 <evented.input
-                  eventSource={events.on[channel]}
+                  on={events.on[channel]}
                   aria-label={label}
                   value={(value) => value}
                   mix={[
@@ -258,7 +258,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
           </div>
         </fieldset>
         <evented.div
-          eventSource={events.on.hex}
+          on={events.on.hex}
           aria-label="Swatch"
           style={(hex) => ({ background: parseHex(hex) ? hex : '#e4e4e7' })}
           mix={swatchCss}

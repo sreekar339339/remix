@@ -48,14 +48,14 @@ function createFakeSource(
   }
 }
 
-describe('eventSource host prop', () => {
+describe('on host prop', () => {
   it('renders initial values from retained sources', () => {
     let name = createFakeSource('name', { value: 'Ada' })
 
     let container = document.createElement('div')
     let root = createRoot(container)
     root.render(
-      <output eventSource={name} data-name={(detail: unknown) => detail as string}>
+      <output on={name} data-name={(detail: unknown) => detail as string}>
         {(detail: unknown) => detail as string}
       </output>,
     )
@@ -65,7 +65,7 @@ describe('eventSource host prop', () => {
     invariant(output)
     expect(output.dataset.name).toBe('Ada')
     expect(output.textContent).toBe('Ada')
-    expect(output.hasAttribute('eventSource')).toBe(false)
+    expect(output.hasAttribute('on')).toBe(false)
   })
 
   it('updates attributes and children through the vdom when a source fires', () => {
@@ -74,7 +74,7 @@ describe('eventSource host prop', () => {
     let container = document.createElement('div')
     let root = createRoot(container)
     root.render(
-      <button eventSource={count} disabled={(count) => (count as number) >= 2}>
+      <button on={count} disabled={(count) => (count as number) >= 2}>
         {(count) => `count: ${count}`}
       </button>,
     )
@@ -103,7 +103,7 @@ describe('eventSource host prop', () => {
     let container = document.createElement('div')
     let root = createRoot(container)
     root.render(
-      <output eventSource={[first, last]}>
+      <output on={[first, last]}>
         {(value) => {
           let [firstName, lastName] = value as [string, string]
           return `${firstName} ${lastName}`
@@ -127,7 +127,7 @@ describe('eventSource host prop', () => {
     let container = document.createElement('div')
     let root = createRoot(container)
     root.render(
-      <output eventSource={submitted} initial={{ type: 'submitted', detail: 'waiting' }}>
+      <output on={submitted} initial={{ type: 'submitted', detail: 'waiting' }}>
         {(value: unknown, event?: EventSourceEvent) =>
           `${(event as EventSourceEvent).type}: ${(value as string) ?? 'no detail'}`
         }
@@ -161,7 +161,7 @@ describe('eventSource host prop', () => {
     let root = createRoot(container)
     root.render(
       <output
-        eventSource={wildcard}
+        on={wildcard}
         initial={{ type: 'idle', detail: 'waiting' }}
         data-type={(value: unknown, event?: EventSourceEvent) => (event as EventSourceEvent).type}
       >
@@ -190,7 +190,7 @@ describe('eventSource host prop', () => {
       return () => (
         <div>
           <span>{handle.props.label}</span>
-          <button eventSource={selected} aria-pressed={(selected) => selected as boolean}>
+          <button on={selected} aria-pressed={(selected) => selected as boolean}>
             {(selected) => (selected ? 'selected' : 'not selected')}
           </button>
         </div>
@@ -221,7 +221,7 @@ describe('eventSource host prop', () => {
 
     let container = document.createElement('div')
     let root = createRoot(container)
-    root.render(<output eventSource={source}>{(value) => value as string}</output>)
+    root.render(<output on={source}>{(value) => value as string}</output>)
     root.flush()
     expect(source.subscriberCount()).toBe(1)
 
@@ -242,12 +242,12 @@ describe('eventSource host prop', () => {
       errors.push((event as { error?: unknown }).error)
     })
 
-    root.render(<output eventSource={42 as never} />)
+    root.render(<output on={42 as never} />)
     root.flush()
 
     expect(errors.length).toBe(1)
     expect(errors[0] instanceof TypeError).toBe(true)
-    expect((errors[0] as TypeError).message).toBe('eventSource accepts event sources.')
+    expect((errors[0] as TypeError).message).toBe('on accepts event sources.')
   })
 
   it('rejects two sources with the same event type', () => {
@@ -261,7 +261,7 @@ describe('eventSource host prop', () => {
       errors.push((event as { error?: unknown }).error)
     })
 
-    root.render(<output eventSource={[first, second]} />)
+    root.render(<output on={[first, second]} />)
     root.flush()
 
     expect(errors.length).toBe(1)
@@ -275,14 +275,14 @@ describe('eventSource host prop', () => {
     let name = createFakeSource('name', { value: 'Ada' })
 
     let html = await renderToString(
-      <output eventSource={name} data-name={(name: unknown) => name as string}>
+      <output on={name} data-name={(name: unknown) => name as string}>
         {(name: unknown) => name as string}
       </output>,
     )
 
     expect(html).toContain('data-name="Ada"')
     expect(html).toContain('>Ada</output>')
-    expect(html).not.toContain('eventSource')
+    expect(html).not.toContain('on')
     expect(html).not.toContain('initial=')
   })
 

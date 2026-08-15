@@ -83,7 +83,7 @@ export function toVNode(node: RemixNode): VNodeInput {
       let props = parseHostProps(node.props)
       // Event-aware elements resolve their children from the event input at
       // commit time instead of converting them here.
-      let evented = props.eventSource != null
+      let evented = props.on != null
       // When innerHTML is set, ignore children
       let children = props.innerHTML != null || evented ? [] : flatMapChildrenToVNodes(props)
       return {
@@ -113,7 +113,7 @@ function isFrameProps(props: RuntimeElementProps): props is RuntimeElementProps 
 
 function parseHostProps(props: RuntimeElementProps): RuntimeHostProps {
   let children = props.children
-  let evented = props.eventSource != null
+  let evented = props.on != null
   invariant(
     children === undefined || isRemixNode(children) || (evented && typeof children === 'function'),
     'Invalid host children',

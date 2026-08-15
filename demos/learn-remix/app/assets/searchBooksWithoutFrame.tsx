@@ -63,7 +63,7 @@ export const SearchBooksWithoutFrame = clientEntry(
         <label>
           Search{' '}
           <evented.input
-            eventSource={events}
+            on={events}
             initial={initialEvent}
             type="text"
             defaultValue={initialQuery}
@@ -90,7 +90,7 @@ export const SearchBooksWithoutFrame = clientEntry(
             ]}
           />
         </label>
-        <evented.div eventSource={events} initial={initialEvent}>
+        <evented.div on={events} initial={initialEvent}>
           {(_, event) => {
             switch (event.type) {
               case 'queryEmpty':

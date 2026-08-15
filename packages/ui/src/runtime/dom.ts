@@ -46,7 +46,7 @@ export interface HostProps<eventTarget extends EventTarget> {
    * to the sources while mounted and re-renders its reactive props and
    * children through the vdom on every matched event.
    */
-  eventSource?: EventSourceInput
+  on?: EventSourceInput
   /**
    * Callback input rendered before an occurrence first matches. Ignored when
    * an event source retains a current value.

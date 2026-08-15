@@ -86,7 +86,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
         ]}
       >
         <evented.select
-          eventSource={[events.on.people, events.on.prefix, events.on.selectedId]}
+          on={[events.on.people, events.on.prefix, events.on.selectedId]}
           size={7}
           aria-label="People"
           value={([, , selectedId]) => selectedId ?? ''}
@@ -106,7 +106,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
           }
         </evented.select>
         <evented.div
-          eventSource={[events.on.draft, events.on.selectedId]}
+          on={[events.on.draft, events.on.selectedId]}
           mix={css({ display: 'grid', gap: 8 })}
         >
           {([draft, selectedId]) => (

@@ -588,7 +588,7 @@ function diffHost(
 
   let eventedState = curr._evented
   let subscribeEvented = false
-  if (next.props.eventSource != null) {
+  if (next.props.on != null) {
     if (eventedState) {
       // Adopt the fresh raw props and children but keep the current event
       // input; the element's value follows the event stream, not the parent
@@ -597,7 +597,7 @@ function diffHost(
       eventedState.rawChildren = resolved.props.children
     } else {
       eventedState = createEventedHostState(
-        resolveEventSourceProtocols(next.props.eventSource),
+        resolveEventSourceProtocols(next.props.on),
         resolved.props,
         next.props.initial,
         context,
@@ -692,7 +692,7 @@ type EventedHostPreparation = {
   state?: EventedHostState
 }
 
-// Prepares a mounting host element with an `eventSource` prop: creates the
+// Prepares a mounting host element with an `on` prop: creates the
 // evented state and resolves reactive props and children from the initial
 // event input so the standard mount flow works with plain values.
 function prepareEventedHostNode(
@@ -700,11 +700,11 @@ function prepareEventedHostNode(
   resolved: ResolvedHostProps,
   context: ReconcileContext,
 ): EventedHostPreparation {
-  if (node.props.eventSource == null) {
+  if (node.props.on == null) {
     return { resolved, childInputs: node._children }
   }
   let state = createEventedHostState(
-    resolveEventSourceProtocols(node.props.eventSource),
+    resolveEventSourceProtocols(node.props.on),
     resolved.props,
     node.props.initial,
     context,

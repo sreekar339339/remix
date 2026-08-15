@@ -19,7 +19,6 @@ function isFrameworkProp(name: string): boolean {
     name === 'animate' ||
     name === 'innerHTML' ||
     name === 'on' ||
-    name === 'eventSource' ||
     name === 'initial'
   )
 }

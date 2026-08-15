@@ -25,7 +25,7 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
       <div mix={rowCss}>
         {items.map((item) => (
           <evented.button
-            eventSource={events.on.selectedId.as(item.id)}
+            on={events.on.selectedId.as(item.id)}
             key={item.id}
             aria-label={item.label}
             type="button"
@@ -54,7 +54,7 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
       </div>
       <p>
         Selected:{' '}
-        <evented.output eventSource={events.on.selectedId}>
+        <evented.output on={events.on.selectedId}>
           {(selectedId) => selectedId ?? ''}
         </evented.output>
       </p>

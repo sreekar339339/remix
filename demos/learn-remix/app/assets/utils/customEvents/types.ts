@@ -106,7 +106,7 @@ export type CustomEventsEventMap<Definition extends CustomEventsDefinition> = {
 }
 
 // Type-only source markers; the runtime metadata symbol lives in the descriptor.
-declare const eventSourceMetadata: unique symbol
+declare const onMetadata: unique symbol
 declare const rememberedEventSourceMarker: unique symbol
 declare const occurrenceSourceMarker: unique symbol
 
@@ -125,7 +125,7 @@ export type EventSourceMetadata<Value = unknown, Type extends string = string> =
 
 export type EventSource<Value, Type extends string, Detail = Value> = {
   readonly [EVENT_SOURCE]: EventSourceProtocol
-  readonly [eventSourceMetadata]: EventSourceMetadata<Value, Type>
+  readonly [onMetadata]: EventSourceMetadata<Value, Type>
   /** Element-owned effect for this source: active only while mounted. */
   <Host extends Element = Element>(
     listener: EventSourceListener<Detail, Type, Host>,
@@ -243,9 +243,9 @@ type CustomEventsViewProps<
   Direct extends boolean = false,
 > = Omit<
   CustomEventsReactiveElementProps<Input, Event, Tag, Direct>,
-  'children' | 'eventSource'
+  'children' | 'on'
 > & {
-  eventSource: On
+  on: On
   children?:
     | CustomEventsIntrinsicChildren<Tag>
     | CustomEventsReactiveProp<Direct extends true ? Input : NoInfer<Input>, Event, RemixNode>
@@ -296,7 +296,7 @@ export type CustomEventsRootSource<
   readonly [rememberedEventSourceMarker]: true
 }
 
-/** Default `eventSource`-omitted element on an occurrence descriptor: subscribes to every event. */
+/** Default `on`-omitted element on an occurrence descriptor: subscribes to every event. */
 type CustomEventsDefaultElementProps<
   Events extends EventDetails,
   Tag extends keyof JSX.IntrinsicElements,
@@ -310,7 +310,7 @@ type CustomEventsDefaultElementProps<
   Initialized
 >
 
-/** Default `eventSource`-omitted element on a remembered descriptor: subscribes to every event. */
+/** Default `on`-omitted element on a remembered descriptor: subscribes to every event. */
 type CustomEventsRememberedDefaultElementProps<
   Events extends EventDetails,
   State extends EventDetails,
@@ -324,7 +324,7 @@ type CustomEventsRememberedDefaultElementProps<
   false
 >
 
-/** Evented-view on a remembered descriptor: `eventSource` selects sources; the input is their value(s). */
+/** Evented-view on a remembered descriptor: `on` selects sources; the input is their value(s). */
 type CustomEventsRememberedElementProps<
   Events extends EventDetails,
   State extends EventDetails,
@@ -360,7 +360,7 @@ type CustomEventsOccurrenceProps<
  * `'button'` at runtime, so JSX creates a host element directly, while these
  * overloads preserve source-specific callback inference.
  *
- * The wildcard overloads infer the event map from the `eventSource` descriptor
+ * The wildcard overloads infer the event map from the `on` descriptor
  * itself, so the shared top-level `evented` value stays fully typed for every
  * descriptor without binding at the property-access site. Explicit sources
  * resolve to value semantics when they come from a remembered descriptor and
@@ -373,7 +373,7 @@ export type CustomEventsEventedView<
 > = Tag &
   GenericJSXComponent & {
     <const Source extends CustomEventsWildcardSource<EventDetails>>(
-      props: { readonly eventSource: Source } & (Source extends CustomEventsDescriptor<
+      props: { readonly on: Source } & (Source extends CustomEventsDescriptor<
         infer ViewEvents,
         infer ViewState
       >
@@ -607,7 +607,7 @@ type RememberedDispatchEvent<Events extends EventDetails, Root extends EventDeta
 } & CustomEventsDispatchEvent<Events>
 
 /**
- * A remembered descriptor: the root composite event (`eventSource={events.root}`)
+ * A remembered descriptor: the root composite event (`on={events.root}`)
  * whose detail folds in every remembered detail and fold event. The write
  * input and builder surface come from `CustomEventsDescriptor` over the
  * remembered event map, plus a `root`-typed dispatch overload for

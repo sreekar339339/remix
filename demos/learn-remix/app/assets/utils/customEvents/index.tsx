@@ -37,7 +37,7 @@ setAutoFreeze(false)
 /**
  * Event-aware intrinsic elements for any descriptor: `evented.<tag>` resolves
  * to the tag string itself at runtime, while the source props infer the event
- * map from the descriptor passed as `eventSource`.
+ * map from the descriptor passed as `on`.
  */
 export const evented = customEventsEvented as unknown as CustomEventsEventedViews<
   EventDetails,

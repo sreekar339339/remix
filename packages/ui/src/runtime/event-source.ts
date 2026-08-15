@@ -2,7 +2,7 @@ import type { CommittedHostNode, ReconcileContext } from './vnode.ts'
 
 /**
  * Brand symbol marking an object as an event source consumable by the
- * `eventSource` host prop. Registered globally so sources created by separate
+ * `on` host prop. Registered globally so sources created by separate
  * package copies interoperate.
  */
 export const EVENT_SOURCE: unique symbol = Symbol.for('rmx:event-source')
@@ -50,14 +50,14 @@ export interface EventSourceProtocol {
 }
 
 /**
- * An event source accepted by the `eventSource` host prop.
+ * An event source accepted by the `on` host prop.
  */
 export interface EventSource {
   readonly [EVENT_SOURCE]: EventSourceProtocol
 }
 
 /**
- * Value accepted by the `eventSource` host prop: one source or an array of
+ * Value accepted by the `on` host prop: one source or an array of
  * sources, with empty slots allowed for conditional composition.
  */
 export type EventSourceInput = EventSource | readonly (EventSource | null | undefined)[]
@@ -74,9 +74,9 @@ export function getEventSourceProtocol(value: unknown): EventSourceProtocol | un
 }
 
 /**
- * Extracts and validates event source protocols from an `eventSource` prop
+ * Extracts and validates event source protocols from an `on` prop
  * value. Empty slots are skipped; any other non-source value throws.
- * @param input The `eventSource` prop value.
+ * @param input The `on` prop value.
  * @returns The validated source protocols.
  */
 export function resolveEventSourceProtocols(input: unknown): EventSourceProtocol[] {
@@ -87,7 +87,7 @@ export function resolveEventSourceProtocols(input: unknown): EventSourceProtocol
     if (value == null) continue
     let protocol = getEventSourceProtocol(value)
     if (!protocol) {
-      throw new TypeError('eventSource accepts event sources.')
+      throw new TypeError('on accepts event sources.')
     }
     if (types.has(protocol.type)) {
       throw new TypeError('An event-aware element accepts one source per event type.')
@@ -165,7 +165,7 @@ function isNonReactiveProp(key: string): boolean {
     key === 'key' ||
     key === 'mix' ||
     key === 'innerHTML' ||
-    key === 'eventSource' ||
+    key === 'on' ||
     key === 'initial' ||
     key.startsWith('on')
   )
@@ -200,7 +200,7 @@ export function resolveEventedProps(
  * State owned by a committed event-aware host element.
  */
 export type EventedHostState = {
-  /** Validated source protocols extracted from the `eventSource` prop. */
+  /** Validated source protocols extracted from the `on` prop. */
   sources: EventSourceProtocol[]
   /** Current callback input; re-computed on every matched event. */
   input: unknown

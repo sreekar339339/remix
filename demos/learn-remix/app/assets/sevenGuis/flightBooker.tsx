@@ -50,7 +50,7 @@ export const SevenGuisFlightBooker = clientEntry(
       bookingConfirmed: (flight: Flight) => {},
     })
     return () => (
-      <evented.section eventSource={events} mix={[taskCss]}>
+      <evented.section on={events} mix={[taskCss]}>
         {(flight) => (
           <>
             <h2>Flight Booker</h2>
@@ -110,7 +110,7 @@ export const SevenGuisFlightBooker = clientEntry(
             >
               Book
             </button>
-            <evented.output eventSource={events.on.bookingConfirmed} hidden={(flight) => !flight}>
+            <evented.output on={events.on.bookingConfirmed} hidden={(flight) => !flight}>
               {(flight) =>
                 flight?.kind === 'one-way flight'
                   ? `You have booked a one-way flight on ${flight?.startDate}.`

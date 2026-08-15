@@ -87,12 +87,12 @@ type GenericJSXElementType = GenericJSXComponent & ((...args: any[]) => unknown)
 
 /**
  * Value passed as the first argument to reactive prop and children callbacks
- * on event-aware elements: the selected value of the `eventSource` sources,
+ * on event-aware elements: the selected value of the `on` sources,
  * or the matched event's payload. Narrow it in the callback.
  */
 export type EventInput = unknown
 
-type NonReactivePropKeys = 'key' | 'mix' | 'innerHTML' | 'eventSource' | 'initial' | `on${string}`
+type NonReactivePropKeys = 'key' | 'mix' | 'innerHTML' | 'on' | 'initial' | `on${string}`
 
 type EventedElementProps<props> = {
   [key in keyof props]: key extends NonReactivePropKeys

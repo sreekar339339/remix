@@ -515,10 +515,10 @@ function buildElementSegment(
   frameState: SsrFrameState,
 ): Segment {
   let mixedProps = resolveSsrMixedProps(tag, props, context, frameState)
-  if (mixedProps.eventSource != null) {
+  if (mixedProps.on != null) {
     // Event-aware elements render their initial event input on the server;
     // subscriptions only exist on the client.
-    let sources = resolveEventSourceProtocols(mixedProps.eventSource)
+    let sources = resolveEventSourceProtocols(mixedProps.on)
     let input = computeInitialEventInput(sources, mixedProps.initial)
     let event = computeInitialEvent(sources, mixedProps.initial)
     let children =
