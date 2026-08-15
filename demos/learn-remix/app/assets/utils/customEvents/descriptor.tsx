@@ -132,14 +132,6 @@ export function createCustomEventsDescriptor<
     if (type === ALL_EVENTS) {
       throw new TypeError('customEvents reserves "*" for subscriptions.')
     }
-    // A function detail is a derived-detail callback: it is invoked with the
-    // live composite and its return value becomes the detail.
-    if (typeof detail === 'function') {
-      if (!state) {
-        throw new TypeError('customEvents derived details require a remembered descriptor.')
-      }
-      detail = (detail as (root: EventDetails) => unknown)(state.getState())
-    }
     // Descriptor API names cannot be events; `root` is the composite event
     // and exists only on remembered descriptors.
     if (type !== 'root' && reservedNames.has(type)) {
@@ -183,9 +175,13 @@ export function createCustomEventsDescriptor<
   }
 
   // The builder member: a bare name builds a detail-less event, an object of
-  // event-named details builds a single-event or transaction carrier.
+  // event-named details builds a single-event or transaction carrier, and a
+  // function of the composite builds the input at dispatch time.
   let create = (...args: Array<unknown>) => {
-    let [typeOrEvents, detailOrInit] = args as [string | Record<string, unknown>, unknown?]
+    let [typeOrEvents, detailOrInit] = args as [
+      string | Record<string, unknown> | ((root: EventDetails) => Record<string, unknown>),
+      unknown?,
+    ]
     if (typeof typeOrEvents === 'string') {
       let init = args.length >= 2 ? (detailOrInit as CustomEventInit) : undefined
       if (args.length >= 2 && !isCustomEventInit(detailOrInit)) {
@@ -198,6 +194,15 @@ export function createCustomEventsDescriptor<
         getEventInit(init),
         resolveEntry(typeOrEvents, null, init),
       )
+    }
+
+    if (typeof typeOrEvents === 'function') {
+      // A derived input: computed from the live composite at dispatch time,
+      // so handlers never hold the model. Per-name values are data.
+      if (!state) {
+        throw new TypeError('customEvents derived inputs require a remembered descriptor.')
+      }
+      return create(typeOrEvents(state.getState()), detailOrInit)
     }
 
     if (isRecord(typeOrEvents)) {

@@ -98,13 +98,13 @@ export const SevenGuisFlightBooker = clientEntry(
               mix={[
                 buttonCss,
                 on('click', () => {
-                  events.dispatchEvent({
-                    bookingConfirmed: (root) => ({
+                  events.dispatchEvent((root) => ({
+                    bookingConfirmed: {
                       kind: root.kind,
                       startDate: root.startDate,
                       returnDate: root.returnDate,
-                    }),
-                  })
+                    },
+                  }))
                 }),
               ]}
             >

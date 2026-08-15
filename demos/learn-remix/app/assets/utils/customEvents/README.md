@@ -97,8 +97,8 @@ The object passed as `root` is the **live composite**: dispatches fold in
 place into that same object, so a reference you hold reads the current model.
 That is the imperative read path — native listeners can read current values
 straight from the seed — while evented-views remain the addressed read path.
-Read values are readonly-typed (`Immutable`), so views and derived details
-cannot mutate the model at compile time; writes go through dispatch.
+Read values are readonly-typed (`Immutable`), so views and derived dispatch
+inputs cannot mutate the model at compile time; writes go through dispatch.
 
 ### The mental model
 
@@ -168,33 +168,37 @@ compile error. The bare-name form (`dispatchEvent('name')`) and the native
 channel (`addEventListener`, bridged targets) dispatch any name as an
 occurrence.
 
-A detail may be a **function of the composite**, computed at dispatch time:
-the callback receives the live composite and its return value becomes the
-detail. Handlers never hold the model, so derived details cannot go stale,
-and entries apply in order — a later callback sees earlier entries' effects:
+The dispatch input may be a **function of the composite**, computed at
+dispatch time: the callback receives the live composite and its return value
+becomes the event-named input. Handlers never hold the model, so derived
+inputs cannot go stale. The callback runs once, before any entry folds, so it
+sees the pre-dispatch composite; per-name values are data:
 
 ```tsx
 <input
   mix={on('input', ({ currentTarget }) => {
-    events.dispatchEvent({
+    events.dispatchEvent((root) => ({
       celsius: currentTarget.value,
-      // The fahrenheit leg derives from the freshly written celsius slice.
-      fahrenheit: (root) => formatTemperature((parseTemperature(root.celsius) * 9) / 5 + 32),
-    })
+      // The fahrenheit leg derives from the input, not from folded state.
+      fahrenheit: formatTemperature((parseTemperature(root.celsius) * 9) / 5 + 32),
+    }))
   })}
 />
 ```
 
-Derived details work for every event kind, including the `root` write
-(`{ root: (root) => ({ ... }) }`), and `events.create` accepts the same
-callbacks for element-scoped dispatch — the detail is computed when the event
-is created:
+A derived input works for every event kind, including the `root` write
+(`dispatchEvent((root) => ({ root: { ... } }))`), and `events.create` accepts
+the same callbacks for element-scoped dispatch — the input is computed when
+the event is created:
 
 ```tsx
-currentTarget.dispatchEvent(events.create({ cellDrafted: (root) => root.formulas[id] ?? '' }))
+currentTarget.dispatchEvent(
+  events.create((root) => ({ cellDrafted: root.formulas[id] ?? '' })),
+)
 ```
 
-Details are data: a function value is treated as a derived-detail callback.
+Per-name values are plain data: a function value of an event name is
+delivered as the detail itself, never invoked.
 
 Dispatching `{ root: {...} }` is the **root event**: its detail is
 the model, so it replaces the whole composite (the implicit "replace itself"
@@ -390,9 +394,9 @@ named `events.root` source) for the whole composite or
 as `root` is the live composite — dispatches fold in place — so native
 listeners (`addEventListener`) read current values straight from the seed they
 created. Read values are readonly-typed (`Immutable`), so views and derived
-details cannot mutate the model at compile time; only fold drafts and the
-seed holder write. Handlers live inside a root view's render closure where the
-detail is in scope; timers and async work dispatch pure events that fold
+dispatch inputs cannot mutate the model at compile time; only fold drafts and
+the seed holder write. Handlers live inside a root view's render closure where
+the detail is in scope; timers and async work dispatch pure events that fold
 events interpret.
 
 ## Consumption patterns

@@ -393,9 +393,7 @@ describe('customEvents', () => {
           <evented.output on={events.on.columns.get('column:todo').cards.get('card:two')}>
             {() => String(++calls.two)}
           </evented.output>
-          <evented.output
-            on={events.on.columns.get('column:done').cards.get('card:three')}
-          >
+          <evented.output on={events.on.columns.get('column:done').cards.get('card:three')}>
             {() => String(++calls.three)}
           </evented.output>
         </section>
@@ -474,9 +472,7 @@ describe('customEvents', () => {
     function Items() {
       return () => (
         <section>
-          <evented.output on={events.on.items[0]}>
-            {() => String(++calls.first)}
-          </evented.output>
+          <evented.output on={events.on.items[0]}>{() => String(++calls.first)}</evented.output>
           <evented.output on={events.on.items[1]} aria-label="1">
             {() => String(++calls.second)}
           </evented.output>
@@ -537,18 +533,12 @@ describe('customEvents', () => {
     function Collections() {
       return () => (
         <section>
-          <evented.output on={events.on.circles[0]}>
-            {() => String(++calls.circle0)}
-          </evented.output>
+          <evented.output on={events.on.circles[0]}>{() => String(++calls.circle0)}</evented.output>
           <evented.output on={events.on.circles[1]} aria-label="1">
             {() => String(++calls.circle1)}
           </evented.output>
-          <evented.output on={events.on.values.A0}>
-            {() => String(++calls.A0)}
-          </evented.output>
-          <evented.output on={events.on.values.B0}>
-            {() => String(++calls.B0)}
-          </evented.output>
+          <evented.output on={events.on.values.A0}>{() => String(++calls.A0)}</evented.output>
+          <evented.output on={events.on.values.B0}>{() => String(++calls.B0)}</evented.output>
         </section>
       )
     }
@@ -628,9 +618,7 @@ describe('customEvents', () => {
           >
             {() => String(++calls.second)}
           </evented.button>
-          <evented.output on={events.on.selected}>
-            {() => String(++calls.all)}
-          </evented.output>
+          <evented.output on={events.on.selected}>{() => String(++calls.all)}</evented.output>
         </section>
       )
     }
@@ -1938,7 +1926,7 @@ describe('remembered customEvents', () => {
     assert.deepEqual(seen.slice(-1), [null])
   })
 
-  it('derives details from the composite at dispatch time', async (t) => {
+  it('derives dispatch inputs from the composite at dispatch time', async (t) => {
     let events = customEvents({
       root: {
         count: 0,
@@ -1968,40 +1956,50 @@ describe('remembered customEvents', () => {
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
 
     if (false) {
-      // @ts-expect-error - derived-detail callbacks read the composite readonly.
-      events.dispatchEvent({ count: (root) => (root.count = 1) })
+      // @ts-expect-error - derived dispatch inputs read the composite readonly.
+      events.dispatchEvent((root) => (root.count = 1))
     }
 
-    // A derived occurrence detail: computed from the live composite at dispatch.
+    // A derived occurrence detail: the input is computed from the live
+    // composite at dispatch, so the handler never holds the model.
     await result.act(async () => {
-      await events.dispatchEvent({ drafted: (root) => `count=${root.count}` })
+      await events.dispatchEvent((root) => ({ drafted: `count=${root.count}` }))
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="draft"]')?.textContent, 'count=0')
 
-    // Derived slice and fold details, in transaction order: the later
-    // callback sees the earlier entry's effect.
+    // A derived input is computed once, before any entry folds: the callback
+    // sees the pre-dispatch composite, and per-name values are data.
     await result.act(async () => {
-      await events.dispatchEvent({
-        count: (root) => root.count + 1,
-        inc: (root) => root.count,
-      })
+      await events.dispatchEvent((root) => ({ count: root.count + 1, inc: root.count }))
       await settleEffects()
     })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:1')
 
     // A derived root write replaces the composite with the returned model.
     await result.act(async () => {
-      await events.dispatchEvent({
-        root: (root) => ({ count: root.count * 10, label: 'derived' }),
-      })
+      await events.dispatchEvent((root) => ({
+        root: { count: root.count * 10, label: 'derived' },
+      }))
       await settleEffects()
     })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'derived:20')
+    assert.equal(result.$('[aria-label="root"]')?.textContent, 'derived:10')
 
-    // Derived details require a composite: pure descriptors reject them.
+    // A function value of an event name is a plain detail, not a callback.
+    let details: unknown[] = []
+    let functionDetail = () => 'fn'
+    events.addEventListener('drafted', (event) =>
+      details.push((event as CustomEvent<unknown>).detail),
+    )
+    events.dispatchEvent({ drafted: functionDetail as unknown as string })
+    assert.equal(details[details.length - 1], functionDetail)
+
+    // Derived inputs require a composite: pure descriptors reject them.
     let pure = customEvents<'ping'>()
-    assert.throws(() => pure.dispatchEvent({ ping: () => 1 } as any), /remembered descriptor/)
+    assert.throws(
+      () => pure.dispatchEvent(((root: unknown) => ({ ping: 1 })) as any),
+      /remembered descriptor/,
+    )
   })
 
   it('replaces the whole composite via a root write', async (t) => {
@@ -2080,9 +2078,7 @@ describe('remembered customEvents', () => {
     function Board() {
       return () => (
         <section>
-          <evented.output on={events.on.boards}>
-            {() => String(++calls.board)}
-          </evented.output>
+          <evented.output on={events.on.boards}>{() => String(++calls.board)}</evented.output>
           <evented.output on={events.on.boards.get(1).cards.get(10).label}>
             {() => String(++calls.ten)}
           </evented.output>

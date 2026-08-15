@@ -119,9 +119,9 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                   mix={[
                     inputCss,
                     on('input', ({ currentTarget }) => {
-                      events.dispatchEvent({
-                        draft: (root) => ({ ...root.draft, name: currentTarget.value }),
-                      })
+                      events.dispatchEvent((root) => ({
+                        draft: { ...root.draft, name: currentTarget.value },
+                      }))
                     }),
                   ]}
                 />
@@ -134,9 +134,9 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                   mix={[
                     inputCss,
                     on('input', ({ currentTarget }) => {
-                      events.dispatchEvent({
-                        draft: (root) => ({ ...root.draft, surname: currentTarget.value }),
-                      })
+                      events.dispatchEvent((root) => ({
+                        draft: { ...root.draft, surname: currentTarget.value },
+                      }))
                     }),
                   ]}
                 />

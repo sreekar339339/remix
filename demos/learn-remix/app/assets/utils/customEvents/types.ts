@@ -241,10 +241,7 @@ type CustomEventsViewProps<
   Initial,
   Initialized extends boolean,
   Direct extends boolean = false,
-> = Omit<
-  CustomEventsReactiveElementProps<Input, Event, Tag, Direct>,
-  'children' | 'on'
-> & {
+> = Omit<CustomEventsReactiveElementProps<Input, Event, Tag, Direct>, 'children' | 'on'> & {
   on: On
   children?:
     | CustomEventsIntrinsicChildren<Tag>
@@ -407,10 +404,11 @@ type NullDetailEventTypes<Events extends EventDetails> = {
 
 /**
  * The build surface: `create('name', init?)` for detail-less events, and
- * `create({ name: detail, ... }, init?)` for one or more event-named details
- * committed as a single transaction. The object form returns the matched
- * event(s): the single declared event for one key, the event union for
- * several, and a plain event for undeclared occurrence names.
+ * `create({ name: detail, ... }, init?)` or `create((root) => input, init?)`
+ * for one or more event-named details committed as a single transaction. The
+ * object form returns the matched event(s): the single declared event for one
+ * key, the event union for several, and a plain event for undeclared
+ * occurrence names.
  */
 export type CustomEventsCreate<Events extends EventDetails> = {
   <Type extends NullDetailEventTypes<Events> & CustomEventsEventType<Events>>(
@@ -420,10 +418,10 @@ export type CustomEventsCreate<Events extends EventDetails> = {
 } & {
   <
     const Input extends {
-      [K in keyof Events]?: Events[K] | ((root: Immutable<Events>) => Events[K])
+      [K in keyof Events]?: Events[K]
     } & { root?: unknown },
   >(
-    input: Input,
+    input: Input | ((root: Immutable<Events>) => Input),
     init?: CustomEventInit,
   ): [keyof Input & keyof Events] extends [never]
     ? Event
@@ -590,18 +588,17 @@ export type RememberedOnFunction = CustomEventsOnFunction<EventDetails>
 
 /**
  * The dispatch surface of a remembered descriptor: the event-named input
- * grammar — details may be values or functions of the composite, computed at
+ * grammar, or a function of the composite returning the input and computed at
  * dispatch — plus a `root` overload typed with the composite's detail.
  */
 type RememberedDispatchEvent<Events extends EventDetails, Root extends EventDetails = never> = {
   (
-    input: { root: Root | ((root: Immutable<Root>) => Root) } & {
-      [K in keyof Events]?: Events[K] | ((root: Immutable<Root>) => Events[K])
-    },
+    input: { root: Root } & { [K in keyof Events]?: Events[K] },
     init?: CustomEventInit,
   ): Promise<void>
+  (input: { [K in keyof Events]?: Events[K] }, init?: CustomEventInit): Promise<void>
   (
-    input: { [K in keyof Events]?: Events[K] | ((root: Immutable<Root>) => Events[K]) },
+    input: (root: Immutable<Root>) => { root?: Root } & { [K in keyof Events]?: Events[K] },
     init?: CustomEventInit,
   ): Promise<void>
 } & CustomEventsDispatchEvent<Events>
