@@ -526,6 +526,25 @@ export type RememberedFold<Held extends EventDetails, Detail = unknown> = (
 export type RememberedOccurrence<Detail = unknown> = (detail: Detail) => void
 
 /**
+ * A recipe in a root-less declaration: it names a transient occurrence, whose
+ * detail is the first parameter (or `null` when the recipe takes none). Fold
+ * recipes (two parameters) require a remembered composite and are rejected at
+ * runtime.
+ */
+export type DeclaredOccurrence = (...args: any[]) => unknown
+
+/** The event map of a root-less declaration: one occurrence per recipe. */
+export type DeclaredOccurrences<Declaration> = {
+  [Name in keyof Declaration & string]: Declaration[Name] extends (...args: any[]) => unknown
+    ? [Parameters<Declaration[Name]>['length']] extends [0]
+      ? null
+      : Declaration[Name] extends (detail: infer Detail) => any
+        ? Detail
+        : unknown
+    : unknown
+}
+
+/**
  * Everything that may appear in a remembered declaration: the `root`
  * composite (Details), a fold recipe (RememberedFold), or a transient
  * occurrence (RememberedOccurrence). Unioning the detail shape into the

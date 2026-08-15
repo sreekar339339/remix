@@ -1926,6 +1926,58 @@ describe('remembered customEvents', () => {
     assert.deepEqual(seen.slice(-1), [null])
   })
 
+  it('declares an occurrence vocabulary without a root composite', async (t) => {
+    let events = customEvents({
+      drafted: (text: string) => {},
+      refresh: () => {},
+    })
+
+    function View() {
+      return () => (
+        <section>
+          <evented.output on={events.on.drafted} aria-label="draft">
+            {(draft) => draft ?? ''}
+          </evented.output>
+          <evented.div on={events} aria-label="wild">
+            {(_, event) => event?.type ?? 'none'}
+          </evented.div>
+        </section>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="draft"]')?.textContent, '')
+    assert.equal(result.$('[aria-label="wild"]')?.textContent, 'none')
+
+    // The declaration typed the detail from the recipe's first parameter.
+    await result.act(async () => {
+      await events.dispatchEvent({ drafted: 'hello' })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="draft"]')?.textContent, 'hello')
+    assert.equal(result.$('[aria-label="wild"]')?.textContent, 'drafted')
+
+    // A zero-parameter recipe declares a detail-less occurrence.
+    await result.act(async () => {
+      await events.dispatchEvent('refresh')
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="wild"]')?.textContent, 'refresh')
+
+    if (false) {
+      // @ts-expect-error - every declaration value is an occurrence recipe.
+      customEvents({ count: 5 })
+    }
+
+    // The runtime enforces both rules outright.
+    assert.throws(
+      () => customEvents({ inc: ((_amount: number, _root: {}) => {}) as any }),
+      /remembered composite/,
+    )
+    assert.throws(() => customEvents({ count: 5 } as any), /expects a recipe/)
+  })
+
   it('derives dispatch inputs from the composite at dispatch time', async (t) => {
     let events = customEvents({
       root: {

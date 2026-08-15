@@ -16,6 +16,8 @@ import type {
   CustomEventsEventedViews,
   CustomEventsFactoryArgs,
   CustomEventsEventMap,
+  DeclaredOccurrence,
+  DeclaredOccurrences,
   EventDetails,
   NormalizeCustomEventsDefinition,
   RememberedDeclaration,
@@ -78,9 +80,45 @@ export function customEvents<
   Details extends RememberedDetails,
   Folds extends RememberedFolds<Details>,
 >(declaration: { root: Details } & Folds): RememberedDescriptor<Details, Omit<Folds, 'root'>>
+/**
+ * Creates an occurrence-only descriptor from a declaration map without a
+ * `root`: every key names a transient occurrence, whose detail is its
+ * recipe's first parameter (or `null` when the recipe takes none). Fold
+ * recipes (two parameters) require a remembered composite and are rejected.
+ *
+ * `customEvents({ booksFound: (books: Book[]) => {}, queryEmpty: () => {} })`
+ */
+export function customEvents<Declaration extends Record<string, DeclaredOccurrence>>(
+  declaration: Declaration,
+): CustomEventsDescriptor<DeclaredOccurrences<Declaration>>
 export function customEvents(declaration?: unknown): unknown {
   if (isRememberedDeclaration(declaration)) {
     return createRemembered(declaration)
+  }
+  if (isPlainObject(declaration)) {
+    return createDeclaredDescriptor(declaration)
+  }
+  return createCustomEventsDescriptor()
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Validates a root-less occurrence declaration and builds its descriptor. */
+function createDeclaredDescriptor(declaration: Record<string, unknown>) {
+  for (let [name, recipe] of Object.entries(declaration)) {
+    if (typeof recipe !== 'function') {
+      throw new TypeError(`customEvents expects a recipe as the occurrence for "${name}".`)
+    }
+    if (name === '*' || reservedNames.has(name)) {
+      throw new TypeError(`customEvents reserves "${name}" for its API.`)
+    }
+    if (recipe.length > 1) {
+      throw new TypeError(
+        `customEvents fold recipes require a remembered composite; declare "${name}" with a root or as an occurrence.`,
+      )
+    }
   }
   return createCustomEventsDescriptor()
 }

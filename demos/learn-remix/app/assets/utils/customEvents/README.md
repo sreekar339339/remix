@@ -223,13 +223,24 @@ transient state. Composite-changing events — slices, folds, and the `root`
 write — are dispatched on the descriptor itself, so every subscribed view
 stays in sync.
 
-### Occurrence descriptors — `customEvents<Definition>()`
+### Occurrence descriptors — `customEvents<Definition>()` / `customEvents(declaration)`
 
-A typed vocabulary of transient events with no remembered detail:
+A typed vocabulary of transient events with no remembered detail. Declare the
+details through the type parameter or through a declaration map whose recipes
+name the occurrences — a single-parameter recipe carries the occurrence's
+detail type, a zero-parameter one declares a detail-less occurrence:
 
 ```ts
 const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
+const searchEvents = customEvents({
+  queryEmpty: () => {},
+  querySubmitted: (query: string) => {},
+  booksFound: (books: Book[]) => {},
+})
 ```
+
+Fold recipes (two parameters) require a remembered composite and are rejected
+without `root`.
 
 `root` is reserved for the remembered composite; the descriptor API names
 (`create`, `on`, `asHost`, `dispatchEvent`, `addEventListener`,
