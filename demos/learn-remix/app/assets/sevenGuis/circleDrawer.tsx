@@ -140,7 +140,8 @@ export const SevenGuisCircleDrawer = clientEntry(
             Redo
           </evented.button>
         </div>
-        <svg
+        <evented.svg
+          on={events.on.circles}
           viewBox="0 0 420 220"
           aria-label="Circle canvas"
           mix={[
@@ -157,39 +158,34 @@ export const SevenGuisCircleDrawer = clientEntry(
             }),
           ]}
         >
-          <evented.svg on={events.on.circles}>
-            {(circles) => (
-              <>
-                {[...circles.entries()].map(([id, circle]) => (
-                  <evented.circle
-                    key={id}
-                    on={[
-                      events.on.circles.get(id).diameter,
-                      events.on.editingCircleById.as(id),
-                    ]}
-                    cx={circle.x}
-                    cy={circle.y}
-                    r={([diameter]) => (diameter ?? circle.diameter) / 2}
-                    fill={([, isEditing]) => (isEditing ? '#d4d4d8' : 'none')}
-                    mix={[
-                      css({
-                        pointerEvents: 'all',
-                        '&:hover': {
-                          fill: '#d4d4d8',
-                        },
-                        stroke: '#18181b',
-                      }),
-                      on('contextmenu', (event) => {
-                        event.preventDefault()
-                        events.dispatchEvent({ openEditor: id })
-                      }),
-                    ]}
-                  />
-                ))}
-              </>
-            )}
-          </evented.svg>
-        </svg>
+          {(circles) => (
+            <>
+              {Array.from(circles.entries(), ([id, circle]) => (
+                <evented.circle
+                  key={id}
+                  on={[events.on.circles.get(id).diameter, events.on.editingCircleById.as(id)]}
+                  cx={circle.x}
+                  cy={circle.y}
+                  r={([diameter]) => (diameter ?? circle.diameter) / 2}
+                  fill={([, isEditing]) => (isEditing ? '#d4d4d8' : 'none')}
+                  mix={[
+                    css({
+                      pointerEvents: 'all',
+                      '&:hover': {
+                        fill: '#d4d4d8',
+                      },
+                      stroke: '#18181b',
+                    }),
+                    on('contextmenu', (event) => {
+                      event.preventDefault()
+                      events.dispatchEvent({ openEditor: id })
+                    }),
+                  ]}
+                />
+              ))}
+            </>
+          )}
+        </evented.svg>
         <evented.form
           on={events.on.editingCircleById}
           hidden={(circleId) => circleId === null}
