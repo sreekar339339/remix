@@ -67,6 +67,8 @@ export type RememberedEventContext = {
   dispatchEntries?(entries: CustomEventsRuntimeEntry[]): Promise<unknown>
   /** True while a fold session holds uncommitted draft mutations. */
   pendingSession?(): boolean
+  /** Defers a dispatch until the active fold session commits and flushes. */
+  deferDispatch?(run: () => Promise<void> | void): Promise<void>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -277,15 +279,10 @@ export function createCustomEventsDescriptor<
   // and effects settle (Promise). Internal dispatches bypass the override via
   // EventTarget.prototype so product events never recurse.
   let eventsProxy: object
-  let dispatchEvent = ((...args: unknown[]) => {
+  let performDispatch = (...args: unknown[]) => {
     let first = args[0]
     if (first instanceof Event) {
       return EventTarget.prototype.dispatchEvent.call(base, first)
-    }
-    if (state?.pendingSession?.()) {
-      throw new TypeError(
-        'customEvents dispatch during an active handler session is not supported yet.',
-      )
     }
     let event = (args.length > 1 ? create(first, args[1]) : create(first)) as Event
     let target = customEventsRuntime.defaultHost(getRuntime())
@@ -298,6 +295,25 @@ export function createCustomEventsDescriptor<
       completion = Promise.all([completion, ...pending]).then(() => {})
     }
     return completion
+  }
+  let dispatchEvent = ((...args: unknown[]) => {
+    let first = args[0]
+    if (first instanceof Event) {
+      return EventTarget.prototype.dispatchEvent.call(base, first)
+    }
+    if (state?.pendingSession?.()) {
+      // A fold session is mid-mutation: dispatching now would read and write
+      // against the uncommitted draft window, so the dispatch runs after the
+      // session's next flush instead.
+      if (!state.deferDispatch) {
+        throw new TypeError(
+          'customEvents dispatch during an active handler session is unsupported.',
+        )
+      }
+      // The deferral path is always the event-named input form.
+      return state.deferDispatch(() => performDispatch(...args) as Promise<void>)
+    }
+    return performDispatch(...args)
   }) as CustomEventsDispatchEvent
   let hostMixin = ref((target, signal) => {
     customEventsRuntime.registerHost(getRuntime(), target, signal)

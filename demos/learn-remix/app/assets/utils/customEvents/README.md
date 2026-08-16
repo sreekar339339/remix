@@ -396,10 +396,35 @@ let events = customEvents({
 })
 ```
 
-Fold recipes must be synchronous and return no value. A no-op fold emits
+Fold recipes mutate an Immer draft of the composite; a no-op fold emits
 nothing but its own event. Immer patches drive the routing: keyed writes keep
 per-item granularity, scalar writes route by owner identity, and deep
 mutations reach exactly the affected addresses.
+
+**Async fold recipes.** A recipe that returns a promise keeps its draft
+session open: mutations between `await`s reach views at each microtask
+boundary, so a loading flag flips before the awaited work completes, and the
+dispatch settles only after the handler and all its flushes finish:
+
+```ts
+load: async (url: string, root) => {
+  root.loading = true                    // flushed immediately
+  let user = await fetch(url).then((r) => r.json())
+  root.user = user                       // flushed when the work resolves
+  root.loading = false
+},
+```
+
+**Calling other events from a recipe.** `events.dispatchEvent(...)` inside a
+fold recipe is deferred until the recipe's session commits, so nested events
+always read and write the committed state — never the in-flight draft window.
+The dispatch settles after the nested events too.
+
+**Failures.** A recipe that throws after some of its flushes committed leaves
+those updates applied and the UI reflecting them (there is no rollback);
+mutations still unflushed when the handler rejects are discarded. The session
+handle (the recipe's `root` parameter) is draft-scoped: holding it past the
+handler and mutating it later is unsupported.
 
 **Reads are views or the live seed**: subscribe `on={events}` (or the
 named `events.root` source) for the whole composite or

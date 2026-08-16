@@ -177,13 +177,31 @@ function createRemembered<
     if (fold.length <= 1) continue
     foldFns.set(name, fold as RememberedFoldFn<Details>)
   }
-
   // The live composite is also the fold session base: while a fold recipe
-  // runs, its draft is the session, and the runtime rejects dispatches while
-  // the session holds uncommitted mutations (the snapshot window would
-  // otherwise expose stale reads and clobbering).
+  // runs, its draft is the session, and dispatches during the uncommitted
+  // window are deferred until the session's next flush commits.
   let sessionDraft: unknown
   let pendingSession = () => sessionDraft !== undefined && !Object.is(current(sessionDraft), live)
+  let deferredQueue: Array<{
+    run: () => Promise<void> | void
+    resolve: () => void
+    reject: (error: unknown) => void
+  }> = []
+  let deferDispatch = (run: () => Promise<void> | void) =>
+    new Promise<void>((resolve, reject) => {
+      deferredQueue.push({ run, resolve, reject })
+    })
+  let drainDeferred = () => {
+    if (deferredQueue.length === 0) return []
+    let pending = deferredQueue.splice(0)
+    let completions: Array<Promise<void>> = []
+    for (let { run, resolve, reject } of pending) {
+      let completion = Promise.resolve(run())
+      completion.then(resolve, reject)
+      completions.push(completion)
+    }
+    return completions
+  }
 
   function foldEntry(type: string, detail: unknown) {
     // The root event replaces the whole composite: its detail is the model,
@@ -233,7 +251,9 @@ function createRemembered<
       let flushScheduled = false
       let asyncMode = false
       let flushed: Array<Promise<unknown>> = []
+      let deferredCompletions: Array<Promise<void>> = []
       let stateEntries: CustomEventsRuntimeEntry[] = []
+      deferredQueue = []
       let flush = () => {
         flushScheduled = false
         if (!active) return
@@ -251,6 +271,10 @@ function createRemembered<
         }
         currentDraft = createDraft(live) as Draft<Details>
         sessionDraft = currentDraft
+        // The session committed: run any dispatches deferred during it.
+        let deferred = drainDeferred()
+        if (asyncMode) flushed.push(...deferred)
+        else deferredCompletions.push(...deferred)
       }
       let scheduleFlush = () => {
         if (flushScheduled || !active) return
@@ -295,6 +319,7 @@ function createRemembered<
         }
       }
       flush()
+      deferredCompletions.push(...drainDeferred())
       active = false
       sessionDraft = undefined
       let entries = stateEntries
@@ -306,6 +331,12 @@ function createRemembered<
         detail,
         ...(addresses.length > 0 ? { addresses } : {}),
       })
+      if (deferredCompletions.length > 0) {
+        return {
+          entries,
+          settle: Promise.all(deferredCompletions).then(() => {}),
+        }
+      }
       return entries
     }
 
@@ -323,6 +354,7 @@ function createRemembered<
     getState: () => live,
     fold: foldEntry,
     pendingSession,
+    deferDispatch,
   }
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>(context)
   return events as unknown as RememberedDescriptor<Details, Omit<Folds, 'root'>>

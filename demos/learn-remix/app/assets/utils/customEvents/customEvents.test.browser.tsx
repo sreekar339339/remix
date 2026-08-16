@@ -2094,15 +2094,63 @@ describe('remembered customEvents', () => {
     assert.equal(result.$('[aria-label="phase"]')?.textContent, 'ready:42')
   })
 
-  it('rejects dispatch during an active fold session', () => {
+  it('queues dispatch during an active fold session until its flush', async (t) => {
     let events = customEvents({
-      root: { count: 0 },
+      root: { count: 0, label: 'idle' },
       bump: (amount: number, root) => {
         root.count += amount
-        events.dispatchEvent({ count: 100 })
+        events.dispatchEvent({ label: 'bumped' })
       },
     })
-    assert.throws(() => events.dispatchEvent({ bump: 1 }), /active handler session/)
+
+    function View() {
+      return () => (
+        <evented.output on={events} aria-label="root">
+          {(detail) => `${detail.count}:${detail.label}`}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '0:idle')
+
+    // The nested dispatch was deferred past the bump fold's flush, so both
+    // writes land against the committed state and the dispatch settles after
+    // the nested event too.
+    await result.act(async () => {
+      await events.dispatchEvent({ bump: 1 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '1:bumped')
+  })
+
+  it('queues dispatch from async handlers until the session flushes', async (t) => {
+    let events = customEvents({
+      root: { count: 0, log: '' },
+      work: async (amount: number, root) => {
+        root.count += amount
+        events.dispatchEvent({ log: 'done' })
+        await Promise.resolve()
+      },
+    })
+
+    function View() {
+      return () => (
+        <evented.output on={events} aria-label="root">
+          {(detail) => `${detail.count}:${detail.log}`}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+
+    await result.act(async () => {
+      await events.dispatchEvent({ work: 2 })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="root"]')?.textContent, '2:done')
   })
 
   it('settles the dispatch with the async handler rejection', async () => {
