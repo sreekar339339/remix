@@ -37,18 +37,20 @@ export const SevenGuisFlightBooker = clientEntry(
   import.meta.url,
   function SevenGuisFlightBooker(handle) {
     let today = new Date().toISOString().slice(0, 10)
-    let events = customEvents({
-      root: {
+    let events = customEvents(
+      {
         kind: 'one-way flight' as FlightKind,
         startDate: today,
         returnDate: today,
-      },
 
-      // A derived occurrence: the Book click derives the confirmation payload
-      // from the live composite at dispatch time, so the handler never holds
-      // the model.
-      bookingConfirmed: (flight: Flight) => {},
-    })
+        // A derived occurrence: the Book click derives the confirmation payload
+        // from the live composite at dispatch time, so the handler never holds
+        // the model.
+      },
+      {
+        bookingConfirmed: (flight: Flight) => {},
+      },
+    )
     return () => (
       <evented.section on={events} mix={[taskCss]}>
         {(flight) => (
@@ -98,11 +100,11 @@ export const SevenGuisFlightBooker = clientEntry(
               mix={[
                 buttonCss,
                 on('click', () => {
-                  events.dispatchEvent((root) => ({
+                  events.dispatchEvent((detail) => ({
                     bookingConfirmed: {
-                      kind: root.kind,
-                      startDate: root.startDate,
-                      returnDate: root.returnDate,
+                      kind: detail.kind,
+                      startDate: detail.startDate,
+                      returnDate: detail.returnDate,
                     },
                   }))
                 }),

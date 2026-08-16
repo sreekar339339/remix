@@ -192,9 +192,7 @@ the same callbacks for element-scoped dispatch — the input is computed when
 the event is created:
 
 ```tsx
-currentTarget.dispatchEvent(
-  events.create((root) => ({ cellDrafted: root.formulas[id] ?? '' })),
-)
+currentTarget.dispatchEvent(events.create((root) => ({ cellDrafted: root.formulas[id] ?? '' })))
 ```
 
 Per-name values are plain data: a function value of an event name is
@@ -324,7 +322,7 @@ Evented-view props:
 
 | Prop             | Meaning                                                                                                                                                                                                                |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `on`    | A source, an array of sources, or the descriptor itself. The first callback argument is the selected detail (one source), a tuple (several), or the whole composite (the descriptor); the matched event is the second. |
+| `on`             | A source, an array of sources, or the descriptor itself. The first callback argument is the selected detail (one source), a tuple (several), or the whole composite (the descriptor); the matched event is the second. |
 | `initial`        | A defined event to render before an occurrence first matches; callbacks receive it as the matched event. Remembered views need no `initial`.                                                                           |
 | `children`       | Static children, or a render function of the selected detail and matched event.                                                                                                                                        |
 | _reactive props_ | Any native prop may be a function of the selected detail and matched event.                                                                                                                                            |
@@ -471,10 +469,7 @@ edits stay on item views:
     [...circles.values()].map((circle) => (
       <evented.circle
         key={circle.id}
-        on={[
-          events.on.circles.get(circle.id).diameter,
-          events.on.editingCircleById.as(circle.id),
-        ]}
+        on={[events.on.circles.get(circle.id).diameter, events.on.editingCircleById.as(circle.id)]}
         r={([diameter]) => (diameter ?? circle.diameter) / 2}
       />
     ))

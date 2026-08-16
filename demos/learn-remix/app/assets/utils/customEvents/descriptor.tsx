@@ -156,13 +156,14 @@ export function createCustomEventsDescriptor<
     if (type === ALL_EVENTS) {
       throw new TypeError('customEvents reserves "*" for subscriptions.')
     }
-    // Descriptor API names cannot be events; `root` is the composite event
-    // and exists only on remembered descriptors.
-    if (type !== 'root' && reservedNames.has(type)) {
-      throw new TypeError(`customEvents reserves "${type}" for its API.`)
+    // A composite descriptor folds the root write into its live composite;
+    // without one there is nothing to replace.
+    if (type === 'root' && !state) {
+      throw new TypeError('customEvents reserves "root" for composite descriptors.')
     }
-    if (type === 'root' && !state?.fold) {
-      throw new TypeError('customEvents reserves "root" for remembered composites.')
+    // Descriptor API names cannot be events.
+    if (reservedNames.has(type)) {
+      throw new TypeError(`customEvents reserves "${type}" for its API.`)
     }
     if (state?.fold) {
       let folded = state.fold(type, detail)
@@ -332,29 +333,6 @@ export function createCustomEventsDescriptor<
     }
     return customEventsOnMixin(getRuntime(), undefined, listener)
   }
-  // The named root event of a remembered descriptor: the composite source
-  // under the `events.root` handle, with the wildcard effect as its callable.
-  // Pure descriptors have no root — the descriptor itself is their wildcard.
-  let rootMetadata = { type: 'root', path: [] as readonly unknown[] }
-  let rootSource = state
-    ? new Proxy(wildcardOn, {
-        get(_, property) {
-          if (property === EVENT_SOURCE) {
-            return {
-              type: 'root',
-              read: () => state.getState(),
-              subscribe(subscriber: EventSourceSubscriber, signal: AbortSignal) {
-                subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
-              },
-            } satisfies EventSourceProtocol
-          }
-          if (property === onMetadata) {
-            return rootMetadata
-          }
-          return undefined
-        },
-      })
-    : undefined
   let sources = new Map<string, object>()
   let on = new Proxy(Object.create(null), {
     get(_, property) {
@@ -450,9 +428,6 @@ export function createCustomEventsDescriptor<
         // host are counted for transaction re-dispatch.
         return Reflect.get(base, property, base).bind(base)
       }
-      if (property === 'root') {
-        return rootSource
-      }
       if (
         property === 'create' ||
         property === 'dispatchEvent' ||
@@ -462,6 +437,11 @@ export function createCustomEventsDescriptor<
         return Reflect.get(target, property, target)
       }
       return undefined
+    },
+    apply(_target, _thisArg, args) {
+      // The descriptor doubles as its wildcard source: calling it scopes an
+      // element-owned effect to every descriptor event.
+      return wildcardOn(args[0])
     },
   })
   eventsProxy = proxy

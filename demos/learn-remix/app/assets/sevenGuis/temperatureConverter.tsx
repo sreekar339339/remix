@@ -14,30 +14,31 @@ function formatTemperature(value: number) {
 export const SevenGuisTemperatureConverter = clientEntry(
   import.meta.url,
   function SevenGuisTemperatureConverter() {
-    let events = customEvents({
-      root: {
+    let events = customEvents(
+      {
         celsius: '',
         fahrenheit: '',
+        // Each fold shadows its root detail: dispatching the name runs the
+        // recipe instead of the implicit replace-itself fold, so editing either
+        // unit converts the other.
       },
-      // Each fold shadows its root detail: dispatching the name runs the
-      // recipe instead of the implicit replace-itself fold, so editing either
-      // unit converts the other.
-      celsius: (value: string, root) => {
-        root.celsius = value
-        let number = parseTemperature(value)
-        if (number !== undefined) {
-          root.fahrenheit = formatTemperature(number * (9 / 5) + 32)
-        }
+      {
+        celsius: (value: string, detail) => {
+          detail.celsius = value
+          let number = parseTemperature(value)
+          if (number !== undefined) {
+            detail.fahrenheit = formatTemperature(number * (9 / 5) + 32)
+          }
+        },
+        fahrenheit: (value: string, detail) => {
+          detail.fahrenheit = value
+          let number = parseTemperature(value)
+          if (number !== undefined) {
+            detail.celsius = formatTemperature((number - 32) * (5 / 9))
+          }
+        },
       },
-      fahrenheit: (value: string, root) => {
-        root.fahrenheit = value
-        let number = parseTemperature(value)
-        if (number !== undefined) {
-          root.celsius = formatTemperature((number - 32) * (5 / 9))
-        }
-      },
-    })
-
+    )
     return () => (
       <section mix={taskCss}>
         <h2>Temperature Converter</h2>

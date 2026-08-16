@@ -47,7 +47,6 @@ export const reservedCustomEventsNames = [
   'dispatchEvent',
   'addEventListener',
   'removeEventListener',
-  'root',
 ] as const
 
 export type ReservedCustomEventsName = (typeof reservedCustomEventsNames)[number]
@@ -288,7 +287,10 @@ export type CustomEventsWildcardSource<
   State extends EventDetails | never = never,
 > = {
   readonly [EVENT_SOURCE]: EventSourceProtocol & { readonly type: '*' }
-}
+  readonly [onMetadata]: EventSourceMetadata<Immutable<State>, string>
+} & (<Host extends Element = Element>(
+  listener: EventSourceListener<Immutable<State>, '*', Host>,
+) => MixinDescriptor<Host, any>)
 
 /** The detail selected by a source (or tuple of sources, index-aligned with `on`). */
 type CustomEventsSourceDetail<Source> = Source extends readonly unknown[]
@@ -567,98 +569,65 @@ export type DeclaredOccurrences<Declaration> = {
 }
 
 /**
- * Everything that may appear in a remembered declaration: the `root`
- * composite (Details), a fold recipe (RememberedFold), or a transient
- * occurrence (RememberedOccurrence). Unioning the detail shape into the
- * index signature lets the `root` key coexist with it.
+ * A handler of a composite descriptor: folds its own detail into the
+ * composite, either synchronously against a draft or asynchronously through
+ * progressive sessions.
  */
-export type RememberedFolds<Held extends EventDetails> = {
-  readonly [Name: string]: RememberedFold<Held, any> | RememberedOccurrence<any> | EventDetails
-}
+export type CompositeHandler<Composite extends EventDetails, Detail = unknown> = (
+  detail: Detail,
+  composite: Draft<Composite>,
+) => void | Promise<void>
 
-/**
- * A remembered declaration: the reserved `root` key holds the initial
- * composite, and every other key declares a fold event for its name. Kept as
- * a plain intersection so `Folds` infers from the argument.
- */
-export type RememberedDeclaration<Details extends RememberedDetails, Folds> = {
-  root: Details
-} & Folds
-
-/**
- * Initial details of a remembered descriptor: data values keyed by event
- * name, which cannot overwrite the descriptor API or use native DOM event
- * names.
- */
-export type RememberedDetails = EventDetails & {
-  readonly [Name in ReservedCustomEventsName | NativeDOMEventName]?: never
-}
-
-/**
- * The detail type a declared fold carries: the recipe's first parameter.
- */
-type RememberedFoldDetail<Folds, Name extends keyof Folds & string> = Folds[Name] extends () => void
-  ? null
-  : Folds[Name] extends (detail: infer Detail, root: any) => any
+/** The detail a handler carries: its first parameter, or `null` when detail-less. */
+type CompositeHandlerDetail<Handler> = Handler extends (...args: infer Args) => any
+  ? Args extends [infer Detail, ...any[]]
     ? Detail
-    : unknown
+    : null
+  : null
 
-/** Slice types of the remembered composite. */
-type RememberedSlices<Details extends EventDetails> = {
-  [K in keyof Details]: Immutable<Details[K]>
+/** The event map of a composite descriptor: immutable slices and handler details. */
+export type CompositeEvents<
+  Composite extends EventDetails,
+  Handlers extends Record<string, CompositeHandler<Composite, any>>,
+> = Omit<
+  { [Key in keyof Composite & string]: Immutable<Composite[Key]> },
+  keyof Handlers & string
+> & {
+  [Key in keyof Handlers & string]: CompositeHandlerDetail<Handlers[Key]>
 }
 
-/**
- * The event map of a remembered descriptor: remembered details and declared
- * fold events. A fold that shares a root detail's name shadows the detail:
- * the recipe owns the update, so the fold's detail type wins over the slice.
- */
-export type RememberedEventsMap<
-  Details extends EventDetails,
-  Folds extends RememberedFolds<Details>,
-> = Omit<RememberedSlices<Details>, keyof Folds> & {
-  [Name in keyof Folds & string]: RememberedFoldDetail<Folds, Name>
-}
-
-/**
- * Runs a mounted-element effect for every descriptor event, including implicit
- * occurrences. Over `EventDetails` the declared-event union collapses to any
- * event, which is exactly the remembered wildcard surface.
- */
-export type RememberedOnFunction = CustomEventsOnFunction<EventDetails>
-
-/**
- * The dispatch surface of a remembered descriptor: the event-named input
- * grammar, or a function of the composite returning the input and computed at
- * dispatch — plus a `root` overload typed with the composite's detail.
- */
-type RememberedDispatchEvent<Events extends EventDetails, Root extends EventDetails = never> = {
+/** The dispatch surface of a composite descriptor: the event-named input or a function of the composite. */
+type CompositeDispatch<Events extends EventDetails, Composite extends EventDetails> = {
   (
-    input: { root: Root } & { [K in keyof Events]?: Events[K] },
+    input: { root?: { [K in keyof Composite]?: Immutable<Composite[K]> } } & {
+      [K in keyof Events]?: Events[K]
+    },
     init?: CustomEventInit,
   ): Promise<void>
-  (input: { [K in keyof Events]?: Events[K] }, init?: CustomEventInit): Promise<void>
   (
-    input: (root: Immutable<Root>) => { root?: Root } & { [K in keyof Events]?: Events[K] },
+    input: (composite: Immutable<Composite>) => {
+      root?: { [K in keyof Composite]?: Immutable<Composite[K]> }
+    } & {
+      [K in keyof Events]?: Events[K]
+    },
     init?: CustomEventInit,
   ): Promise<void>
 } & CustomEventsDispatchEvent<Events>
 
-/**
- * A remembered descriptor: the root composite event (`on={events.root}`)
- * whose detail folds in every remembered detail and fold event. The write
- * input and builder surface come from `CustomEventsDescriptor` over the
- * remembered event map, plus a `root`-typed dispatch overload for
- * whole-composite writes; the wildcard `on['*']` effect is overridden to
- * tolerate implicit occurrences.
- */
-export type RememberedDescriptor<
-  Details extends EventDetails,
-  Folds extends RememberedFolds<Details>,
-> = Omit<CustomEventsDescriptor<RememberedEventsMap<Details, Folds>, Details>, 'on'> & {
-  dispatchEvent: RememberedDispatchEvent<RememberedEventsMap<Details, Folds>, Details>
-  on: { readonly '*': RememberedOnFunction } & CustomEventsOnNamespace<
-    RememberedEventsMap<Details, Folds>,
-    Details
+/** Runs a mounted-element effect for every descriptor event, including implicit occurrences. */
+export type CompositeOnFunction = CustomEventsOnFunction<EventDetails>
+
+/** A composite descriptor: immutable slices and handlers over the live composite. */
+export type CustomEventsCompositeDescriptor<
+  Composite extends EventDetails,
+  Handlers extends Record<string, CompositeHandler<Composite, any>>,
+> = Omit<CustomEventsDescriptor<CompositeEvents<Composite, Handlers>, Composite>, 'on' | 'root'> & {
+  dispatchEvent: CompositeDispatch<CompositeEvents<Composite, Handlers>, Composite>
+  on: { readonly '*': CompositeOnFunction } & CustomEventsOnNamespace<
+    CompositeEvents<Composite, Handlers>,
+    Composite
   >
-}
+  readonly [rememberedEventSourceMarker]: true
+} & (<Host extends Element = Element>(
+    listener: EventSourceListener<Immutable<Composite>, '*', Host>,
+  ) => MixinDescriptor<Host, any>)

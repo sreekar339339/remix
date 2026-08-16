@@ -14,6 +14,8 @@ import type { RememberedEventContext } from './descriptor.tsx'
 import { canonicalAddressSegment, type CustomEventsRuntimeEntry } from './runtime.ts'
 import { reservedCustomEventsNames } from './types.ts'
 import type {
+  CompositeHandler,
+  CustomEventsCompositeDescriptor,
   CustomEventsDescriptor,
   CustomEventsDefinition,
   CustomEventsEventedViews,
@@ -23,11 +25,6 @@ import type {
   DeclaredOccurrences,
   EventDetails,
   NormalizeCustomEventsDefinition,
-  RememberedDeclaration,
-  RememberedDescriptor,
-  RememberedDetails,
-  RememberedFold,
-  RememberedFolds,
 } from './types.ts'
 export type { CustomEventsEventMap } from './types.ts'
 
@@ -35,7 +32,7 @@ const reservedNames = new Set<string>(reservedCustomEventsNames)
 
 enablePatches()
 enableMapSet()
-// Produced state stays mutable so the live seed can mirror it without
+// Produced composite stays mutable so the live seed can mirror it without
 // copying; reads are guarded by readonly types instead of runtime freezing.
 setAutoFreeze(false)
 
@@ -54,58 +51,51 @@ export function customEvents<Definition extends CustomEventsDefinition = never>(
   ...args: CustomEventsFactoryArgs<Definition>
 ): CustomEventsDescriptor<NormalizeCustomEventsDefinition<Definition>>
 /**
- * Creates a remembered descriptor: the `root` key declares the root event's
- * initial composite, and every other key declares an event as a recipe — a
- * `(detail, root) => void` fold that folds its detail into the composite, or
- * a recipe with fewer than two parameters (`(detail) => void` or `() => void`)
- * that declares a transient occurrence. Every property of the argument is an
- * event name: dispatching `root` (`dispatchEvent({ root: {...} })`) replaces
- * the whole composite.
+ * Creates a composite descriptor: the first argument is the live composite
+ * (the seed, folded in place), and the second declares handlers that fold
+ * their details into it — synchronously against a draft or asynchronously
+ * through progressive sessions:
  *
- * `customEvents({ root: { count: 0, label: 'idle' }, inc: (detail, root) => { root.count += detail } })`
- *
- * A fold that shares a root detail's name shadows the detail: dispatching the
- * name runs the recipe instead of the implicit replace-itself fold, so the
- * recipe owns the update. The detail's slice remains the read surface
- * (`on.<name>` reads its current value); only the write semantics change.
- *
- * The object passed as `root` is the live composite: every dispatch folds
- * into that same object in place, so a held reference reads the current model
- * (imperative consumers attach native listeners and re-read the seed). Read
- * values are readonly-typed, so views cannot mutate the model at compile time.
- *
- * Type the `root` key by hand: the composite's keys are user-defined, so
- * completion cannot suggest them (TypeScript cannot complete properties of an
- * argument that infers its own generic). Everything else — fold details and
- * drafts, `on.<name>` sources, and `dispatchEvent` inputs — infers from it.
+ * `customEvents({ count: 0 }, { inc: (amount, detail) => { detail.count += amount } })`
  */
 export function customEvents<
-  Details extends RememberedDetails,
-  Folds extends RememberedFolds<Details>,
->(declaration: { root: Details } & Folds): RememberedDescriptor<Details, Omit<Folds, 'root'>>
+  Composite extends EventDetails,
+  Handlers extends Record<string, CompositeHandler<Composite, any>>,
+>(composite: Composite, handlers: Handlers): CustomEventsCompositeDescriptor<Composite, Handlers>
 /**
- * Creates an occurrence-only descriptor from a declaration map without a
- * `root`: every key names a transient occurrence, whose detail is its
- * recipe's first parameter (or `null` when the recipe takes none). Fold
- * recipes (two parameters) require a remembered composite and are rejected.
+ * Creates an occurrence-only descriptor from a declaration map whose values
+ * are all recipes: every key names a transient occurrence, whose detail is
+ * its recipe's first parameter (or `null` when the recipe takes none).
  *
  * `customEvents({ booksFound: (books: Book[]) => {}, queryEmpty: () => {} })`
  */
 export function customEvents<Declaration extends Record<string, DeclaredOccurrence>>(
   declaration: Declaration,
 ): CustomEventsDescriptor<DeclaredOccurrences<Declaration>>
-export function customEvents(declaration?: unknown): unknown {
-  if (isRememberedDeclaration(declaration)) {
-    return createRemembered(declaration)
+export function customEvents(composite?: unknown, handlers?: unknown): unknown {
+  if (isPlainObject(composite) && isPlainObject(handlers)) {
+    return createCompositeDescriptor(composite, handlers)
   }
-  if (isPlainObject(declaration)) {
-    return createDeclaredDescriptor(declaration)
+  if (isPlainObject(composite)) {
+    if (isOccurrenceDeclaration(composite)) {
+      return createDeclaredDescriptor(composite)
+    }
+    throw new TypeError(
+      'customEvents expects a recipe as the occurrence for each key, or (composite, handlers).',
+    )
   }
   return createCustomEventsDescriptor()
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isOccurrenceDeclaration(value: Record<string, unknown>) {
+  for (let entry of Object.values(value)) {
+    if (typeof entry !== 'function') return false
+  }
+  return true
 }
 
 /** Validates a root-less occurrence declaration and builds its descriptor. */
@@ -126,56 +116,39 @@ function createDeclaredDescriptor(declaration: Record<string, unknown>) {
   return createCustomEventsDescriptor()
 }
 
-function isRememberedDeclaration(value: unknown): value is { root: EventDetails } & {
-  readonly [Name: string]: RememberedFold<EventDetails, any>
-} {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    Object.hasOwn(value, 'root')
-  )
-}
+type RememberedFoldFn<Held extends EventDetails> = (
+  detail: unknown,
+  composite: Draft<Held>,
+) => void | Promise<unknown>
 
-type RememberedFoldFn<Held extends EventDetails> = (detail: unknown, root: Draft<Held>) => void
-
-/** Creates a remembered descriptor from a root event declaration and fold events. */
-function createRemembered<
-  Details extends RememberedDetails,
-  Folds extends RememberedFolds<Details>,
->(declaration: { root: Details } & Folds): RememberedDescriptor<Details, Omit<Folds, 'root'>> {
-  let { root, ...folds } = declaration
-  if (root === null || typeof root !== 'object' || Array.isArray(root)) {
-    throw new TypeError('customEvents root must be an object of remembered details.')
+/** Creates a composite descriptor from the live composite and its handlers. */
+function createCompositeDescriptor(
+  composite: Record<string, unknown>,
+  handlers: Record<string, unknown>,
+) {
+  // The composite argument is the live seed, folded in place, so a holder of
+  // it reads the current model; reads are guarded by readonly types, not
+  // freezing.
+  if (Object.isFrozen(composite)) {
+    throw new TypeError(
+      'customEvents composite must not be frozen so dispatches can update it in place.',
+    )
   }
-  for (let name of Object.keys(root)) {
+  let live = composite as EventDetails
+  let foldFns = new Map<string, RememberedFoldFn<EventDetails>>()
+  for (let [name, value] of Object.entries(handlers)) {
+    if (name === '*' || reservedNames.has(name)) {
+      throw new TypeError(`customEvents reserves "${name}" for its API.`)
+    }
+    if (typeof value !== 'function') {
+      throw new TypeError(`customEvents expects a handler for "${name}".`)
+    }
+    foldFns.set(name, value as RememberedFoldFn<EventDetails>)
+  }
+  for (let name of Object.keys(composite)) {
     if (name === '*' || reservedNames.has(name)) {
       throw new TypeError(`customEvents reserves the detail name "${name}".`)
     }
-  }
-  if (Object.isFrozen(root)) {
-    throw new TypeError(
-      'customEvents root must not be frozen so dispatches can update it in place.',
-    )
-  }
-  // The seed object is the live composite: every dispatch folds into it and
-  // mirrors its result back at the top level, so a holder of the seed reads
-  // the current model. Reads are guarded by readonly types, not freezing.
-  let live = root as EventDetails
-  let foldFns = new Map<string, RememberedFoldFn<Details>>()
-  for (let [name, fold] of Object.entries(folds)) {
-    if (typeof fold !== 'function') {
-      throw new TypeError(`customEvents expects a recipe as the fold for "${name}".`)
-    }
-    if (reservedNames.has(name)) {
-      throw new TypeError(`customEvents reserves "${name}" for its API.`)
-    }
-    // A recipe with fewer than two parameters declares a transient
-    // occurrence: it fires its event with a detail (or none at all) and
-    // forgets it, leaving the composite untouched. `foldEntry` falls through
-    // to the plain occurrence entry for it.
-    if (fold.length <= 1) continue
-    foldFns.set(name, fold as RememberedFoldFn<Details>)
   }
   // The live composite is also the fold session base: while a fold recipe
   // runs, its draft is the session, and dispatches during the uncommitted
@@ -246,13 +219,13 @@ function createRemembered<
       // the session proxy schedules a flush at every access, so mutations
       // between awaits reach views at the next microtask boundary, and the
       // dispatch settles after the handler and all its flushes complete.
-      let currentDraft = createDraft(live) as Draft<Details>
+      let currentDraft = createDraft(live) as Draft<EventDetails>
       let active = true
       let flushScheduled = false
       let asyncMode = false
       let flushed: Array<Promise<unknown>> = []
       let deferredCompletions: Array<Promise<void>> = []
-      let stateEntries: CustomEventsRuntimeEntry[] = []
+      let sliceEntries: CustomEventsRuntimeEntry[] = []
       deferredQueue = []
       let flush = () => {
         flushScheduled = false
@@ -267,9 +240,9 @@ function createRemembered<
           let entries = entriesFromPatches(live, next, patches)
           mirrorKeys(live, next, entries)
           if (asyncMode) flushed.push(context.dispatchEntries!(entries))
-          else stateEntries.push(...entries)
+          else sliceEntries.push(...entries)
         }
-        currentDraft = createDraft(live) as Draft<Details>
+        currentDraft = createDraft(live) as Draft<EventDetails>
         sessionDraft = currentDraft
         // The session committed: run any dispatches deferred during it.
         let deferred = drainDeferred()
@@ -302,7 +275,7 @@ function createRemembered<
         },
       })
       sessionDraft = currentDraft
-      let result: unknown = foldFn(detail, session as Draft<Details>)
+      let result: unknown = foldFn(detail, session as Draft<EventDetails>)
       if (result instanceof Promise) {
         asyncMode = true
         let settle = (async () => {
@@ -322,7 +295,7 @@ function createRemembered<
       deferredCompletions.push(...drainDeferred())
       active = false
       sessionDraft = undefined
-      let entries = stateEntries
+      let entries = sliceEntries
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
       let addresses = entries.flatMap((entry) => entry.addresses ?? [])
@@ -357,7 +330,10 @@ function createRemembered<
     deferDispatch,
   }
   let events = createCustomEventsDescriptor<EventDetails, EventDetails>(context)
-  return events as unknown as RememberedDescriptor<Details, Omit<Folds, 'root'>>
+  return events as unknown as CustomEventsCompositeDescriptor<
+    EventDetails,
+    Record<string, CompositeHandler<EventDetails, any>>
+  >
 }
 
 /**

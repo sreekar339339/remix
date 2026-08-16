@@ -99,7 +99,8 @@ describe('AppContext', () => {
     assert.equal(value.user?.name, 'Ada')
 
     await context.dispatchEvent({
-      root: { user: { name: 'Grace', age: 85 }, settings: { layout: 'normal', theme: 'light' } },
+      user: { name: 'Grace', age: 85 },
+      settings: { layout: 'normal', theme: 'light' },
     })
     assert.equal(value.user?.name, 'Grace')
     assert.equal(value.settings.theme, 'light')

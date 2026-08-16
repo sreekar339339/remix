@@ -13,8 +13,8 @@ function visiblePeople(people: readonly Person[], prefix: string) {
 }
 
 export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud() {
-  let events = customEvents({
-    root: {
+  let events = customEvents(
+    {
       people: [
         { id: 1, name: 'Hans', surname: 'Emil' },
         { id: 2, name: 'Max', surname: 'Mustermann' },
@@ -24,41 +24,41 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
       selectedId: null as number | null,
       draft: { name: '', surname: '' },
       nextId: 4,
-    },
 
-    // The fold shadows the selectedId detail: dispatching selectedId sets the
-    // selection and derives the draft from the chosen person.
-    selectedId: (id: number | null, root) => {
-      root.selectedId = id
-      let person = root.people.find((candidate: Person) => candidate.id === id)
-      if (!person) return
-      root.draft.name = person.name
-      root.draft.surname = person.surname
+      // The fold shadows the selectedId detail: dispatching selectedId sets the
+      // selection and derives the draft from the chosen person.
     },
-
-    createPerson: (_detail, root) => {
-      let person = { id: root.nextId, ...root.draft }
-      root.people.push(person)
-      root.selectedId = person.id
-      root.nextId += 1
+    {
+      selectedId: (id: number | null, detail) => {
+        detail.selectedId = id
+        let person = detail.people.find((candidate: Person) => candidate.id === id)
+        if (!person) return
+        detail.draft.name = person.name
+        detail.draft.surname = person.surname
+      },
+      createPerson: (_detail, detail) => {
+        let person = { id: detail.nextId, ...detail.draft }
+        detail.people.push(person)
+        detail.selectedId = person.id
+        detail.nextId += 1
+      },
+      update: (_detail, detail) => {
+        if (detail.selectedId === null) return
+        let person = detail.people.find((candidate) => candidate.id === detail.selectedId)
+        if (!person) return
+        person.name = detail.draft.name
+        person.surname = detail.draft.surname
+      },
+      delete: (_detail, detail) => {
+        if (detail.selectedId === null) return
+        let index = detail.people.findIndex((candidate) => candidate.id === detail.selectedId)
+        if (index !== -1) detail.people.splice(index, 1)
+        detail.selectedId = null
+        detail.draft.name = ''
+        detail.draft.surname = ''
+      },
     },
-    update: (_detail, root) => {
-      if (root.selectedId === null) return
-      let person = root.people.find((candidate) => candidate.id === root.selectedId)
-      if (!person) return
-      person.name = root.draft.name
-      person.surname = root.draft.surname
-    },
-    delete: (_detail, root) => {
-      if (root.selectedId === null) return
-      let index = root.people.findIndex((candidate) => candidate.id === root.selectedId)
-      if (index !== -1) root.people.splice(index, 1)
-      root.selectedId = null
-      root.draft.name = ''
-      root.draft.surname = ''
-    },
-  })
-
+  )
   return () => (
     <section mix={taskCss}>
       <h2>CRUD</h2>
@@ -119,8 +119,8 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                   mix={[
                     inputCss,
                     on('input', ({ currentTarget }) => {
-                      events.dispatchEvent((root) => ({
-                        draft: { ...root.draft, name: currentTarget.value },
+                      events.dispatchEvent((detail) => ({
+                        draft: { ...detail.draft, name: currentTarget.value },
                       }))
                     }),
                   ]}
@@ -134,8 +134,8 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                   mix={[
                     inputCss,
                     on('input', ({ currentTarget }) => {
-                      events.dispatchEvent((root) => ({
-                        draft: { ...root.draft, surname: currentTarget.value },
+                      events.dispatchEvent((detail) => ({
+                        draft: { ...detail.draft, surname: currentTarget.value },
                       }))
                     }),
                   ]}

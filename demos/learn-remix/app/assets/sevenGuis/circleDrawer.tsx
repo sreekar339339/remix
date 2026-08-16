@@ -48,67 +48,67 @@ function getCanvasPoint(canvas: SVGSVGElement, clientX: number, clientY: number)
 export const SevenGuisCircleDrawer = clientEntry(
   import.meta.url,
   function SevenGuisCircleDrawer(handle) {
-    let events = customEvents({
-      root: {
+    let events = customEvents(
+      {
         circles: new Map<number, Circle>(),
         editingCircleById: null as number | null,
         history: { snapshots: [new Map<number, Circle>()], index: 0 },
         nextCircleId: 1,
       },
-
-      addCircle: (point: { x: number; y: number }, root) => {
-        if (root.editingCircleById !== null) return
-        if (hitCircle(root.circles.values(), point.x, point.y)) return
-        let circle = {
-          id: root.nextCircleId,
-          ...point,
-          diameter: 30,
-        }
-        root.circles.set(circle.id, circle)
-        recordDrawingSnapshot(root.circles, root.history)
-        root.nextCircleId += 1
+      {
+        addCircle: (point: { x: number; y: number }, detail) => {
+          if (detail.editingCircleById !== null) return
+          if (hitCircle(detail.circles.values(), point.x, point.y)) return
+          let circle = {
+            id: detail.nextCircleId,
+            ...point,
+            diameter: 30,
+          }
+          detail.circles.set(circle.id, circle)
+          recordDrawingSnapshot(detail.circles, detail.history)
+          detail.nextCircleId += 1
+        },
+        openEditor: (id: number, detail) => {
+          if (detail.editingCircleById !== null) return
+          detail.editingCircleById = id
+        },
+        setDiameter: (diameter: number, detail) => {
+          let id = detail.editingCircleById
+          if (id === null) return
+          let circle = detail.circles.get(id)
+          if (!circle || circle.diameter === diameter) return
+          circle.diameter = diameter
+        },
+        closeEditor: (_detail, detail) => {
+          let id = detail.editingCircleById
+          if (id === null) return
+          let circle = detail.circles.get(id)
+          let committed = detail.history.snapshots[detail.history.index]?.get(id)
+          if (circle && committed && circle.diameter !== committed.diameter) {
+            recordDrawingSnapshot(detail.circles, detail.history)
+          }
+          detail.editingCircleById = null
+        },
+        undo: (_detail, detail) => {
+          let index = detail.history.index - 1
+          if (index < 0) return
+          detail.circles = new Map(
+            detail.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
+          )
+          detail.editingCircleById = null
+          detail.history.index = index
+        },
+        redo: (_detail, detail) => {
+          let index = detail.history.index + 1
+          if (index >= detail.history.snapshots.length) return
+          detail.circles = new Map(
+            detail.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
+          )
+          detail.editingCircleById = null
+          detail.history.index = index
+        },
       },
-      openEditor: (id: number, root) => {
-        if (root.editingCircleById !== null) return
-        root.editingCircleById = id
-      },
-      setDiameter: (diameter: number, root) => {
-        let id = root.editingCircleById
-        if (id === null) return
-        let circle = root.circles.get(id)
-        if (!circle || circle.diameter === diameter) return
-        circle.diameter = diameter
-      },
-      closeEditor: (_detail, root) => {
-        let id = root.editingCircleById
-        if (id === null) return
-        let circle = root.circles.get(id)
-        let committed = root.history.snapshots[root.history.index]?.get(id)
-        if (circle && committed && circle.diameter !== committed.diameter) {
-          recordDrawingSnapshot(root.circles, root.history)
-        }
-        root.editingCircleById = null
-      },
-      undo: (_detail, root) => {
-        let index = root.history.index - 1
-        if (index < 0) return
-        root.circles = new Map(
-          root.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
-        )
-        root.editingCircleById = null
-        root.history.index = index
-      },
-      redo: (_detail, root) => {
-        let index = root.history.index + 1
-        if (index >= root.history.snapshots.length) return
-        root.circles = new Map(
-          root.history.snapshots[index]!.entries().map(([id, circle]) => [id, { ...circle }]),
-        )
-        root.editingCircleById = null
-        root.history.index = index
-      },
-    })
-
+    )
     return () => (
       <section mix={taskCss}>
         <h2>Circle Drawer</h2>

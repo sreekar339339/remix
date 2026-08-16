@@ -9,11 +9,13 @@ const items = [
 ]
 
 export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelection() {
-  let events = customEvents({
-    root: {
+  let events = customEvents(
+    {
       selectedId: items[0]!.id,
     },
-  })
+    {},
+  )
+
   let renderCounts = new Map<string, number>()
 
   return () => (

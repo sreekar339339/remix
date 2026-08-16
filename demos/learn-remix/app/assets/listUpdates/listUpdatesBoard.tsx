@@ -317,66 +317,67 @@ function makeBenchmarker(options: {
 export const ListUpdatesFilterBoard = clientEntry(
   import.meta.url,
   function ListUpdatesFilterBoard(handle: Handle) {
-    let events = customEvents({
-      root: {
+    let events = customEvents(
+      {
         catalog: seedCatalog(),
         visible: seedCatalog(),
         meter: 0,
         timing: emptyTiming(),
       },
-
-      applyView: ({ query, sort }: { query: string; sort: SortKey }, root) => {
-        let order = orderedVisible(root.catalog, query, sort)
-        let currentKeys = [...root.visible.keys()]
-        let sameOrder =
-          currentKeys.length === order.length &&
-          currentKeys.every((key, index) => key === order[index])
-        if (sameOrder) return
-        let currentSet = new Set(currentKeys)
-        let orderSet = new Set(order)
-        let additions = order.filter((id) => !currentSet.has(id))
-        let removals = currentKeys.filter((id) => !orderSet.has(id))
-        if (additions.length > 0 || removals.length === 0) {
-          // New rows appeared (or a pure reorder): rebuild the whole map so
-          // sorted positions land correctly; the list reconciles by key.
-          root.visible = new Map(order.map((id) => [id, root.catalog.get(id)!] as const))
-          return
-        }
-        for (let id of removals) root.visible.delete(id)
+      {
+        applyView: ({ query, sort }: { query: string; sort: SortKey }, detail) => {
+          let order = orderedVisible(detail.catalog, query, sort)
+          let currentKeys = [...detail.visible.keys()]
+          let sameOrder =
+            currentKeys.length === order.length &&
+            currentKeys.every((key, index) => key === order[index])
+          if (sameOrder) return
+          let currentSet = new Set(currentKeys)
+          let orderSet = new Set(order)
+          let additions = order.filter((id) => !currentSet.has(id))
+          let removals = currentKeys.filter((id) => !orderSet.has(id))
+          if (additions.length > 0 || removals.length === 0) {
+            // New rows appeared (or a pure reorder): rebuild the whole map so
+            // sorted positions land correctly; the list reconciles by key.
+            detail.visible = new Map(order.map((id) => [id, detail.catalog.get(id)!] as const))
+            return
+          }
+          for (let id of removals) detail.visible.delete(id)
+        },
+        tickWide: (_detail, detail) => {
+          detail.visible = new Map(
+            orderedVisible(detail.catalog, 'crimson', 'id').map(
+              (id) => [id, detail.catalog.get(id)!] as const,
+            ),
+          )
+        },
+        tickKeep: (_detail, detail) => {
+          let keep = new Set(orderedVisible(detail.catalog, 'crimson-widget-500', 'id'))
+          for (let id of [...detail.visible.keys()]) {
+            if (!keep.has(id)) detail.visible.delete(id)
+          }
+        },
+        resetVisible: (_detail, detail) => {
+          detail.visible = new Map(detail.catalog)
+        },
+        meterTick: (count: number, detail) => {
+          detail.meter = count
+        },
+        recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, detail) => {
+          if (mode === 'evented') {
+            detail.timing.eventedMs += ms
+            detail.timing.eventedTicks += 1
+          } else {
+            detail.timing.plainMs += ms
+            detail.timing.plainTicks += 1
+          }
+        },
+        resetTiming: (_detail, detail) => {
+          detail.timing = emptyTiming()
+        },
+        refresh: () => {},
       },
-      tickWide: (_detail, root) => {
-        root.visible = new Map(
-          orderedVisible(root.catalog, 'crimson', 'id').map(
-            (id) => [id, root.catalog.get(id)!] as const,
-          ),
-        )
-      },
-      tickKeep: (_detail, root) => {
-        let keep = new Set(orderedVisible(root.catalog, 'crimson-widget-500', 'id'))
-        for (let id of [...root.visible.keys()]) {
-          if (!keep.has(id)) root.visible.delete(id)
-        }
-      },
-      resetVisible: (_detail, root) => {
-        root.visible = new Map(root.catalog)
-      },
-      meterTick: (count: number, root) => {
-        root.meter = count
-      },
-      recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, root) => {
-        if (mode === 'evented') {
-          root.timing.eventedMs += ms
-          root.timing.eventedTicks += 1
-        } else {
-          root.timing.plainMs += ms
-          root.timing.plainTicks += 1
-        }
-      },
-      resetTiming: (_detail, root) => {
-        root.timing = emptyTiming()
-      },
-      refresh: () => {},
-    })
+    )
     let mode: 'evented' | 'plain' = 'evented'
     let query = ''
     let sort: SortKey = 'id'
@@ -500,47 +501,48 @@ export const ListUpdatesFilterBoard = clientEntry(
 export const ListUpdatesFeedBoard = clientEntry(
   import.meta.url,
   function ListUpdatesFeedBoard(handle: Handle) {
-    let events = customEvents({
-      root: {
+    let events = customEvents(
+      {
         items: seedFeed(),
         meter: 0,
         timing: emptyTiming(),
         nextId: 50,
         ringStart: 0,
       },
-
-      feed: (_detail, root) => {
-        for (let index = 0; index < batch; index++) {
-          let id = root.nextId++
-          root.items.set(id, {
-            id,
-            label: `${feedNouns[id % feedNouns.length]}-${id}`,
-            value: (id * 7919) % 10_000,
-          })
-        }
-        let excess = root.items.size - feedCap
-        for (let index = 0; index < excess; index++) {
-          root.items.delete(root.ringStart + index)
-        }
-        root.ringStart += excess
+      {
+        feed: (_detail, detail) => {
+          for (let index = 0; index < batch; index++) {
+            let id = detail.nextId++
+            detail.items.set(id, {
+              id,
+              label: `${feedNouns[id % feedNouns.length]}-${id}`,
+              value: (id * 7919) % 10_000,
+            })
+          }
+          let excess = detail.items.size - feedCap
+          for (let index = 0; index < excess; index++) {
+            detail.items.delete(detail.ringStart + index)
+          }
+          detail.ringStart += excess
+        },
+        meterTick: (count: number, detail) => {
+          detail.meter = count
+        },
+        recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, detail) => {
+          if (mode === 'evented') {
+            detail.timing.eventedMs += ms
+            detail.timing.eventedTicks += 1
+          } else {
+            detail.timing.plainMs += ms
+            detail.timing.plainTicks += 1
+          }
+        },
+        resetTiming: (_detail, detail) => {
+          detail.timing = emptyTiming()
+        },
+        refresh: () => {},
       },
-      meterTick: (count: number, root) => {
-        root.meter = count
-      },
-      recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, root) => {
-        if (mode === 'evented') {
-          root.timing.eventedMs += ms
-          root.timing.eventedTicks += 1
-        } else {
-          root.timing.plainMs += ms
-          root.timing.plainTicks += 1
-        }
-      },
-      resetTiming: (_detail, root) => {
-        root.timing = emptyTiming()
-      },
-      refresh: () => {},
-    })
+    )
     let mode: 'evented' | 'plain' = 'evented'
     let running = false
     let batch = 10
@@ -680,54 +682,55 @@ export const ListUpdatesFeedBoard = clientEntry(
 export const ListUpdatesHeavyBoard = clientEntry(
   import.meta.url,
   function ListUpdatesHeavyBoard(handle: Handle) {
-    let events = customEvents({
-      root: {
+    let events = customEvents(
+      {
         items: seedHeavy(),
         meter: 0,
         timing: emptyTiming(),
       },
-
-      toggleRow: (id: number, root) => {
-        let row = root.items.get(id)
-        if (!row) return
-        row.done = !row.done
-        row.edits += 1
+      {
+        toggleRow: (id: number, detail) => {
+          let row = detail.items.get(id)
+          if (!row) return
+          row.done = !row.done
+          row.edits += 1
+        },
+        editRow: (id: number, detail) => {
+          let row = detail.items.get(id)
+          if (row) row.edits += 1
+        },
+        churn: (picked: ReadonlySet<number>, detail) => {
+          for (let id of picked) {
+            let item = detail.items.get(id)
+            if (item) item.priority = ((item.priority + 1) % 5) + 1
+          }
+        },
+        bumpAll: (_detail, detail) => {
+          for (let item of detail.items.values()) {
+            item.priority = ((item.priority + 1) % 5) + 1
+          }
+        },
+        resetItems: (_detail, detail) => {
+          detail.items = seedHeavy()
+        },
+        meterTick: (count: number, detail) => {
+          detail.meter = count
+        },
+        recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, detail) => {
+          if (mode === 'evented') {
+            detail.timing.eventedMs += ms
+            detail.timing.eventedTicks += 1
+          } else {
+            detail.timing.plainMs += ms
+            detail.timing.plainTicks += 1
+          }
+        },
+        resetTiming: (_detail, detail) => {
+          detail.timing = emptyTiming()
+        },
+        refresh: () => {},
       },
-      editRow: (id: number, root) => {
-        let row = root.items.get(id)
-        if (row) row.edits += 1
-      },
-      churn: (picked: ReadonlySet<number>, root) => {
-        for (let id of picked) {
-          let item = root.items.get(id)
-          if (item) item.priority = ((item.priority + 1) % 5) + 1
-        }
-      },
-      bumpAll: (_detail, root) => {
-        for (let item of root.items.values()) {
-          item.priority = ((item.priority + 1) % 5) + 1
-        }
-      },
-      resetItems: (_detail, root) => {
-        root.items = seedHeavy()
-      },
-      meterTick: (count: number, root) => {
-        root.meter = count
-      },
-      recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, root) => {
-        if (mode === 'evented') {
-          root.timing.eventedMs += ms
-          root.timing.eventedTicks += 1
-        } else {
-          root.timing.plainMs += ms
-          root.timing.plainTicks += 1
-        }
-      },
-      resetTiming: (_detail, root) => {
-        root.timing = emptyTiming()
-      },
-      refresh: () => {},
-    })
+    )
     let mode: 'evented' | 'plain' = 'evented'
     let churning = false
     let churnPerTick = 20

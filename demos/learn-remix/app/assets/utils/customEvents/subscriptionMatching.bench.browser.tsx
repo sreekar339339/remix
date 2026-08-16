@@ -9,15 +9,17 @@ const targetKey = String(subscriptionCount - 1)
 
 it('benchmarks fold-recipe dispatch', async () => {
   let lastId = -1
-  let events = customEvents({
-    root: {
+  let events = customEvents(
+    {
       items: new Map<number, { id: number; label: string }>(),
     },
-    update: (detail: { id: number; label: string }, root) => {
-      root.items.set(detail.id, detail)
-      lastId = detail.id
+    {
+      update: (item: { id: number; label: string }, detail) => {
+        detail.items.set(item.id, item)
+        lastId = item.id
+      },
     },
-  })
+  )
   for (let index = 0; index < 1_000; index++) {
     await events.dispatchEvent({ update: { id: index, label: `item-${index}` } })
   }

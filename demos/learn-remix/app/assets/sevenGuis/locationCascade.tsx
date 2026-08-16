@@ -47,34 +47,35 @@ function labelOf(options: readonly Location[], id: string | null) {
 }
 
 export const LocationCascade = clientEntry(import.meta.url, function LocationCascade() {
-  let events = customEvents({
-    root: {
+  let events = customEvents(
+    {
       country: '',
       states: [] as readonly Location[],
       state: null as string | null,
       cities: [] as readonly Location[],
       city: null as string | null,
-    },
 
-    // Each fold shadows its slice: selecting a country owns the country
-    // detail and derives the next level — the state options — resetting the
-    // deeper selection chain.
-    country: (id: string, root) => {
-      root.country = id
-      root.states = STATES[id] ?? []
-      root.state = null
-      root.cities = []
-      root.city = null
+      // Each fold shadows its slice: selecting a country owns the country
+      // detail and derives the next level — the state options — resetting the
+      // deeper selection chain.
+      // city has no derivation, so it stays a plain detail: dispatching city
+      // replaces its slice directly.
     },
-    state: (id: string, root) => {
-      root.state = id
-      root.cities = CITIES[id] ?? []
-      root.city = null
+    {
+      country: (id: string, detail) => {
+        detail.country = id
+        detail.states = STATES[id] ?? []
+        detail.state = null
+        detail.cities = []
+        detail.city = null
+      },
+      state: (id: string, detail) => {
+        detail.state = id
+        detail.cities = CITIES[id] ?? []
+        detail.city = null
+      },
     },
-    // city has no derivation, so it stays a plain detail: dispatching city
-    // replaces its slice directly.
-  })
-
+  )
   return () => (
     <section mix={taskCss}>
       <h2>Location Cascade</h2>
@@ -119,8 +120,8 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
             {([states]) => (
               <>
                 <option value="">Select a state…</option>
-                {states.map((state) => (
-                  <option value={state.id}>{state.label}</option>
+                {states.map((detail) => (
+                  <option value={detail.id}>{detail.label}</option>
                 ))}
               </>
             )}
@@ -155,8 +156,8 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
         on={[events.on.country, events.on.state, events.on.city]}
         aria-label="Selection"
       >
-        {([country, state, city]) =>
-          `${labelOf(COUNTRIES, country)} / ${labelOf(STATES[country] ?? [], state)} / ${labelOf(CITIES[state ?? ''] ?? [], city)}`
+        {([country, detail, city]) =>
+          `${labelOf(COUNTRIES, country)} / ${labelOf(STATES[country] ?? [], detail)} / ${labelOf(CITIES[detail ?? ''] ?? [], city)}`
         }
       </evented.output>
     </section>

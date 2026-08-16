@@ -88,8 +88,8 @@ const swatchCss = css({
 })
 
 export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
-  let events = customEvents({
-    root: {
+  let events = customEvents(
+    {
       hex: '#000000',
       red: '0',
       green: '0',
@@ -97,70 +97,71 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
       hue: '0',
       saturation: '0',
       lightness: '0',
-    },
 
-    // Each fold shadows its slice. The hex fold derives every channel from
-    // its own input; a channel fold derives the hex and the other channels,
-    // cross-reading its siblings — so the composite can never hold a
-    // contradictory color. A fold only derives when its whole input parses;
-    // invalid input leaves the last good model alone.
-    hex: (value: string, root) => {
-      root.hex = value
-      let color = parseHex(value)
-      if (color) apply(root, color)
+      // Each fold shadows its slice. The hex fold derives every channel from
+      // its own input; a channel fold derives the hex and the other channels,
+      // cross-reading its siblings — so the composite can never hold a
+      // contradictory color. A fold only derives when its whole input parses;
+      // invalid input leaves the last good model alone.
     },
-    red: (value: string, root) => {
-      root.red = value
-      let red = parseChannel(value, 255)
-      let green = parseChannel(root.green, 255)
-      let blue = parseChannel(root.blue, 255)
-      if (red === undefined || green === undefined || blue === undefined) return
-      apply(root, { red, green, blue })
+    {
+      hex: (value: string, detail) => {
+        detail.hex = value
+        let color = parseHex(value)
+        if (color) apply(detail, color)
+      },
+      red: (value: string, detail) => {
+        detail.red = value
+        let red = parseChannel(value, 255)
+        let green = parseChannel(detail.green, 255)
+        let blue = parseChannel(detail.blue, 255)
+        if (red === undefined || green === undefined || blue === undefined) return
+        apply(detail, { red, green, blue })
+      },
+      green: (value: string, detail) => {
+        detail.green = value
+        let red = parseChannel(detail.red, 255)
+        let green = parseChannel(value, 255)
+        let blue = parseChannel(detail.blue, 255)
+        if (red === undefined || green === undefined || blue === undefined) return
+        apply(detail, { red, green, blue })
+      },
+      blue: (value: string, detail) => {
+        detail.blue = value
+        let red = parseChannel(detail.red, 255)
+        let green = parseChannel(detail.green, 255)
+        let blue = parseChannel(value, 255)
+        if (red === undefined || green === undefined || blue === undefined) return
+        apply(detail, { red, green, blue })
+      },
+      hue: (value: string, detail) => {
+        detail.hue = value
+        let hue = parseChannel(value, 360)
+        let saturation = parseChannel(detail.saturation, 100)
+        let lightness = parseChannel(detail.lightness, 100)
+        if (hue === undefined || saturation === undefined || lightness === undefined) return
+        apply(detail, hslToRgb(hue, saturation, lightness))
+      },
+      saturation: (value: string, detail) => {
+        detail.saturation = value
+        let hue = parseChannel(detail.hue, 360)
+        let saturation = parseChannel(value, 100)
+        let lightness = parseChannel(detail.lightness, 100)
+        if (hue === undefined || saturation === undefined || lightness === undefined) return
+        apply(detail, hslToRgb(hue, saturation, lightness))
+      },
+      lightness: (value: string, detail) => {
+        detail.lightness = value
+        let hue = parseChannel(detail.hue, 360)
+        let saturation = parseChannel(detail.saturation, 100)
+        let lightness = parseChannel(value, 100)
+        if (hue === undefined || saturation === undefined || lightness === undefined) return
+        apply(detail, hslToRgb(hue, saturation, lightness))
+      },
     },
-    green: (value: string, root) => {
-      root.green = value
-      let red = parseChannel(root.red, 255)
-      let green = parseChannel(value, 255)
-      let blue = parseChannel(root.blue, 255)
-      if (red === undefined || green === undefined || blue === undefined) return
-      apply(root, { red, green, blue })
-    },
-    blue: (value: string, root) => {
-      root.blue = value
-      let red = parseChannel(root.red, 255)
-      let green = parseChannel(root.green, 255)
-      let blue = parseChannel(value, 255)
-      if (red === undefined || green === undefined || blue === undefined) return
-      apply(root, { red, green, blue })
-    },
-    hue: (value: string, root) => {
-      root.hue = value
-      let hue = parseChannel(value, 360)
-      let saturation = parseChannel(root.saturation, 100)
-      let lightness = parseChannel(root.lightness, 100)
-      if (hue === undefined || saturation === undefined || lightness === undefined) return
-      apply(root, hslToRgb(hue, saturation, lightness))
-    },
-    saturation: (value: string, root) => {
-      root.saturation = value
-      let hue = parseChannel(root.hue, 360)
-      let saturation = parseChannel(value, 100)
-      let lightness = parseChannel(root.lightness, 100)
-      if (hue === undefined || saturation === undefined || lightness === undefined) return
-      apply(root, hslToRgb(hue, saturation, lightness))
-    },
-    lightness: (value: string, root) => {
-      root.lightness = value
-      let hue = parseChannel(root.hue, 360)
-      let saturation = parseChannel(root.saturation, 100)
-      let lightness = parseChannel(value, 100)
-      if (hue === undefined || saturation === undefined || lightness === undefined) return
-      apply(root, hslToRgb(hue, saturation, lightness))
-    },
-  })
-
+  )
   function apply(
-    root: {
+    detail: {
       hex: string
       red: string
       green: string
@@ -172,13 +173,13 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
     color: Color,
   ) {
     let hsl = rgbToHsl(color)
-    root.hex = rgbToHex(color)
-    root.red = formatChannel(color.red)
-    root.green = formatChannel(color.green)
-    root.blue = formatChannel(color.blue)
-    root.hue = formatHue(hsl.hue)
-    root.saturation = formatChannel(hsl.saturation)
-    root.lightness = formatChannel(hsl.lightness)
+    detail.hex = rgbToHex(color)
+    detail.red = formatChannel(color.red)
+    detail.green = formatChannel(color.green)
+    detail.blue = formatChannel(color.blue)
+    detail.hue = formatHue(hsl.hue)
+    detail.saturation = formatChannel(hsl.saturation)
+    detail.lightness = formatChannel(hsl.lightness)
   }
 
   return () => (

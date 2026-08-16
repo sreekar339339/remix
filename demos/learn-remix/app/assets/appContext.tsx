@@ -9,11 +9,7 @@ export type AppContextValue = {
   }
 }
 
-export const createAppContext = (value: AppContextValue) =>
-  customEvents({
-    root: value,
-  })
-
+export const createAppContext = (value: AppContextValue) => customEvents(value, {})
 export function AppProvider(
   handle: Handle<
     { children?: RemixNode },
@@ -30,10 +26,8 @@ export function AppProvider(
   handle.queueTask(async () => {
     // perform auth and other async stuff and dispatch context value
     events.dispatchEvent({
-      root: {
-        user: { age: 23, name: 'Bob Lazar' },
-        settings: { layout: 'zen', theme: 'light' },
-      },
+      user: { age: 23, name: 'Bob Lazar' },
+      settings: { layout: 'zen', theme: 'light' },
     })
   })
 
@@ -63,9 +57,7 @@ export function EventUserDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div on={events.on.user.name}>
-        {(user) => user ?? 'Not logged in'}
-      </evented.div>
+      <evented.div on={events.on.user.name}>{(user) => user ?? 'Not logged in'}</evented.div>
     </div>
   )
 }
