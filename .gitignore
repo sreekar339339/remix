@@ -24,3 +24,5 @@ autoresearch-results/
 /packages/ui/src/**/*.js
 
 /reference
+
+/tmp/
