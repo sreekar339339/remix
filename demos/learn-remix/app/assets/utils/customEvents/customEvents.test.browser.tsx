@@ -2055,6 +2055,74 @@ describe('remembered customEvents', () => {
     assert.equal(result.$('[aria-label="button"]')?.textContent, 'count-2')
   })
 
+  it('updates views progressively from async fold handlers', async (t) => {
+    let events = customEvents({
+      root: {
+        phase: 'idle',
+        value: 0,
+      },
+      load: async (url: string, root) => {
+        root.phase = 'loading'
+        // A macrotask boundary lets the session's flush run first, so the
+        // loading state reaches views before the handler completes.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        root.phase = 'ready'
+        root.value = Number(url)
+      },
+    })
+
+    function View() {
+      return () => (
+        <evented.output on={events} aria-label="phase">
+          {(detail) => `${detail.phase}:${detail.value}`}
+        </evented.output>
+      )
+    }
+
+    let result = render(<View />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="phase"]')?.textContent, 'idle:0')
+
+    // The await boundary flushed the loading mutation already, before the
+    // handler completed.
+    let completion = events.dispatchEvent({ load: '42' })
+    await settleEffects()
+    assert.equal(result.$('[aria-label="phase"]')?.textContent, 'loading:0')
+
+    // The dispatch settles after the handler and its remaining flushes.
+    await completion
+    assert.equal(result.$('[aria-label="phase"]')?.textContent, 'ready:42')
+  })
+
+  it('rejects dispatch during an active fold session', () => {
+    let events = customEvents({
+      root: { count: 0 },
+      bump: (amount: number, root) => {
+        root.count += amount
+        events.dispatchEvent({ count: 100 })
+      },
+    })
+    assert.throws(() => events.dispatchEvent({ bump: 1 }), /active handler session/)
+  })
+
+  it('settles the dispatch with the async handler rejection', async () => {
+    let seed = { count: 0 }
+    let events = customEvents({
+      root: seed,
+      fail: async (_detail: null, root) => {
+        root.count = 1
+        await Promise.resolve()
+        throw new Error('boom')
+      },
+    })
+    let completion = events.dispatchEvent({ fail: null })
+    // The first mutation flushed before the rejection; the dispatch still
+    // rejects with the handler's error.
+    await settleEffects()
+    assert.equal(seed.count, 1)
+    await assert.rejects(completion, /boom/)
+  })
+
   it('derives dispatch inputs from the composite at dispatch time', async (t) => {
     let events = customEvents({
       root: {

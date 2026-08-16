@@ -1,13 +1,16 @@
 import './immerEnvironment.ts'
 import {
+  createDraft,
+  current,
   type Draft,
   enableMapSet,
   enablePatches,
+  finishDraft,
   type Patch,
-  produceWithPatches,
   setAutoFreeze,
 } from 'immer'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
+import type { RememberedEventContext } from './descriptor.tsx'
 import { canonicalAddressSegment, type CustomEventsRuntimeEntry } from './runtime.ts'
 import { reservedCustomEventsNames } from './types.ts'
 import type {
@@ -175,6 +178,13 @@ function createRemembered<
     foldFns.set(name, fold as RememberedFoldFn<Details>)
   }
 
+  // The live composite is also the fold session base: while a fold recipe
+  // runs, its draft is the session, and the runtime rejects dispatches while
+  // the session holds uncommitted mutations (the snapshot window would
+  // otherwise expose stale reads and clobbering).
+  let sessionDraft: unknown
+  let pendingSession = () => sessionDraft !== undefined && !Object.is(current(sessionDraft), live)
+
   function foldEntry(type: string, detail: unknown) {
     // The root event replaces the whole composite: its detail is the model,
     // with the same validation the declaration applies to its seed.
@@ -212,14 +222,82 @@ function createRemembered<
 
     let foldFn = foldFns.get(type)
     if (foldFn) {
-      let [next, patches] = produceWithPatches(live, (draft) => {
-        foldFn(detail, draft as Draft<Details>)
-      })
-      let entries: CustomEventsRuntimeEntry[] = []
-      if (patches.length > 0) {
-        entries = entriesFromPatches(live, next, patches)
-        mirrorKeys(live, next, entries)
+      // A fold recipe runs against an Immer draft of the live composite. Sync
+      // recipes flush once when they return, carrying their entries in the
+      // same carrier as the effect entry. Async recipes keep the draft open:
+      // the session proxy schedules a flush at every access, so mutations
+      // between awaits reach views at the next microtask boundary, and the
+      // dispatch settles after the handler and all its flushes complete.
+      let currentDraft = createDraft(live) as Draft<Details>
+      let active = true
+      let flushScheduled = false
+      let asyncMode = false
+      let flushed: Array<Promise<unknown>> = []
+      let stateEntries: CustomEventsRuntimeEntry[] = []
+      let flush = () => {
+        flushScheduled = false
+        if (!active) return
+        // Finishing a clean draft is a no-op that returns the base, so the
+        // flush needs no dirtiness probe.
+        let patches: Patch[] = []
+        let next = finishDraft(currentDraft, (patchList) =>
+          patches.push(...patchList),
+        ) as EventDetails
+        if (patches.length > 0) {
+          let entries = entriesFromPatches(live, next, patches)
+          mirrorKeys(live, next, entries)
+          if (asyncMode) flushed.push(context.dispatchEntries!(entries))
+          else stateEntries.push(...entries)
+        }
+        currentDraft = createDraft(live) as Draft<Details>
+        sessionDraft = currentDraft
       }
+      let scheduleFlush = () => {
+        if (flushScheduled || !active) return
+        flushScheduled = true
+        queueMicrotask(flush)
+      }
+      // The session proxy stays stable across flushes while forwarding to the
+      // current draft, which Immer revokes once finished.
+      let session = new Proxy({} as object, {
+        get(_target, property) {
+          scheduleFlush()
+          return Reflect.get(currentDraft, property)
+        },
+        set(_target, property, value) {
+          scheduleFlush()
+          return Reflect.set(currentDraft, property, value)
+        },
+        has(_target, property) {
+          scheduleFlush()
+          return Reflect.has(currentDraft, property)
+        },
+        deleteProperty(_target, property) {
+          scheduleFlush()
+          return Reflect.deleteProperty(currentDraft, property)
+        },
+      })
+      sessionDraft = currentDraft
+      let result: unknown = foldFn(detail, session as Draft<Details>)
+      if (result instanceof Promise) {
+        asyncMode = true
+        let settle = (async () => {
+          await result
+          flush()
+          active = false
+          sessionDraft = undefined
+          await Promise.all(flushed)
+        })()
+        return {
+          // The handler event itself; its state updates route per flush.
+          entries: [{ type, detail }],
+          settle,
+        }
+      }
+      flush()
+      active = false
+      sessionDraft = undefined
+      let entries = stateEntries
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
       let addresses = entries.flatMap((entry) => entry.addresses ?? [])
@@ -241,10 +319,12 @@ function createRemembered<
     return undefined
   }
 
-  let events = createCustomEventsDescriptor<EventDetails, EventDetails>({
+  let context: RememberedEventContext = {
     getState: () => live,
     fold: foldEntry,
-  })
+    pendingSession,
+  }
+  let events = createCustomEventsDescriptor<EventDetails, EventDetails>(context)
   return events as unknown as RememberedDescriptor<Details, Omit<Folds, 'root'>>
 }
 

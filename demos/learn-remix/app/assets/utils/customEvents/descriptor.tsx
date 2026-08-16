@@ -53,10 +53,20 @@ export const customEventsEvented = new Proxy(Object.create(null), {
 
 type InternalEntryOptions = CustomEventInit
 
-type RememberedEventContext = {
+export type RememberedEventContext = {
   getState(): EventDetails
   /** Folds a dispatched event into the remembered composite; absent for pure descriptors. */
-  fold?(type: string, detail: unknown): CustomEventsRuntimeEntry[] | undefined
+  fold?(
+    type: string,
+    detail: unknown,
+  ):
+    | CustomEventsRuntimeEntry[]
+    | { entries: CustomEventsRuntimeEntry[]; settle: Promise<void> }
+    | undefined
+  /** Dispatches folded entries as a transaction; used by async fold sessions. */
+  dispatchEntries?(entries: CustomEventsRuntimeEntry[]): Promise<unknown>
+  /** True while a fold session holds uncommitted draft mutations. */
+  pendingSession?(): boolean
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -122,6 +132,18 @@ export function createCustomEventsDescriptor<
   // The descriptor carries a native EventTarget channel: native listeners
   // attach to it and target-less writes dispatch on it.
   let base = new EventTarget()
+  // Completions that must settle before the dispatch resolves: async fold
+  // sessions register their handler and flush completion here.
+  let settlers: Array<Promise<void>> = []
+  if (state) {
+    state.dispatchEntries = (entries) => {
+      let target = customEventsRuntime.defaultHost(getRuntime())
+      if (target === undefined) {
+        throw new TypeError('customEvents dispatchEntries requires a registered host.')
+      }
+      return customEventsRuntime.dispatch(getRuntime(), target, createTransaction(entries))
+    }
+  }
 
   function resolveEntry(
     type: string,
@@ -142,7 +164,11 @@ export function createCustomEventsDescriptor<
     }
     if (state?.fold) {
       let folded = state.fold(type, detail)
-      if (folded !== undefined) return folded
+      if (folded !== undefined) {
+        if (Array.isArray(folded)) return folded
+        settlers.push(folded.settle)
+        return folded.entries
+      }
     }
     return [{ type, detail }]
   }
@@ -256,12 +282,22 @@ export function createCustomEventsDescriptor<
     if (first instanceof Event) {
       return EventTarget.prototype.dispatchEvent.call(base, first)
     }
+    if (state?.pendingSession?.()) {
+      throw new TypeError(
+        'customEvents dispatch during an active handler session is not supported yet.',
+      )
+    }
     let event = (args.length > 1 ? create(first, args[1]) : create(first)) as Event
     let target = customEventsRuntime.defaultHost(getRuntime())
     if (target === undefined) {
       throw new TypeError('customEvents dispatchEvent requires a registered host.')
     }
-    return customEventsRuntime.dispatch(getRuntime(), target, event)
+    let completion = customEventsRuntime.dispatch(getRuntime(), target, event)
+    if (settlers.length > 0) {
+      let pending = settlers.splice(0)
+      completion = Promise.all([completion, ...pending]).then(() => {})
+    }
+    return completion
   }) as CustomEventsDispatchEvent
   let hostMixin = ref((target, signal) => {
     customEventsRuntime.registerHost(getRuntime(), target, signal)
