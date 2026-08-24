@@ -1,3 +1,6 @@
+/** Type-only marker distinguishing remembered sources from occurrences. */
+declare const rememberedEventSourceMarker: unique symbol
+
 import type { Draft, Immutable } from 'immer'
 import {
   type EVENT_SOURCE,
@@ -10,73 +13,6 @@ import {
 } from 'remix/ui'
 
 export type EventDetails = Record<string, unknown>
-
-/** Payload maps and null-detail event names, which may be combined in a union. */
-export type CustomEventsDefinition = EventDetails | string
-
-type EventNames<Definition> = Definition extends string
-  ? Definition
-  : Definition extends EventDetails
-    ? keyof Definition & string
-    : never
-
-type EventDetail<Definition, Type extends string> = Definition extends EventDetails
-  ? Type extends keyof Definition
-    ? Definition[Type]
-    : never
-  : Definition extends Type
-    ? null
-    : never
-
-export type NativeDOMEventName = Extract<
-  | keyof GlobalEventHandlersEventMap
-  | keyof HTMLElementEventMap
-  | keyof SVGElementEventMap
-  | keyof DocumentEventMap
-  | keyof WindowEventMap,
-  string
->
-
-type NativeNamesIn<Definition> = Extract<EventNames<Definition>, NativeDOMEventName>
-
-/** Descriptor members that cannot be event names; the type derives from this constant. */
-export const reservedCustomEventsNames = [
-  'create',
-  'on',
-  'asHost',
-  'dispatchEvent',
-  'addEventListener',
-  'removeEventListener',
-] as const
-
-export type ReservedCustomEventsName = (typeof reservedCustomEventsNames)[number]
-type ReservedNamesIn<Definition> = Extract<EventNames<Definition>, ReservedCustomEventsName>
-
-type NativeEventNameError<Names extends string> = {
-  readonly __customEventsNativeEventNameError: 'customEvents names cannot overlap native DOM event names.'
-  readonly nativeEventNames: Names
-}
-
-export type CustomEventsFactoryArgs<Definition> = [NativeNamesIn<Definition>] extends [never]
-  ? [ReservedNamesIn<Definition>] extends [never]
-    ? []
-    : [
-        error: {
-          readonly __customEventsReservedNameError: 'customEvents names cannot overwrite its API.'
-          readonly reservedEventNames: ReservedNamesIn<Definition>
-        },
-      ]
-  : [error: NativeEventNameError<NativeNamesIn<Definition>>]
-
-/**
- * Normalizes signal names and detail maps into one event-detail map.
- *
- * `"saved" | { failed: Error }` becomes
- * `{ saved: null; failed: Error }`.
- */
-export type NormalizeCustomEventsDefinition<Definition extends CustomEventsDefinition> = {
-  [Type in EventNames<Definition>]: EventDetail<Definition, Type>
-}
 
 /**
  * Init options for events created by `customEvents`: the DOM's
@@ -92,22 +28,21 @@ export type CustomEventInit = Omit<EventInit, 'cancelable'> & {
   signal?: AbortSignal
 }
 
-export type CustomEventsEventType<Definition extends CustomEventsDefinition> = Exclude<
-  EventNames<Definition>,
-  '*' | NativeDOMEventName
+/** Event names of a detail map, excluding the `'*'` wildcard. */
+export type CustomEventsEventType<Definition extends EventDetails> = Exclude<
+  keyof Definition & string,
+  '*'
 >
 
 /** Canonical event map for descriptor consumers and TypedEventTarget. */
-export type CustomEventsEventMap<Definition extends CustomEventsDefinition> = {
-  [Type in CustomEventsEventType<Definition>]: CustomEvent<
-    NormalizeCustomEventsDefinition<Definition>[Type]
-  > & { readonly type: Type }
+export type CustomEventsEventMap<Definition extends EventDetails> = {
+  [Type in CustomEventsEventType<Definition>]: CustomEvent<Definition[Type]> & {
+    readonly type: Type
+  }
 }
 
-// Type-only source markers; the runtime metadata symbol lives in the descriptor.
+/** Type-only carrier of the source's value; consumed by source-detail inference. */
 declare const onMetadata: unique symbol
-declare const rememberedEventSourceMarker: unique symbol
-declare const occurrenceSourceMarker: unique symbol
 
 type EventSourceListener<Value, Type extends string, Host extends Element> = (
   event: CustomEvent<Value> & {
@@ -158,37 +93,18 @@ export type RememberedEventSource<Value, Type extends string, Detail = Value> = 
           : { as(value: Value): RememberedEventSource<boolean, Type, Value | null> })
 
 /** An occurrence of a remembered descriptor: value semantics, like remembered sources. */
-type OccurrenceEventSource<Value, Type extends string> = EventSource<Value, Type> & {
-  readonly [occurrenceSourceMarker]: true
+type RememberedOccurrenceSource<Value, Type extends string> = EventSource<Value, Type> & {
+  readonly [rememberedEventSourceMarker]: true
 }
 
 export type EventSources<
   Events extends EventDetails,
-  State extends EventDetails | never = never,
-> = [State] extends [never]
-  ? {
-      readonly [Type in keyof Events & string]: EventSource<Events[Type], Type>
-    }
-  : {
-      readonly [Type in keyof Events & string]: Type extends keyof State & string
-        ? RememberedEventSource<Immutable<State>[Type], Type>
-        : OccurrenceEventSource<Events[Type], Type>
-    }
-
-/**
- * True when a source (or any member of a source array) belongs to a
- * remembered descriptor: remembered sources and occurrences both read value
- * semantics.
- */
-export type IsRememberedEventSource<Source> = Source extends readonly (infer Item)[]
-  ? [true] extends [IsRememberedEventSource<Item>]
-    ? true
-    : false
-  : Source extends
-        | { readonly [rememberedEventSourceMarker]: true }
-        | { readonly [occurrenceSourceMarker]: true }
-    ? true
-    : false
+  State extends EventDetails,
+> = {
+  readonly [Type in keyof Events & string]: Type extends keyof State & string
+    ? RememberedEventSource<Immutable<State>[Type], Type>
+    : RememberedOccurrenceSource<Events[Type], Type>
+}
 
 type CustomEventsReactiveProp<Input, Event, Value> = (input: Input, event: Event) => Value
 
@@ -207,21 +123,13 @@ type CustomEventsReactiveElementProps<
       ? Props<Tag>[Key]
       :
           | Props<Tag>[Key]
-          | CustomEventsReactiveProp<
-              Direct extends true ? Input : NoInfer<Input>,
-              Event,
-              Props<Tag>[Key]
-            >
+          | CustomEventsReactiveProp<NoInfer<Input>, Event, Props<Tag>[Key]>
     : Props<Tag>[Key]
 } & {
   [Key in `data-${string}`]?:
     | string
     | undefined
-    | CustomEventsReactiveProp<
-        Direct extends true ? Input : NoInfer<Input>,
-        Event,
-        string | undefined
-      >
+    | CustomEventsReactiveProp<NoInfer<Input>, Event, string | undefined>
 }
 
 type CustomEventsIntrinsicChildren<Tag extends keyof JSX.IntrinsicElements> =
@@ -243,31 +151,24 @@ type EventedViewEvent<Event, Tag extends keyof JSX.IntrinsicElements> = Event & 
 }
 
 /**
- * Shared props of every evented-view. Occurrence aliases pass `undefined`
- * inputs before a first match; `Initialized` gates the `initial` prop;
- * `Direct` skips `NoInfer` for union inputs.
+ * Shared props of every evented-view: the selected `on` sources, reactive
+ * props and children over the callback input, and no `initial` (remembered
+ * views need none).
  */
 type CustomEventsViewProps<
   On,
   Input,
   Event,
   Tag extends keyof JSX.IntrinsicElements,
-  Initial,
-  Initialized extends boolean,
-  Direct extends boolean = false,
 > = Omit<
-  CustomEventsReactiveElementProps<Input, EventedViewEvent<Event, Tag>, Tag, Direct>,
+  CustomEventsReactiveElementProps<Input, EventedViewEvent<Event, Tag>, Tag>,
   'children' | 'on'
 > & {
   on: On
   children?:
     | CustomEventsIntrinsicChildren<Tag>
-    | CustomEventsReactiveProp<
-        Direct extends true ? Input : NoInfer<Input>,
-        EventedViewEvent<Event, Tag>,
-        RemixNode
-      >
-} & (Initialized extends true ? { initial: Initial } : { initial?: never })
+    | CustomEventsReactiveProp<NoInfer<Input>, EventedViewEvent<Event, Tag>, RemixNode>
+} & { initial?: never }
 
 type SourceSelection<Source> = Source | readonly Source[]
 
@@ -288,9 +189,7 @@ export type CustomEventsWildcardSource<
 > = {
   readonly [EVENT_SOURCE]: EventSourceProtocol & { readonly type: '*' }
   readonly [onMetadata]: EventSourceMetadata<Immutable<State>, string>
-} & (<Host extends Element = Element>(
-  listener: EventSourceListener<Immutable<State>, '*', Host>,
-) => MixinDescriptor<Host, any>)
+}
 
 /** The detail selected by a source (or tuple of sources, index-aligned with `on`). */
 type CustomEventsSourceDetail<Source> = Source extends readonly unknown[]
@@ -304,33 +203,6 @@ type CustomEventsWildcardEvent<Events extends EventDetails> =
   | CustomEventsEventMap<Events>[CustomEventsEventType<Events>]
   | (CustomEvent<unknown> & { readonly type: string })
 
-/**
- * The descriptor's root event: `events.root` matches every descriptor event
- * and reads the whole composite on a remembered descriptor. Invoking it
- * scopes an element-owned effect to the root event, like the wildcard
- * `on['*'](listener)`.
- */
-export type CustomEventsRootSource<
-  Events extends EventDetails,
-  State extends EventDetails,
-> = EventSource<Immutable<State>, 'root', CustomEventsWildcardEvent<Events>> & {
-  readonly [rememberedEventSourceMarker]: true
-}
-
-/** Default `on`-omitted element on an occurrence descriptor: subscribes to every event. */
-type CustomEventsDefaultElementProps<
-  Events extends EventDetails,
-  Tag extends keyof JSX.IntrinsicElements,
-  Initialized extends boolean,
-> = CustomEventsViewProps<
-  CustomEventsWildcardSource<Events>,
-  Events[CustomEventsEventType<Events>] | (Initialized extends true ? never : undefined),
-  CustomEventsEventMap<Events>[CustomEventsEventType<Events>],
-  Tag,
-  CustomEventsEventMap<Events>[CustomEventsEventType<Events>],
-  Initialized
->
-
 /** Default `on`-omitted element on a remembered descriptor: subscribes to every event. */
 type CustomEventsRememberedDefaultElementProps<
   Events extends EventDetails,
@@ -340,9 +212,7 @@ type CustomEventsRememberedDefaultElementProps<
   CustomEventsWildcardSource<Events, State>,
   Immutable<State>,
   CustomEventsWildcardEvent<Events>,
-  Tag,
-  never,
-  false
+  Tag
 >
 
 /** Evented-view on a remembered descriptor: `on` selects sources; the input is their value(s). */
@@ -355,24 +225,7 @@ type CustomEventsRememberedElementProps<
   Source,
   CustomEventsSourceDetail<Source>,
   CustomEventsSourceEvent<Source>,
-  Tag,
-  never,
-  false
->
-
-/** Evented-view on an occurrence source: the input is the detail, `undefined` before a match. */
-type CustomEventsOccurrenceProps<
-  Source,
-  Tag extends keyof JSX.IntrinsicElements,
-  Initialized extends boolean,
-> = CustomEventsViewProps<
-  Source,
-  CustomEventsSourceDetail<Source> | (Initialized extends true ? never : undefined),
-  CustomEventsSourceEvent<Source>,
-  Tag,
-  CustomEventsSourceEvent<Source>,
-  Initialized,
-  true
+  Tag
 >
 
 /**
@@ -393,26 +246,36 @@ export type CustomEventsEventedView<
   Tag extends keyof JSX.IntrinsicElements,
 > = Tag &
   GenericJSXComponent & {
+    <const Source extends CustomEventsOnFunction<EventDetails, EventDetails>>(
+      props: Source extends CustomEventsOnFunction<infer ViewEvents, infer ViewState>
+        ? {
+            readonly on: Source
+          } & CustomEventsRememberedDefaultElementProps<ViewEvents, ViewState, Tag>
+        : never,
+    ): RemixNode
     <const Source extends CustomEventsWildcardSource<EventDetails>>(
       props: { readonly on: Source } & (Source extends CustomEventsDescriptor<
         infer ViewEvents,
         infer ViewState
       >
-        ? [ViewState] extends [never]
-          ? CustomEventsDefaultElementProps<ViewEvents, Tag, boolean>
-          : CustomEventsRememberedDefaultElementProps<ViewEvents, ViewState, Tag>
+        ? CustomEventsRememberedDefaultElementProps<ViewEvents, ViewState, Tag>
         : never),
     ): RemixNode
-    <const Source extends SourceSelection<EventSource<any, any, any>>>(
-      props: IsRememberedEventSource<Source> extends true
-        ? CustomEventsRememberedElementProps<never, never, Tag, Source>
+    <const Source extends object & { readonly on: unknown }>(
+      props: Source extends {
+        on: CustomEventsOnNamespace<infer ViewEvents, infer ViewState>
+      }
+        ? {
+            readonly on: Source
+          } & Omit<CustomEventsRememberedDefaultElementProps<ViewEvents, ViewState, Tag>, 'on'> & {
+            initial?: unknown
+          }
         : never,
     ): RemixNode
     <const Source extends SourceSelection<EventSource<any, any, any>>>(
-      props: IsRememberedEventSource<Source> extends true
-        ? never
-        : CustomEventsOccurrenceProps<Source, Tag, boolean>,
+      props: CustomEventsRememberedElementProps<never, never, Tag, Source>,
     ): RemixNode
+
   }
 
 export type CustomEventsEventedViews<
@@ -445,7 +308,7 @@ export type CustomEventsCreate<Events extends EventDetails> = {
       [K in keyof Events]?: Events[K]
     } & { root?: unknown },
   >(
-    input: Input | ((root: Immutable<Events>) => Input),
+    input: Input,
     init?: CustomEventInit,
   ): [keyof Input & keyof Events] extends [never]
     ? Event
@@ -456,10 +319,6 @@ export type CustomEventsCreate<Events extends EventDetails> = {
  * The descriptor's builder member: `events.create` builds a fresh event (or
  * transaction carrier) for manual dispatch on any target.
  */
-export type CustomEventsBuilder<Events extends EventDetails> = {
-  create: CustomEventsCreate<Events>
-}
-
 /**
  * The unified dispatch surface of a descriptor, which carries a native
  * `EventTarget` channel: dispatching a native `Event` fires it on the
@@ -490,11 +349,17 @@ type CustomEventsListener<
   Target extends EventTarget,
 > = (event: CustomEventsListenerEvent<Events, Type, Target>) => void | Promise<unknown>
 
-export type CustomEventsOnFunction<Events extends EventDetails> = {
+/** The wildcard on a descriptor: calling it with a listener scopes an
+ * element-owned effect to every descriptor event, and the value doubles as
+ * a view source reading the whole composite (`on={events.on['*']}`). */
+export type CustomEventsOnFunction<
+  Events extends EventDetails,
+  State extends EventDetails = Events,
+> = {
   <HostElement extends Element = Element>(
     listener: CustomEventsListener<Events, CustomEventsEventType<Events>, HostElement>,
   ): MixinDescriptor<HostElement, any>
-}
+} & CustomEventsWildcardSource<Events, State>
 
 /**
  * The `events.on` surface: a pure namespace. Every declared event name
@@ -504,13 +369,13 @@ export type CustomEventsOnFunction<Events extends EventDetails> = {
  */
 export type CustomEventsOnNamespace<
   Events extends EventDetails,
-  State extends EventDetails | never = never,
-> = { readonly '*': CustomEventsOnFunction<Events> } & EventSources<Events, State>
+  State extends EventDetails,
+> = { readonly '*': CustomEventsOnFunction<Events, State> } & EventSources<Events, State>
 
 /** Element-host mixin factory and domain-target bridge. */
 export type CustomEventsAsHost<
   Events extends EventDetails,
-  State extends EventDetails | never = never,
+  State extends EventDetails,
 > = {
   (): MixinDescriptor<Element, any>
   (target: EventTarget): CustomEventsDescriptor<Events, State>
@@ -518,60 +383,47 @@ export type CustomEventsAsHost<
 
 export type CustomEventsDescriptor<
   Events extends EventDetails,
-  State extends EventDetails | never = never,
-> = CustomEventsBuilder<Events> &
-  CustomEventsWildcardSource<Events, State> &
+  State extends EventDetails,
+> = CustomEventsWildcardSource<Events, State> &
   TypedEventTarget<CustomEventsEventMap<Events>> & {
+    /** Builds typed events for any target: a bare name, an object of details. */
+    create: CustomEventsCreate<Events>
     /** Dispatches a native event or an event-named input on the descriptor. */
     dispatchEvent: CustomEventsDispatchEvent<Events>
     /** The effect namespace: `on['*'](listener)` is the wildcard, `on.<name>(listener)` scopes one. */
     on: CustomEventsOnNamespace<Events, State>
     /** Registers an element host (mixin) or a domain `EventTarget` (bridge). */
     asHost: CustomEventsAsHost<Events, State>
-    /** The root event source: matches every descriptor event and reads the composite. */
-  } & ([State] extends [never] ? {} : { root: CustomEventsRootSource<Events, State> })
+  }
 
-/**
- * How a declared fold event folds into the root event: the first parameter
- * is the fold event's own detail, the second the root composite as an
- * Immer draft.
- */
-export type RememberedFold<Held extends EventDetails, Detail = unknown> = (
-  detail: Detail,
-  root: Draft<Held>,
-) => void
+/** The event names of a defined composite's class: every own key except
+ * the constructor; function values are folds, the rest are held slices. */
+type MemberKeys<X> = keyof X & string
 
-/**
- * How a declared transient occurrence is written: a single-parameter recipe
- * fires its event with a detail and forgets it, leaving the composite
- * untouched. Declared occurrences are typed and addressable like folds, but
- * never produce patches.
- */
-export type RememberedOccurrence<Detail = unknown> = (detail: Detail) => void
+type HeldKeys<X> = {
+  [Key in MemberKeys<X>]: X[Key] extends (...args: any[]) => any ? never : Key
+}[MemberKeys<X>]
 
-/**
- * A recipe in a root-less declaration: it names a transient occurrence, whose
- * detail is the first parameter (or `null` when the recipe takes none). Fold
- * recipes (two parameters) require a remembered composite and are rejected at
- * runtime.
- */
-export type DeclaredOccurrence = (...args: any[]) => unknown
+type FoldKeys<X> = {
+  [Key in MemberKeys<X>]: X[Key] extends (...args: any[]) => any ? Key : never
+}[MemberKeys<X>]
 
-/** The event map of a root-less declaration: one occurrence per recipe. */
-export type DeclaredOccurrences<Declaration> = {
-  [Name in keyof Declaration & string]: Declaration[Name] extends (...args: any[]) => unknown
-    ? [Parameters<Declaration[Name]>['length']] extends [0]
-      ? null
-      : Declaration[Name] extends (detail: infer Detail) => any
-        ? Detail
-        : unknown
-    : unknown
+/** The composite of a defined class: its held fields (non-function values). */
+export type CompositeOf<X> = { [Key in HeldKeys<X>]: X[Key] }
+
+/** The fold events of a defined class: its methods, keyed by name.
+ * Zero-parameter recipes are detail-less: their fold detail is `null`. */
+export type FoldsOf<X> = {
+  [Key in FoldKeys<X>]: X[Key] extends (...args: infer Args) => any
+    ? Args extends [infer Detail, ...any[]]
+      ? (detail: Detail, composite: Draft<CompositeOf<X>>) => void | Promise<void>
+      : (detail: null, composite: Draft<CompositeOf<X>>) => void | Promise<void>
+    : never
 }
 
 /**
- * A handler of a composite descriptor: folds its own detail into the
- * composite, either synchronously against a draft or asynchronously through
- * progressive sessions.
+ * A fold handler over a composite: its detail is the first parameter, the
+ * model arrives as an Immer draft.
  */
 export type CompositeHandler<Composite extends EventDetails, Detail = unknown> = (
   detail: Detail,
@@ -596,37 +448,91 @@ export type CompositeEvents<
   [Key in keyof Handlers & string]: CompositeHandlerDetail<Handlers[Key]>
 }
 
-/** The dispatch surface of a composite descriptor: the event-named input or a function of the composite. */
-type CompositeDispatch<Events extends EventDetails, Composite extends EventDetails> = {
+/** A source in the class reaction namespace: calling it with a callback
+ * registers a session reaction; nested accessors mirror the event-source
+ * namespace, so deep paths react to the value at that address. The `This`
+ * parameter is the runner-bound `this` of the callback: the session composite
+ * draft at the root, narrowed to the item at each nested path. */
+export type CustomEventsReactionSource<Value, Type extends string, This> = {
   (
-    input: { root?: { [K in keyof Composite]?: Immutable<Composite[K]> } } & {
-      [K in keyof Events]?: Events[K]
-    },
-    init?: CustomEventInit,
-  ): Promise<void>
+    callback: (
+      this: This,
+      event: CustomEvent<Value> & { readonly type: Type },
+    ) => void,
+  ): void
+} & (Defined<Value> extends ReadonlyMap<infer Key, infer Item>
+  ? { get(key: Key): CustomEventsReactionSource<Item | undefined, Type, Draft<Defined<Item>>> }
+  : Defined<Value> extends ReadonlySet<infer Item>
+    ? { has(value: Item): CustomEventsReactionSource<boolean, Type, Draft<boolean>> }
+    : Defined<Value> extends readonly (infer Item)[]
+      ? {
+          readonly [index: number]: CustomEventsReactionSource<
+            Item | undefined,
+            Type,
+            Draft<Defined<Item>>
+          >
+        }
+      : Defined<Value> extends object
+        ? {
+            readonly [Key in keyof Defined<Value>]: CustomEventsReactionSource<
+              PreserveMissing<Value, Defined<Value>[Key]>,
+              Type,
+              Draft<Defined<Value>[Key]>
+            >
+          }
+        : { as(value: Value): CustomEventsReactionSource<boolean, Type, Draft<boolean>> })
+
+/** The class reaction surface: `defineEvents` passes it to the class
+ * constructor, and `api.on.<slice>(callback)` registers a session reaction
+ * for that slice's writes. Field-level callbacks bind `this` to the session
+ * composite draft; deep paths narrow it to the item at the path. */
+export type EventsApi<X extends object> = {
+  readonly on: {
+    readonly '*': (callback: (event: Event) => void) => void
+  } & {
+    readonly [Type in keyof CompositeOf<X> & string]: CustomEventsReactionSource<
+      CompositeOf<X>[Type],
+      Type,
+      Draft<CompositeOf<X>>
+    >
+  }
+}
+
+/** The dispatch surface of a composite descriptor: the event-named input. */
+export type CompositeDispatch<Events extends EventDetails> = {
   (
-    input: (composite: Immutable<Composite>) => {
-      root?: { [K in keyof Composite]?: Immutable<Composite[K]> }
-    } & {
-      [K in keyof Events]?: Events[K]
-    },
+    input: { [K in keyof Events]?: Events[K] },
     init?: CustomEventInit,
   ): Promise<void>
 } & CustomEventsDispatchEvent<Events>
 
-/** Runs a mounted-element effect for every descriptor event, including implicit occurrences. */
-export type CompositeOnFunction = CustomEventsOnFunction<EventDetails>
+/** The typed event map of a defined composite class: its slices and fold
+ * details as `CustomEvent` listener types, for `TypedEventTarget` hosts. */
+export type EventsMapOf<X extends object> = CustomEventsEventMap<
+  CompositeEvents<CompositeOf<X>, FoldsOf<X>>
+>
 
-/** A composite descriptor: immutable slices and handlers over the live composite. */
+/** The union of a defined class's events: every slice and fold detail as a
+ * typed `CustomEvent` with its `type`. */
+export type EventsOf<X extends object> = EventsMapOf<X>[keyof EventsMapOf<X>]
+
+/** The event surface of a defined composite: the descriptor machinery plus
+ * the live model, read through `events.detail`. */
+export type CustomEventsDefined<X extends object> = CustomEventsCompositeDescriptor<
+  CompositeOf<X>,
+  FoldsOf<X>
+> & { readonly detail: CompositeOf<X> }
+
+/** A composite descriptor: slice events and handlers over the live composite. */
 export type CustomEventsCompositeDescriptor<
   Composite extends EventDetails,
   Handlers extends Record<string, CompositeHandler<Composite, any>>,
-> = Omit<CustomEventsDescriptor<CompositeEvents<Composite, Handlers>, Composite>, 'on' | 'root'> & {
-  dispatchEvent: CompositeDispatch<CompositeEvents<Composite, Handlers>, Composite>
-  on: { readonly '*': CompositeOnFunction } & CustomEventsOnNamespace<
-    CompositeEvents<Composite, Handlers>,
-    Composite
-  >
+> = Omit<
+  CustomEventsDescriptor<CompositeEvents<Composite, Handlers>, Composite>,
+  'on'
+> & {
+  dispatchEvent: CompositeDispatch<CompositeEvents<Composite, Handlers>>
+  on: CustomEventsOnNamespace<CompositeEvents<Composite, Handlers>, Composite>
   readonly [rememberedEventSourceMarker]: true
 } & (<Host extends Element = Element>(
     listener: EventSourceListener<Immutable<Composite>, '*', Host>,

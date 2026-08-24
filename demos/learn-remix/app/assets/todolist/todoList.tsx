@@ -2,13 +2,15 @@ import { clientEntry, css, Frame, type Handle } from 'remix/ui'
 import { AddTodo } from './addTodo.tsx'
 import type { Todo } from '../../data/todolist.ts'
 import { routes } from '../../routes.ts'
-import { customEvents } from '../utils/customEvents/index.tsx'
+import { Events } from '../utils/customEvents/index.tsx'
 
-export const events = customEvents<{
-  actionSubmitted: TodoActionDetail | null
-  actionSucceeded: TodoActionDetail | null
-  actionErrored: { error: Error }
-}>()
+class TodoListEvents extends Events {
+  actionSubmitted(detail: TodoActionDetail | null) {}
+  actionSucceeded(detail: TodoActionDetail | null) {}
+  actionErrored(detail: { error: Error }) {}
+}
+
+export const events = TodoListEvents.define()
 
 export type TodoActionDetail = {
   completed?: boolean

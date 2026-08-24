@@ -1,6 +1,6 @@
 import * as assert from 'remix/assert'
 import { it } from 'remix/test'
-import { customEvents } from './index.tsx'
+import { Events, evented } from './index.tsx'
 import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
 
 const subscriptionCount = 5_000
@@ -9,17 +9,14 @@ const targetKey = String(subscriptionCount - 1)
 
 it('benchmarks fold-recipe dispatch', async () => {
   let lastId = -1
-  let events = customEvents(
-    {
-      items: new Map<number, { id: number; label: string }>(),
-    },
-    {
-      update: (item: { id: number; label: string }, detail) => {
-        detail.items.set(item.id, item)
-        lastId = item.id
-      },
-    },
-  )
+  class BenchEvents extends Events {
+    items = new Map<number, { id: number; label: string }>()
+    update(item: { id: number; label: string }) {
+      this.items.set(item.id, item)
+      lastId = item.id
+    }
+  }
+  let events = BenchEvents.define()
   for (let index = 0; index < 1_000; index++) {
     await events.dispatchEvent({ update: { id: index, label: `item-${index}` } })
   }

@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents, evented } from './utils/customEvents/index.tsx'
+import { Events, evented } from './utils/customEvents/index.tsx'
 
 type Card = {
   title: string
@@ -89,18 +89,17 @@ function initialColumns() {
   ])
 }
 
+class KanbanBoardEvents extends Events {
+  columns = initialColumns()
+  toggleUrgency({ columnId, cardId }: { columnId: string; cardId: string }) {
+    let card = this.columns.get(columnId)?.cards.get(cardId)
+    if (card) card.urgent = !card.urgent
+  }
+}
+
 export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
-  let events = customEvents(
-    {
-      columns: initialColumns(),
-    },
-    {
-      toggleUrgency: ({ columnId, cardId }: { columnId: string; cardId: string }, detail) => {
-        let card = detail.columns.get(columnId)?.cards.get(cardId)
-        if (card) card.urgent = !card.urgent
-      },
-    },
-  )
+
+  let events = KanbanBoardEvents.define()
   let renderCounts = new Map<string, number>()
 
   function nextRenderCount(id: string) {
@@ -111,14 +110,14 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
 
   return () => (
     <evented.section
-      on={events}
+      on={events.on.columns}
       mix={css({
         width: 'min(900px, 100%)',
         display: 'grid',
         gap: 16,
       })}
     >
-      {(current) => (
+      {(columns) => (
         <>
           <header>
             <h1>Deep identity routing experiment</h1>
@@ -135,7 +134,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
               alignItems: 'start',
             })}
           >
-            {current.columns
+            {columns
               .entries()
               .map(([columnId, column]) => (
                 <section key={columnId} mix={columnCss}>
@@ -180,9 +179,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                                 mix={[
                                   buttonCss,
                                   on('click', () => {
-                                    events.dispatchEvent({
-                                      toggleUrgency: { columnId, cardId },
-                                    })
+                                    events.dispatchEvent({ toggleUrgency: { columnId, cardId } })
                                   }),
                                 ]}
                               >

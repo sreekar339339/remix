@@ -1,15 +1,17 @@
 import { createMixin, on } from 'remix/ui'
-import { customEvents } from './utils/customEvents/index.tsx'
+import { Events } from './utils/customEvents/index.tsx'
 
 type DraggableCustomEventDetail = {
   left: number
   top: number
 }
 
-let events = customEvents<{
-  start: DraggableCustomEventDetail
-  end: DraggableCustomEventDetail
-}>()
+class DraggableEvents extends Events {
+  start(detail: DraggableCustomEventDetail) {}
+  end(detail: DraggableCustomEventDetail) {}
+}
+
+const events = DraggableEvents.define()
 
 type DraggableCustomEventsProps = {
   on?: Record<string, (event: Event) => void>

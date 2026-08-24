@@ -1,6 +1,6 @@
 import { clientEntry, css, on, ref } from 'remix/ui'
 import type { Handle, RemixNode } from 'remix/ui'
-import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented } from '../utils/customEvents/index.tsx'
 
 type FilterItem = { id: number; name: string; rank: number }
 type SortKey = 'id' | 'name' | 'nameDesc' | 'rank'
@@ -314,70 +314,117 @@ function makeBenchmarker(options: {
   }
 }
 
+class FilterBoardEvents extends Events {
+  catalog = seedCatalog()
+  visible = seedCatalog()
+  meter = 0
+  timing = emptyTiming()
+  applyView({ query, sort }: { query: string; sort: SortKey }) {
+    let order = orderedVisible(this.catalog, query, sort)
+    let currentKeys = [...this.visible.keys()]
+    let sameOrder =
+      currentKeys.length === order.length &&
+      currentKeys.every((key, index) => key === order[index])
+    if (sameOrder) return
+    let currentSet = new Set(currentKeys)
+    let orderSet = new Set(order)
+    let additions = order.filter((id) => !currentSet.has(id))
+    let removals = currentKeys.filter((id) => !orderSet.has(id))
+    if (additions.length > 0 || removals.length === 0) {
+      // New rows appeared (or a pure reorder): rebuild the whole map so
+      // sorted positions land correctly; the list reconciles by key.
+      this.visible = new Map(order.map((id) => [id, this.catalog.get(id)!] as const))
+      return
+    }
+    for (let id of removals) this.visible.delete(id)
+  }
+  tickWide() {
+    this.visible = new Map(
+      orderedVisible(this.catalog, 'crimson', 'id').map(
+        (id) => [id, this.catalog.get(id)!] as const,
+      ),
+    )
+  }
+  tickKeep() {
+    let keep = new Set(orderedVisible(this.catalog, 'crimson-widget-500', 'id'))
+    for (let id of [...this.visible.keys()]) {
+      if (!keep.has(id)) this.visible.delete(id)
+    }
+  }
+  resetVisible() {
+    this.visible = new Map(this.catalog)
+  }
+  meterTick(count: number) {
+    this.meter = count
+  }
+  recordTiming({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }) {
+    if (mode === 'evented') {
+      this.timing.eventedMs += ms
+      this.timing.eventedTicks += 1
+    } else {
+      this.timing.plainMs += ms
+      this.timing.plainTicks += 1
+    }
+  }
+  resetTiming() {
+    this.timing = emptyTiming()
+  }
+  refresh() {}
+}
+
+
+
+class HeavyBoardEvents extends Events {
+  items = seedHeavy()
+  meter = 0
+  timing = emptyTiming()
+  toggleRow(id: number) {
+    let row = this.items.get(id)
+    if (!row) return
+    row.done = !row.done
+    row.edits += 1
+  }
+  editRow(id: number) {
+    let row = this.items.get(id)
+    if (row) row.edits += 1
+  }
+  churn(picked: ReadonlySet<number>) {
+    for (let id of picked) {
+      let item = this.items.get(id)
+      if (item) item.priority = ((item.priority + 1) % 5) + 1
+    }
+  }
+  bumpAll() {
+    for (let item of this.items.values()) {
+      item.priority = ((item.priority + 1) % 5) + 1
+    }
+  }
+  resetItems() {
+    this.items = seedHeavy()
+  }
+  meterTick(count: number) {
+    this.meter = count
+  }
+  recordTiming({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }) {
+    if (mode === 'evented') {
+      this.timing.eventedMs += ms
+      this.timing.eventedTicks += 1
+    } else {
+      this.timing.plainMs += ms
+      this.timing.plainTicks += 1
+    }
+  }
+  resetTiming() {
+    this.timing = emptyTiming()
+  }
+  refresh() {}
+}
+
 export const ListUpdatesFilterBoard = clientEntry(
   import.meta.url,
   function ListUpdatesFilterBoard(handle: Handle) {
-    let events = customEvents(
-      {
-        catalog: seedCatalog(),
-        visible: seedCatalog(),
-        meter: 0,
-        timing: emptyTiming(),
-      },
-      {
-        applyView: ({ query, sort }: { query: string; sort: SortKey }, detail) => {
-          let order = orderedVisible(detail.catalog, query, sort)
-          let currentKeys = [...detail.visible.keys()]
-          let sameOrder =
-            currentKeys.length === order.length &&
-            currentKeys.every((key, index) => key === order[index])
-          if (sameOrder) return
-          let currentSet = new Set(currentKeys)
-          let orderSet = new Set(order)
-          let additions = order.filter((id) => !currentSet.has(id))
-          let removals = currentKeys.filter((id) => !orderSet.has(id))
-          if (additions.length > 0 || removals.length === 0) {
-            // New rows appeared (or a pure reorder): rebuild the whole map so
-            // sorted positions land correctly; the list reconciles by key.
-            detail.visible = new Map(order.map((id) => [id, detail.catalog.get(id)!] as const))
-            return
-          }
-          for (let id of removals) detail.visible.delete(id)
-        },
-        tickWide: (_detail, detail) => {
-          detail.visible = new Map(
-            orderedVisible(detail.catalog, 'crimson', 'id').map(
-              (id) => [id, detail.catalog.get(id)!] as const,
-            ),
-          )
-        },
-        tickKeep: (_detail, detail) => {
-          let keep = new Set(orderedVisible(detail.catalog, 'crimson-widget-500', 'id'))
-          for (let id of [...detail.visible.keys()]) {
-            if (!keep.has(id)) detail.visible.delete(id)
-          }
-        },
-        resetVisible: (_detail, detail) => {
-          detail.visible = new Map(detail.catalog)
-        },
-        meterTick: (count: number, detail) => {
-          detail.meter = count
-        },
-        recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, detail) => {
-          if (mode === 'evented') {
-            detail.timing.eventedMs += ms
-            detail.timing.eventedTicks += 1
-          } else {
-            detail.timing.plainMs += ms
-            detail.timing.plainTicks += 1
-          }
-        },
-        resetTiming: (_detail, detail) => {
-          detail.timing = emptyTiming()
-        },
-        refresh: () => {},
-      },
-    )
+
+    let events = FilterBoardEvents.define()
     let mode: 'evented' | 'plain' = 'evented'
     let query = ''
     let sort: SortKey = 'id'
@@ -501,48 +548,46 @@ export const ListUpdatesFilterBoard = clientEntry(
 export const ListUpdatesFeedBoard = clientEntry(
   import.meta.url,
   function ListUpdatesFeedBoard(handle: Handle) {
-    let events = customEvents(
-      {
-        items: seedFeed(),
-        meter: 0,
-        timing: emptyTiming(),
-        nextId: 50,
-        ringStart: 0,
-      },
-      {
-        feed: (_detail, detail) => {
-          for (let index = 0; index < batch; index++) {
-            let id = detail.nextId++
-            detail.items.set(id, {
-              id,
-              label: `${feedNouns[id % feedNouns.length]}-${id}`,
-              value: (id * 7919) % 10_000,
-            })
-          }
-          let excess = detail.items.size - feedCap
-          for (let index = 0; index < excess; index++) {
-            detail.items.delete(detail.ringStart + index)
-          }
-          detail.ringStart += excess
-        },
-        meterTick: (count: number, detail) => {
-          detail.meter = count
-        },
-        recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, detail) => {
-          if (mode === 'evented') {
-            detail.timing.eventedMs += ms
-            detail.timing.eventedTicks += 1
-          } else {
-            detail.timing.plainMs += ms
-            detail.timing.plainTicks += 1
-          }
-        },
-        resetTiming: (_detail, detail) => {
-          detail.timing = emptyTiming()
-        },
-        refresh: () => {},
-      },
-    )
+  class FeedBoardEvents extends Events {
+    items = seedFeed()
+    meter = 0
+    timing = emptyTiming()
+    nextId = 50
+    ringStart = 0
+    feed() {
+      for (let index = 0; index < batch; index++) {
+        let id = this.nextId++
+        this.items.set(id, {
+          id,
+          label: `${feedNouns[id % feedNouns.length]}-${id}`,
+          value: (id * 7919) % 10_000,
+        })
+      }
+      let excess = this.items.size - feedCap
+      for (let index = 0; index < excess; index++) {
+        this.items.delete(this.ringStart + index)
+      }
+      this.ringStart += excess
+    }
+    meterTick(count: number) {
+      this.meter = count
+    }
+    recordTiming({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }) {
+      if (mode === 'evented') {
+        this.timing.eventedMs += ms
+        this.timing.eventedTicks += 1
+      } else {
+        this.timing.plainMs += ms
+        this.timing.plainTicks += 1
+      }
+    }
+    resetTiming() {
+      this.timing = emptyTiming()
+    }
+    refresh() {}
+  }
+
+    let events = FeedBoardEvents.define()
     let mode: 'evented' | 'plain' = 'evented'
     let running = false
     let batch = 10
@@ -682,55 +727,8 @@ export const ListUpdatesFeedBoard = clientEntry(
 export const ListUpdatesHeavyBoard = clientEntry(
   import.meta.url,
   function ListUpdatesHeavyBoard(handle: Handle) {
-    let events = customEvents(
-      {
-        items: seedHeavy(),
-        meter: 0,
-        timing: emptyTiming(),
-      },
-      {
-        toggleRow: (id: number, detail) => {
-          let row = detail.items.get(id)
-          if (!row) return
-          row.done = !row.done
-          row.edits += 1
-        },
-        editRow: (id: number, detail) => {
-          let row = detail.items.get(id)
-          if (row) row.edits += 1
-        },
-        churn: (picked: ReadonlySet<number>, detail) => {
-          for (let id of picked) {
-            let item = detail.items.get(id)
-            if (item) item.priority = ((item.priority + 1) % 5) + 1
-          }
-        },
-        bumpAll: (_detail, detail) => {
-          for (let item of detail.items.values()) {
-            item.priority = ((item.priority + 1) % 5) + 1
-          }
-        },
-        resetItems: (_detail, detail) => {
-          detail.items = seedHeavy()
-        },
-        meterTick: (count: number, detail) => {
-          detail.meter = count
-        },
-        recordTiming: ({ mode, ms }: { mode: 'evented' | 'plain'; ms: number }, detail) => {
-          if (mode === 'evented') {
-            detail.timing.eventedMs += ms
-            detail.timing.eventedTicks += 1
-          } else {
-            detail.timing.plainMs += ms
-            detail.timing.plainTicks += 1
-          }
-        },
-        resetTiming: (_detail, detail) => {
-          detail.timing = emptyTiming()
-        },
-        refresh: () => {},
-      },
-    )
+
+    let events = HeavyBoardEvents.define()
     let mode: 'evented' | 'plain' = 'evented'
     let churning = false
     let churnPerTick = 20

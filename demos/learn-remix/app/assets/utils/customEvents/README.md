@@ -1,19 +1,20 @@
 # Custom events
 
-`customEvents` is an enhancement on top of the DOM Events API. A descriptor
-is a typed `EventTarget`: everything the DOM provides works on it exactly —
-`addEventListener`/`removeEventListener`, `dispatchEvent(event)` returning a
-`boolean`, and `CustomEvent` instances with `type`, `detail`, `target`, and
-`currentTarget`. On top of that foundation the library adds:
+`customEvents` is an enhancement on top of the DOM Events API. An `Events`
+instance is a typed `EventTarget`: everything the DOM provides works on it
+exactly — `addEventListener`/`removeEventListener`, `dispatchEvent(event)`
+returning a `boolean`, and `CustomEvent` instances with `type`, `detail`,
+`target`, and `currentTarget`. On top of that foundation the library adds:
 
 - **Shorthand inputs** — `dispatchEvent('name')` and
   `dispatchEvent({ name: detail, ... })` build and dispatch `CustomEvent`s
   for you; the object form commits several events atomically.
-- **Typed vocabulary** — declared event names with per-event detail types,
-  checked at compile time.
-- **Remembered detail** — a descriptor can own a live composite detail (the
-  model); dispatching an event folds a new value into it. The `root` seed
-  object is updated in place, so a held reference reads the current model.
+- **A live model** — the instance holds the composite; dispatching an event
+  folds a new value into it. The instance you hold reads the current model at
+  all times.
+- **Fold recipes** — a method of the model interprets an event and mutates an
+  Immer draft; the resulting patches drive the routing. Recipes may be async
+  and may call other events.
 - **Addressable subscriptions** — `events.on.<name>` sources subscribe
   narrow consumers to one event and re-render exactly the affected
   addresses.
@@ -23,12 +24,10 @@ is a typed `EventTarget`: everything the DOM provides works on it exactly —
 
 The library is organized around these concepts:
 
-- **Remembered descriptor** — `customEvents({ root: { ... }, folds })`: a
-  declaration whose composite detail both holds its initial details (under the
-  reserved `root` key) and folds in declared fold events. The descriptor
-  carries native `EventTarget` listeners.
-- **Occurrence descriptor** — `customEvents<Definition>()`: a typed
-  vocabulary of transient events with no remembered detail.
+- **Events instance** — a subclass of `Events` declares the model as fields
+  and events as methods; an empty recipe is a transient occurrence. The
+  instance IS the descriptor: `events.on`, `events.dispatchEvent`,
+  `events.create`, `events.asHost`, and the native `EventTarget` channel.
 - **Event source** — a typed, addressable subscription handle for one event.
 - **Evented-view** — an intrinsic element (`evented.<tag>`) that subscribes
   to sources through the `on` host prop and re-renders from matched
@@ -65,195 +64,174 @@ plus `signal` (an already-aborted `signal` throws its abort reason at event
 creation). Details are expressed by the object grammar — see
 [Building events](#building-events--eventscreate).
 
-## Public API
+## The Events model
 
-### Remembered descriptors — `customEvents({ root: { ... }, folds })`
-
-A single object declares the descriptor: the reserved `root` key holds the
-composite's **initial details** — data values keyed by event name — and every
-other key declares a **fold event**: how an event folds into the composite, as
-a mutable Immer recipe:
+Declare the model as a class extending `Events`: **fields** are events
+(each field is an event whose latest detail is the current value) and
+**methods** are fold recipes — an empty recipe is a transient occurrence.
+`GameEvents.define()` builds the descriptor and returns the event surface:
 
 ```ts
-let events = customEvents({
-  root: { count: 0, label: 'idle' },
-  increment: (offset: number, root) => {
-    root.count += offset
-  },
-})
+import { Events, evented } from './utils/customEvents/index.tsx'
+
+class GameEvents extends Events {
+  count = 0
+  increment(by: number) {
+    this.count += by
+  }
+  stepCompleted(detail: string) {}
+}
+
+let events = GameEvents.define()
 ```
 
-The `root` key is typed by hand — its keys are user-defined, so editors cannot
-suggest them — and everything else infers from it: the fold recipe's `detail`
-and `root` parameters, the `on.<name>` sources, and `dispatchEvent` inputs.
+The base carries only the static — its instance side stays empty, so a
+static name can never collide with user event names (fold methods live on
+the prototype, statics on the class).
 
-The descriptor is the root composite event: `on={events}` (or the named
-`events.root` source) re-reads the whole detail on every matched event. Every
-detail and fold event is exposed as a typed source. The descriptor carries
-native listeners, so native `addEventListener` works directly on the events
-object.
+The returned object is the pure event surface — the descriptor machinery
+only. The model is read through views or `events.detail.<name>`:
 
-The object passed as `root` is the **live composite**: dispatches fold in
-place into that same object, so a reference you hold reads the current model.
-That is the imperative read path — native listeners can read current values
-straight from the seed — while evented-views remain the addressed read path.
-Read values are readonly-typed (`Immutable`), so views and derived dispatch
-inputs cannot mutate the model at compile time; writes go through dispatch.
+- **Fields are slices.** `count` is an event whose current value is the field.
+  Dispatching `{ count: 5 }` replaces it — the implicit "replace itself"
+  fold. Writing the field inside a fold recipe emits the same event.
+- **Methods are fold recipes.** Dispatching `{ increment: 2 }` runs the
+  recipe against an Immer draft of the model; its mutations become the slice
+  events and routing addresses; dispatching `{ increment: 2 }` runs the
+  recipe. Fold methods are recipe-internal: calling `this.increment(2)`
+  inside a session defers the dispatch until the session commits.
+- **Empty recipes are occurrences.** `stepCompleted` fires and leaves no
+  trace; calling `events.stepCompleted('done')` is identical to dispatching
+  `{ stepCompleted: 'done' }`.
+- **The model is live.** `events.detail` reads the current composite; reads
+  are guarded by readonly types, not runtime freezing.
 
-### The mental model
-
-A remembered descriptor is one event — the root composite — whose detail is
-the entire model. The `root` key declares that event's **initial detail**: each
-key inside it is simultaneously one slice of the composite and its own event
-name. `events.on.count` reads the slice; dispatching `{ count: 5 }` fires a
-real `count` event whose detail is `5`, folding the slice in as the new value
-(the implicit "replace itself" fold).
-
-Every other declared key is an additional event in recipe form. A fold maps an
-event name to `(detail, root) => void`: the first parameter is that fold
-event's own detail, and the second is the root event's detail as a mutable
-Immer draft. Running the recipe mutates the draft; the resulting patches
-become the fold's routing addresses.
-
-A fold that shares a root detail's name **shadows** the detail: dispatching
-the name runs the recipe instead of the implicit replace-itself fold, so the
-recipe owns the update — the typical pattern for related events, where one
-event's fold derives another detail from its payload. The detail's slice
-remains the read surface (`events.on.<name>` reads its current value); only
-the write semantics change. This is how related events express their
-relationship — no separate dependency machinery is needed:
+A fold that shares a field's name **shadows** the slice: dispatching the name
+runs the recipe instead of the implicit replace-itself fold, so the recipe
+owns the update — the typical pattern for related events, where one event's
+fold derives another detail from its payload. The slice remains the read
+surface (`events.on.<name>` reads its current value); only the write
+semantics change:
 
 ```ts
-let events = customEvents({
-  root: {
-    celsius: '',
-    fahrenheit: '',
-  },
-  celsius: (value: string, root) => {
-    root.celsius = value
+class TemperatureEvents {
+  celsius = ''
+  fahrenheit = ''
+  setCelsius(value: string) {
+    this.celsius = value
     let number = Number(value)
-    if (Number.isFinite(number)) {
-      root.fahrenheit = String((number * 9) / 5 + 32)
+    if (Number.isFinite(number) && value.trim() !== '') {
+      this.fahrenheit = String((number * 9) / 5 + 32)
     }
-  },
-  fahrenheit: (value: string, root) => {
-    root.fahrenheit = value
+  }
+  setFahrenheit(value: string) {
+    this.fahrenheit = value
     let number = Number(value)
-    if (Number.isFinite(number)) {
-      root.celsius = String((number - 32) * (5 / 9))
+    if (Number.isFinite(number) && value.trim() !== '') {
+      this.celsius = String((number - 32) * (5 / 9))
     }
-  },
-})
+  }
+}
 ```
 
-Dispatching `{ celsius: '25' }` runs the celsius fold, which writes its own
-slice and derives `fahrenheit`; the fold's detail types the dispatch input,
-winning over the slice type. The recipe's `root` is a typed mutable Immer
-draft of the composite — inferred from the data in `root` — and the fold
-reads and writes the composite freely (the recipe's writes are the user's
-responsibility to keep consistent).
+Writing `this.fahrenheit` in the celsius fold emits a `fahrenheit` slice
+event, so subscribers to `events.on.fahrenheit` and the wildcard already react
+to the derived value — no separate dispatch needed.
 
-A recipe with fewer than two parameters declares a **transient occurrence**: a
-detail-carrying recipe like `(text: string) => {}`, or a detail-less recipe
-like `() => {}`. An occurrence fires its event and forgets it, leaving the
-composite untouched. Occurrences are typed and addressable like folds
-(`events.on.<name>`, with detail `null` for detail-less ones) but never
-produce patches. A fold's recipe takes exactly two parameters; default and
-rest parameters are treated as folds.
-
-Every property of the declaration is an event name, and every event name is
+Every property of the composite is an event name, and every event name is
 writable. The object form of `dispatchEvent` and `create` names declared
-events — slices, folds, occurrences, and `root` — so an unknown key is a
-compile error. The bare-name form (`dispatchEvent('name')`) and the native
-channel (`addEventListener`, bridged targets) dispatch any name as an
-occurrence.
+events — slices and folds — so an unknown key is a compile error.
+The bare-name form (`dispatchEvent('name')`) and the native channel
+(`addEventListener`, bridged targets) dispatch any name as an occurrence.
+The returned object carries no model names: fields and fold methods are
+never properties of it — `events.count` is `undefined`; the model is read
+through views or `events.detail.count`. The class itself reserves nothing —
+a field may share a descriptor name, with those names winning on the
+returned object. Only the `'*'` wildcard is unavailable as a dispatch name:
+it is the subscription sentinel.
 
-The dispatch input may be a **function of the composite**, computed at
-dispatch time: the callback receives the live composite and its return value
-becomes the event-named input. Handlers never hold the model, so derived
-inputs cannot go stale. The callback runs once, before any entry folds, so it
-sees the pre-dispatch composite; per-name values are data:
+The object form computes its values at the call site; the current model
+reads through `events.detail`, so inputs read it directly:
 
 ```tsx
 <input
   mix={on('input', ({ currentTarget }) => {
-    events.dispatchEvent((root) => ({
+    events.dispatchEvent({
       celsius: currentTarget.value,
-      // The fahrenheit leg derives from the input, not from folded state.
-      fahrenheit: formatTemperature((parseTemperature(root.celsius) * 9) / 5 + 32),
-    }))
+      fahrenheit: formatTemperature((parseTemperature(events.detail.celsius) * 9) / 5 + 32),
+    })
   })}
 />
-```
-
-A derived input works for every event kind, including the `root` write
-(`dispatchEvent((root) => ({ root: { ... } }))`), and `events.create` accepts
-the same callbacks for element-scoped dispatch — the input is computed when
-the event is created:
-
-```tsx
-currentTarget.dispatchEvent(events.create((root) => ({ cellDrafted: root.formulas[id] ?? '' })))
 ```
 
 Per-name values are plain data: a function value of an event name is
 delivered as the detail itself, never invoked.
 
-Dispatching `{ root: {...} }` is the **root event**: its detail is
-the model, so it replaces the whole composite (the implicit "replace itself"
-fold at the composite level) — it does not merge, and slices it omits are
-gone. Use `root` for whole-model writes like hydration or reset; partial
-updates use slice writes (`{ count: 5 }`) or a declared fold.
+### Fold sessions
 
-Dispatching an occurrence on a specific element keeps it local to that
-element:
+Fold recipes mutate an Immer draft of the composite; a no-op fold emits
+nothing but its own event. Immer patches drive the routing: keyed writes keep
+per-item granularity, scalar writes route by owner identity, and deep
+mutations reach exactly the affected addresses.
 
-```tsx
-<input
-  mix={on('input', ({ currentTarget }) => {
-    currentTarget.dispatchEvent(events.create({ drafted: currentTarget.value }))
-  })}
-/>
-```
-
-Only that element's own views and effects re-resolve; the composite is not
-involved. This is the element-scoped dispatch pattern for per-element
-transient state. Composite-changing events — slices, folds, and the `root`
-write — are dispatched on the descriptor itself, so every subscribed view
-stays in sync.
-
-### Occurrence descriptors — `customEvents<Definition>()` / `customEvents(declaration)`
-
-A typed vocabulary of transient events with no remembered detail. Declare the
-details through the type parameter or through a declaration map whose recipes
-name the occurrences — a single-parameter recipe carries the occurrence's
-detail type, a zero-parameter one declares a detail-less occurrence:
+**Async recipes.** A recipe that returns a promise keeps its draft session
+open: mutations between `await`s reach views at each microtask boundary, so a
+loading flag flips before the awaited work completes, and the dispatch
+settles only after the recipe and all its flushes finish:
 
 ```ts
-const flightEvents = customEvents<'bookingConfirmed' | 'booksFound'>()
-const searchEvents = customEvents({
-  queryEmpty: () => {},
-  querySubmitted: (query: string) => {},
-  booksFound: (books: Book[]) => {},
-})
+class JobRunnerEvents {
+  phase: 'idle' | 'queued' | 'running' | 'done' | 'failed' = 'idle'
+  log: string[] = []
+
+  async run(steps: string[]) {
+    this.phase = 'queued'                  // flushed immediately
+    this.logEntry(`queued ${steps.length} steps`)
+    await delay(setupDelayMs)
+    for (let step of steps) {
+      this.phase = 'running'
+      this.logEntry(`done with ${step}`)
+      await delay(stepDelayMs)
+    }
+    this.phase = 'done'
+  }
+}
 ```
 
-Fold recipes (two parameters) require a remembered composite and are rejected
-without `root`.
+**Calling other events from a recipe.** Most cross-slice updates need no
+dispatch: writing the draft of a fold emits the slice's event and reaches
+every subscriber. Reach for `this.<fold>(...)` inside a recipe when the
+target is itself a fold (including an empty recipe — an occurrence). While the session
+has uncommitted mutations, such a dispatch is deferred until the session's
+next flush commits; while the draft is clean it runs immediately. Either way
+it reads and writes the committed composite — never the in-flight draft
+window — so nested events can't observe uncommitted writes. The dispatch
+settles after the nested events too.
 
-`root` is reserved for the remembered composite; the descriptor API names
-(`create`, `on`, `asHost`, `dispatchEvent`, `addEventListener`,
-`removeEventListener`), the `'*'` wildcard, and native DOM event names cannot
-be events.
+**Failures.** A recipe that throws after some of its flushes committed leaves
+those updates applied and the UI reflecting them (there is no rollback);
+mutations still unflushed when the recipe rejects are discarded. The session
+handle (the recipe's `this`) is draft-scoped: holding it past the recipe and
+mutating it later is unsupported.
 
-### Building events — `events.create`
+**Reads are views or the live instance**: subscribe `on={events.on['*']}`
+for the whole composite or `on={events.on.<name>}` for one remembered value. The
+instance is the live composite — dispatches fold in place — so native
+listeners (`addEventListener`) read current values straight from the instance.
+Read values are readonly-typed (`Immutable`), so views and dispatch
+inputs cannot mutate the model at compile time; only fold drafts and the
+instance itself write.
+
+## Building events — `events.create`
 
 `create` is the typed `CustomEvent` constructor. The second argument is a
 `CustomEventInit`: the DOM init dict (`bubbles`, `composed`) plus `signal`,
 and deliberately no `detail` or `cancelable`. A bare name builds a
 detail-less event; an object of event-named details builds a single event
 (one entry) or an atomic transaction carrier (several). The descriptor also
-carries native `EventTarget` listeners, so consumption works directly on the
-events object:
+carries
+native `EventTarget` listeners, so consumption works directly on the events
+object:
 
 ```ts
 events.addEventListener('count', (event) => console.log(event.detail))
@@ -269,18 +247,70 @@ created.
 descriptor's dispatch channel onto an external `EventTarget`:
 
 ```ts
-class Drummer extends TypedEventTarget<CustomEventsEventMap<DrummerEvents>> {
-  events = customEvents<DrummerEvents>().asHost(this)
+class Drummer extends TypedEventTarget<EventsMapOf<DrummerEvents>> {
+  events = DrummerEvents.define().asHost(this)
 }
 ```
 
-### Event sources — `events.on.<name>`
+## Defining a composite — `GameEvents.define()`
+
+`define` builds a composite from the subclass: fields are held
+slices, methods are fold recipes, and the constructor's `api` registers
+session reactions. The returned object carries the descriptor machinery and
+reads the live composite through `events.detail`:
+
+```ts
+class TemperatureConverterEvents extends Events {
+  celsius = ''
+  fahrenheit = ''
+  constructor(api: EventsApi<TemperatureConverterEvents>) {
+  celsius = ''
+  fahrenheit = ''
+  constructor(api: EventsApi<TemperatureConverterEvents>) {
+    api.on.celsius(function ({ detail }) {
+        let number = Number(detail)
+        if (Number.isFinite(number) && detail.trim() !== '') {
+          this.fahrenheit = String((number * 9) / 5 + 32)
+        }
+      })
+    }
+  }
+}
+let events = TemperatureConverterEvents.define()
+```
+
+The class carries only the inherited static — nothing is reserved on the
+instance, so a field may even share a machinery name (the descriptor names
+win on the returned object). The
+constructor receives the reaction surface `api.on` — the class-side
+counterpart of the element-effect `events.on` — with the same source
+vocabulary and a fully typed callback: the event detail is the value at the
+source path, and `this` is bound to the session (the same rebinding fold
+recipes use), so derivations commit in the same carrier with full patch
+routing.
+
+- Dispatch-only: writing a slice is `events.dispatchEvent({ celsius: '25' })`;
+  the implied slice write and the reaction run as one session.
+- A reaction fires when the value at its source path changes; a same-value
+  dispatch is a no-op.
+- Deep paths react to the value at that address, with `this` bound to the
+  item and the detail typed to it:
+  `api.on.columns.get(id).cards.get(cardId)(function ({ detail }) {
+  this.urgent = !this.urgent })`. The `get`/`has`/`as` accessors are
+  data-independent, so deep chains can be registered before values exist.
+- The wildcard `api.on['*'](callback)` observes every slice dispatch.
+- Prefer reactions over set-<Field> folds for slice ownership: a field whose
+  update derives siblings is a slice plus `api.on.<field>` reactions, while
+  an operation (a fold that reads other state or mutates collections) stays
+  a fold dispatched by name.
+
+## Event sources — `events.on.<name>`
 
 Every declared event is exposed as a typed source:
 
 ```ts
 events.on.count
-events.on.bookingConfirmed
+events.on.stepCompleted
 ```
 
 Property access records an **address**; it does not snapshot a selected value.
@@ -304,15 +334,14 @@ A source also carries an element-owned effect listener:
 events.on.<source>(listener) // MixinDescriptor; active only while mounted
 ```
 
-### Evented-views — `evented.<tag>`
+## Evented-views — `evented.<tag>`
 
 `evented.<tag>` is a type-only alias over the intrinsic tag: `evented.button`
 is the string `'button'` at runtime. A render function's first argument is the
-**detail** the `on` selects — the matched event's detail at that
-source (the whole composite for the descriptor's wildcard). The matched event
-is the second argument, always called `event`, and its `currentTarget` is the
-evented element itself (null for the `initial` event, which precedes any
-element):
+**detail** the `on` selects — the source's current value (the whole composite
+for the descriptor's wildcard). The matched event is the second argument,
+always called `event`, and its `currentTarget` is the evented element itself
+(null for the initial event, which precedes any element):
 
 ```tsx
 <evented.output on={events.on.startDate}>{(detail) => detail}</evented.output>
@@ -322,13 +351,13 @@ Evented-view props:
 
 | Prop             | Meaning                                                                                                                                                                                                                |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `on`             | A source, an array of sources, or the descriptor itself. The first callback argument is the selected detail (one source), a tuple (several), or the whole composite (the descriptor); the matched event is the second. |
+| `on`             | A source, an array of sources, or the wildcard `events.on['*']`. The first callback argument is the selected value (one source), a tuple (several), or the whole composite (the wildcard); the matched event is the second. |
 | `initial`        | A defined event to render before an occurrence first matches; callbacks receive it as the matched event. Remembered views need no `initial`.                                                                           |
-| `children`       | Static children, or a render function of the selected detail and matched event.                                                                                                                                        |
-| _reactive props_ | Any native prop may be a function of the selected detail and matched event.                                                                                                                                            |
+| `children`       | Static children, or a render function of the selected value and matched event.                                                                                                                                         |
+| _reactive props_ | Any native prop may be a function of the selected value and matched event.                                                                                                                                             |
 | `mix`            | Mixins; use `events.on.<source>(...)` for element-owned effects.                                                                                                                                                       |
 
-### Descriptor methods
+## Descriptor methods
 
 | Member                                     | Signature                                                 | Purpose                                                                                        |
 | ------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -342,7 +371,7 @@ Writes are dispatch-only. The object grammar dispatches an event-named set of
 details atomically:
 
 ```ts
-await events.dispatchEvent({ kind: 'return flight' }) // remembered: folds in
+await events.dispatchEvent({ kind: 'return flight' }) // folds in
 await events.dispatchEvent('bookingConfirmed') // bare name: an occurrence
 await events.dispatchEvent({ kind: 'one-way flight', startDate }) // both fold in atomically
 element.dispatchEvent(events.create({ countDrafted: 2 })) // hosted elements
@@ -350,90 +379,6 @@ element.dispatchEvent(events.create({ countDrafted: 2 })) // hosted elements
 
 `dispatchEvent(event)` returns the native `boolean`; the input form returns a
 `Promise` that resolves after view updates and effects settle.
-
-## Event maps
-
-A detail map declares detailed events; a string union declares detail-less
-occurrences:
-
-```ts
-type Flight = {
-  kind: 'one-way flight' | 'return flight'
-  startDate: string
-  returnDate: string
-}
-
-type FlightEvents = Flight | 'bookingConfirmed'
-
-const flightEvents = customEvents<FlightEvents>()
-```
-
-Native DOM event names are rejected. Custom events describe completed facts,
-so they are deliberately non-cancelable.
-
-## Remembered details
-
-A remembered descriptor folds every dispatch into its composite detail.
-Initial details hold their value until replaced; fold events mutate an Immer
-draft of the composite:
-
-```ts
-let events = customEvents({ root: { count: 0 } })
-
-await events.dispatchEvent({ count: 5 }) // replaces the count detail
-await events.dispatchEvent({ root: { count: 5 } }) // replaces the whole composite
-```
-
-```ts
-let events = customEvents({
-  root: { columns: new Map() },
-  toggleUrgency: ({ columnId, cardId }, root) => {
-    let card = root.columns.get(columnId)?.cards.get(cardId)
-    if (card) card.urgent = !card.urgent
-  },
-})
-```
-
-Fold recipes mutate an Immer draft of the composite; a no-op fold emits
-nothing but its own event. Immer patches drive the routing: keyed writes keep
-per-item granularity, scalar writes route by owner identity, and deep
-mutations reach exactly the affected addresses.
-
-**Async fold recipes.** A recipe that returns a promise keeps its draft
-session open: mutations between `await`s reach views at each microtask
-boundary, so a loading flag flips before the awaited work completes, and the
-dispatch settles only after the handler and all its flushes finish:
-
-```ts
-load: async (url: string, root) => {
-  root.loading = true                    // flushed immediately
-  let user = await fetch(url).then((r) => r.json())
-  root.user = user                       // flushed when the work resolves
-  root.loading = false
-},
-```
-
-**Calling other events from a recipe.** `events.dispatchEvent(...)` inside a
-fold recipe is deferred until the recipe's session commits, so nested events
-always read and write the committed state — never the in-flight draft window.
-The dispatch settles after the nested events too.
-
-**Failures.** A recipe that throws after some of its flushes committed leaves
-those updates applied and the UI reflecting them (there is no rollback);
-mutations still unflushed when the handler rejects are discarded. The session
-handle (the recipe's `root` parameter) is draft-scoped: holding it past the
-handler and mutating it later is unsupported.
-
-**Reads are views or the live seed**: subscribe `on={events}` (or the
-named `events.root` source) for the whole composite or
-`on={events.on.<detail>}` for one remembered value. The object passed
-as `root` is the live composite — dispatches fold in place — so native
-listeners (`addEventListener`) read current values straight from the seed they
-created. Read values are readonly-typed (`Immutable`), so views and derived
-dispatch inputs cannot mutate the model at compile time; only fold drafts and
-the seed holder write. Handlers live inside a root view's render closure where
-the detail is in scope; timers and async work dispatch pure events that fold
-events interpret.
 
 ## Consumption patterns
 
@@ -445,7 +390,7 @@ events interpret.
 </evented.button>
 ```
 
-Listen to several explicit sources with an array; the selected detail becomes
+Listen to several explicit sources with an array; the selected value becomes
 a tuple index-aligned with `on`:
 
 ```tsx
@@ -483,13 +428,11 @@ edits re-render exactly the touched item.
 
 ### Whole-model wildcard view
 
-Pass the descriptor itself to `on` to subscribe to every event; the
-named `events.root` source is the same root subscription with an explicit
-handle. The first argument is always the whole composite; the matched event
-is the second:
+Pass `events.on['*']` to `on` to subscribe to every event. The first
+argument is always the whole composite; the matched event is the second:
 
 ```tsx
-<evented.output on={events}>
+<evented.output on={events.on['*']}>
   {(detail, event) =>
     event?.type === 'bookingConfirmed'
       ? `You have booked a ${detail.kind}.`
@@ -498,28 +441,19 @@ is the second:
 </evented.output>
 ```
 
-### Occurrence vocabulary
+### Occurrence views
 
-Occurrences are transient events with no remembered slice — any name that is
-neither a detail nor a fold event. Subscribe a wildcard view to a descriptor
-to see them all:
+Empty-recipe events are transient with no remembered slice. Subscribe a
+source (or a wildcard view) to see them; the source value is the
+occurrence's detail, `undefined` before a first match:
 
 ```tsx
-<evented.div on={searchEvents} initial={initialEvent}>
-  {(_, event) => {
-    switch (event.type) {
-      case 'queryEmpty':
-        return 'Enter a title'
-      case 'querySubmitted':
-        return `Searching for ${event.detail.query}`
-      case 'booksFound':
-        return `${event.detail.length} books`
-    }
-  }}
-</evented.div>
+<evented.output on={events.on.bookingConfirmed} aria-label="flight">
+  {(flight) => flight && `Booked ${flight.startDate} → ${flight.returnDate}`}
+</evented.output>
 ```
 
-When the render switches on `event.type`, prefer the event's typed
+When a wildcard render switches on `event.type`, prefer the event's typed
 `event.detail` over the first argument; the first argument is the value of the
 source, not the matched occurrence.
 
@@ -554,8 +488,8 @@ consumers use the descriptor's own `EventTarget` channel
 so the domain object's native listeners fire:
 
 ```ts
-class Drummer extends TypedEventTarget<CustomEventsEventMap<DrummerEvents>> {
-  events = customEvents<DrummerEvents>().asHost(this)
+class Drummer extends TypedEventTarget<EventsMapOf<DrummerEvents>> {
+  events = DrummerEvents.define().asHost(this)
 }
 
 // detached:   addEventListeners(drummer, signal, { tempoSet() {} })
@@ -607,10 +541,10 @@ where DOM semantics do not apply:
   DOM's synchronous `boolean`.
 - **Descriptor isolation.** Events created by one descriptor are ignored by
   every other descriptor, even under the same raw name.
-- **Live composite detail.** A remembered descriptor's composite detail is
-  current and readable through sources; a DOM `CustomEvent.detail` is a
-  one-shot snapshot. Reads are guarded by readonly types, not runtime
-  freezing: the seed object stays the mutable live model.
+- **Live composite detail.** The instance is the current, readable model; a
+  DOM `CustomEvent.detail` is a one-shot snapshot. Reads are guarded by
+  readonly types, not runtime freezing: the instance stays the mutable live
+  model.
 
 ## Sequencing
 
@@ -626,12 +560,19 @@ One processed event transaction follows this order:
 - Name events as facts that have already happened, usually past-tense domain
   language: `querySubmitted`, `booksFound`, `actionErrored`.
 - Remember an event when consumers need its current readable value; use an
-  occurrence when repetition matters and there is no meaningful current value.
+  empty recipe when repetition matters and there is no meaningful current
+  value.
 - Prefer a deep source over broad component invalidation when one existing DOM
   view owns that address; prefer one wildcard mounted effect when the component
   genuinely renders as a cohesive unit.
-- Fold events read the composite through their draft; never hold a stale
+- Fold recipes read the composite through their draft; never hold a stale
   closure over model values.
+- Reaction callbacks must be `function` declarations, not arrows: the runner
+  rebinds `this` to the session, and arrows capture the registration-time
+  `this` instead.
+- Register reactions in the constructor body against the plain `api` param —
+  a parameter property would add an `api` field to the composite, and field
+  initializers run before the constructor body assigns it.
 - Reaching for a whole-model wildcard view is a signal the component renders
   as a unit; narrow evented-views earn their keep when only a few addresses
   change per event.

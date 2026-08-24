@@ -1,13 +1,22 @@
 import { clientEntry, css, Frame, on, ref, type Handle } from 'remix/ui'
 import { routes } from '../routes.ts'
-import { customEvents, evented } from './utils/customEvents/index.tsx'
+import { Events, evented, type EventsApi } from './utils/customEvents/index.tsx'
+
+class SearchBoxEvents extends Events {
+  query: string | undefined
+  constructor(_api: EventsApi<SearchBoxEvents>, query: string | undefined) {
+    super()
+    this.query = query
+  }
+  queryEmpty() {}
+  querySubmitted() {}
+}
 
 export const SearchBooksWithFrame = clientEntry(
   import.meta.url,
   function SearchBooksWithFrame(handle: Handle<{ initialQuery?: string }>) {
-    let events = customEvents<'queryEmpty' | 'querySubmitted'>()
     let query = handle.props.initialQuery?.trim() ?? ''
-    let initialEvent = events.create(query ? 'querySubmitted' : 'queryEmpty')
+    let events = SearchBoxEvents.define(query || undefined)
 
     return () => (
       <div mix={events.asHost()}>
@@ -17,6 +26,7 @@ export const SearchBooksWithFrame = clientEntry(
             on('submit', (evt) => {
               evt.preventDefault()
               query = (new FormData(evt.currentTarget).get('q') as string).trim()
+              evt.currentTarget.dispatchEvent(events.create({ query: query || undefined }))
               evt.currentTarget.dispatchEvent(
                 query ? events.create('querySubmitted') : events.create('queryEmpty'),
               )
@@ -46,21 +56,18 @@ export const SearchBooksWithFrame = clientEntry(
             />
           </label>
         </form>
-        <evented.div on={events} initial={initialEvent}>
-          {(_, event) => {
-            switch (event.type) {
-              case 'queryEmpty':
-                return <p>Enter the title of any book.</p>
-              case 'querySubmitted':
-                return (
-                  <Frame
-                    key={query}
-                    fallback={<p>fetching books with title containing "{query}"...</p>}
-                    src={routes.searchBooks.books.href(undefined, { searchParams: { q: query } })}
-                  />
-                )
-            }
-          }}
+        <evented.div on={events.on.query}>
+          {(submitted) =>
+            submitted === undefined ? (
+              <p>Enter the title of any book.</p>
+            ) : (
+              <Frame
+                key={submitted}
+                fallback={<p>fetching books with title containing "{submitted}"...</p>}
+                src={routes.searchBooks.books.href(undefined, { searchParams: { q: submitted } })}
+              />
+            )
+          }
         </evented.div>
       </div>
     )

@@ -17,6 +17,7 @@ import { SearchBooksWithFramePage } from './searchBooksWithFramePage.tsx'
 import { SevenGuisPage } from './sevenGuisPage.tsx'
 import { KanbanPage } from './kanbanPage.tsx'
 import { ListUpdatesPage } from './listUpdatesPage.tsx'
+import { JobRunnerPage } from './jobRunnerPage.tsx'
 
 export const rootController = createController(routes, {
   actions: {
@@ -39,6 +40,9 @@ export const rootController = createController(routes, {
     },
     listUpdates({ render }) {
       return render(<ListUpdatesPage />)
+    },
+    jobRunner({ render }) {
+      return render(<JobRunnerPage />)
     },
   },
 })

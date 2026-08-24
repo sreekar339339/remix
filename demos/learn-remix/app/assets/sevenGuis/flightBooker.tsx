@@ -1,5 +1,5 @@
 import { clientEntry, on } from 'remix/ui'
-import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 type FlightKind = 'one-way flight' | 'return flight'
@@ -33,26 +33,22 @@ function presentValidation(flight: Flight) {
   }
 }
 
+class SevenGuisFlightBookerEvents extends Events {
+  kind: FlightKind = 'one-way flight'
+  startDate: string = new Date().toISOString().slice(0, 10)
+  returnDate: string = new Date().toISOString().slice(0, 10)
+
+  // A derived occurrence: the Book click derives the confirmation payload
+  // from the live model at dispatch time, so the handler never holds it.
+  bookingConfirmed(detail: Flight) {}
+}
+
 export const SevenGuisFlightBooker = clientEntry(
   import.meta.url,
   function SevenGuisFlightBooker(handle) {
-    let today = new Date().toISOString().slice(0, 10)
-    let events = customEvents(
-      {
-        kind: 'one-way flight' as FlightKind,
-        startDate: today,
-        returnDate: today,
-
-        // A derived occurrence: the Book click derives the confirmation payload
-        // from the live composite at dispatch time, so the handler never holds
-        // the model.
-      },
-      {
-        bookingConfirmed: (flight: Flight) => {},
-      },
-    )
+    let events = SevenGuisFlightBookerEvents.define()
     return () => (
-      <evented.section on={events} mix={[taskCss]}>
+      <evented.section on={events.on['*']}>
         {(flight) => (
           <>
             <h2>Flight Booker</h2>
@@ -100,13 +96,13 @@ export const SevenGuisFlightBooker = clientEntry(
               mix={[
                 buttonCss,
                 on('click', () => {
-                  events.dispatchEvent((detail) => ({
+                  events.dispatchEvent({
                     bookingConfirmed: {
-                      kind: detail.kind,
-                      startDate: detail.startDate,
-                      returnDate: detail.returnDate,
+                      kind: events.detail.kind,
+                      startDate: events.detail.startDate,
+                      returnDate: events.detail.returnDate,
                     },
-                  }))
+                  })
                 }),
               ]}
             >

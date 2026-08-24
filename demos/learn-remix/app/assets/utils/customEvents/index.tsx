@@ -1,301 +1,348 @@
 import './immerEnvironment.ts'
 import {
   createDraft,
-  current,
   type Draft,
   enableMapSet,
   enablePatches,
   finishDraft,
+  immerable,
   type Patch,
   setAutoFreeze,
 } from 'immer'
+import { EVENT_SOURCE } from 'remix/ui'
 import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
 import type { RememberedEventContext } from './descriptor.tsx'
-import { canonicalAddressSegment, type CustomEventsRuntimeEntry } from './runtime.ts'
-import { reservedCustomEventsNames } from './types.ts'
+import {
+  ALL_EVENTS,
+  canonicalAddressSegment,
+  readPath,
+  type CustomEventsRuntimeEntry,
+} from './runtime.ts'
+import type { EventSourceEvent, EventSourceProtocol } from 'remix/ui'
 import type {
-  CompositeHandler,
-  CustomEventsCompositeDescriptor,
-  CustomEventsDescriptor,
-  CustomEventsDefinition,
+  CustomEventsDefined,
   CustomEventsEventedViews,
-  CustomEventsFactoryArgs,
-  CustomEventsEventMap,
-  DeclaredOccurrence,
-  DeclaredOccurrences,
   EventDetails,
-  NormalizeCustomEventsDefinition,
+  EventsApi,
 } from './types.ts'
-export type { CustomEventsEventMap } from './types.ts'
-
-const reservedNames = new Set<string>(reservedCustomEventsNames)
+import type { CompositeOf, FoldsOf } from './types.ts'
+export type {
+  CompositeEvents,
+  CompositeOf,
+  CustomEventsDefined,
+  CustomEventsEventMap,
+  EventsApi,
+  EventsMapOf,
+  EventsOf,
+  FoldsOf,
+} from './types.ts'
 
 enablePatches()
 enableMapSet()
-// Produced composite stays mutable so the live seed can mirror it without
-// copying; reads are guarded by readonly types instead of runtime freezing.
+// The produced composite stays mutable so the live model can mirror it
+// without copying; reads are guarded by readonly types instead of runtime
+// freezing.
 setAutoFreeze(false)
 
 /**
- * Event-aware intrinsic elements for any descriptor: `evented.<tag>` resolves
- * to the tag string itself at runtime, while the source props infer the event
- * map from the descriptor passed as `on`.
+ * Event-aware intrinsic elements for any Events instance: `evented.<tag>`
+ * resolves to the tag string itself at runtime, while the source props infer
+ * the event map from the descriptor passed as `on`.
  */
 export const evented = customEventsEvented as unknown as CustomEventsEventedViews<
   EventDetails,
   never
 >
 
-/** Creates a typed native-event descriptor, optionally declaring its events. */
-export function customEvents<Definition extends CustomEventsDefinition = never>(
-  ...args: CustomEventsFactoryArgs<Definition>
-): CustomEventsDescriptor<NormalizeCustomEventsDefinition<Definition>>
-/**
- * Creates a composite descriptor: the first argument is the live composite
- * (the seed, folded in place), and the second declares handlers that fold
- * their details into it — synchronously against a draft or asynchronously
- * through progressive sessions:
- *
- * `customEvents({ count: 0 }, { inc: (amount, detail) => { detail.count += amount } })`
- */
-export function customEvents<
-  Composite extends EventDetails,
-  Handlers extends Record<string, CompositeHandler<Composite, any>>,
->(composite: Composite, handlers: Handlers): CustomEventsCompositeDescriptor<Composite, Handlers>
-/**
- * Creates an occurrence-only descriptor from a declaration map whose values
- * are all recipes: every key names a transient occurrence, whose detail is
- * its recipe's first parameter (or `null` when the recipe takes none).
- *
- * `customEvents({ booksFound: (books: Book[]) => {}, queryEmpty: () => {} })`
- */
-export function customEvents<Declaration extends Record<string, DeclaredOccurrence>>(
-  declaration: Declaration,
-): CustomEventsDescriptor<DeclaredOccurrences<Declaration>>
-export function customEvents(composite?: unknown, handlers?: unknown): unknown {
-  if (isPlainObject(composite) && isPlainObject(handlers)) {
-    return createCompositeDescriptor(composite, handlers)
-  }
-  if (isPlainObject(composite)) {
-    if (isOccurrenceDeclaration(composite)) {
-      return createDeclaredDescriptor(composite)
-    }
-    throw new TypeError(
-      'customEvents expects a recipe as the occurrence for each key, or (composite, handlers).',
-    )
-  }
-  return createCustomEventsDescriptor()
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function isOccurrenceDeclaration(value: Record<string, unknown>) {
-  for (let entry of Object.values(value)) {
-    if (typeof entry !== 'function') return false
-  }
-  return true
-}
-
-/** Validates a root-less occurrence declaration and builds its descriptor. */
-function createDeclaredDescriptor(declaration: Record<string, unknown>) {
-  for (let [name, recipe] of Object.entries(declaration)) {
-    if (typeof recipe !== 'function') {
-      throw new TypeError(`customEvents expects a recipe as the occurrence for "${name}".`)
-    }
-    if (name === '*' || reservedNames.has(name)) {
-      throw new TypeError(`customEvents reserves "${name}" for its API.`)
-    }
-    if (recipe.length > 1) {
-      throw new TypeError(
-        `customEvents fold recipes require a remembered composite; declare "${name}" with a root or as an occurrence.`,
-      )
-    }
-  }
-  return createCustomEventsDescriptor()
-}
-
 type RememberedFoldFn<Held extends EventDetails> = (
   detail: unknown,
   composite: Draft<Held>,
 ) => void | Promise<unknown>
 
-/** Creates a composite descriptor from the live composite and its handlers. */
-function createCompositeDescriptor(
-  composite: Record<string, unknown>,
-  handlers: Record<string, unknown>,
-) {
-  // The composite argument is the live seed, folded in place, so a holder of
-  // it reads the current model; reads are guarded by readonly types, not
-  // freezing.
-  if (Object.isFrozen(composite)) {
-    throw new TypeError(
-      'customEvents composite must not be frozen so dispatches can update it in place.',
-    )
-  }
-  let live = composite as EventDetails
-  let foldFns = new Map<string, RememberedFoldFn<EventDetails>>()
-  for (let [name, value] of Object.entries(handlers)) {
-    if (name === '*' || reservedNames.has(name)) {
-      throw new TypeError(`customEvents reserves "${name}" for its API.`)
-    }
-    if (typeof value !== 'function') {
-      throw new TypeError(`customEvents expects a handler for "${name}".`)
-    }
-    foldFns.set(name, value as RememberedFoldFn<EventDetails>)
-  }
-  for (let name of Object.keys(composite)) {
-    if (name === '*' || reservedNames.has(name)) {
-      throw new TypeError(`customEvents reserves the detail name "${name}".`)
-    }
-  }
-  // The live composite is also the fold session base: while a fold recipe
-  // runs, its draft is the session, and dispatches during the uncommitted
-  // window are deferred until the session's next flush commits.
-  let sessionDraft: unknown
-  let pendingSession = () => sessionDraft !== undefined && !Object.is(current(sessionDraft), live)
-  let deferredQueue: Array<{
+/**
+ * Dispatch deferrals shared by fold sessions: a dispatch during an
+ * uncommitted session waits until the session's next flush, so it reads and
+ * writes the committed composite. Drain runs deferred dispatches until the
+ * queue is empty, covering dispatches deferred by nested recipes.
+ */
+function createDeferredQueue() {
+  type Deferred = {
     run: () => Promise<void> | void
     resolve: () => void
     reject: (error: unknown) => void
-  }> = []
-  let deferDispatch = (run: () => Promise<void> | void) =>
-    new Promise<void>((resolve, reject) => {
-      deferredQueue.push({ run, resolve, reject })
-    })
-  let drainDeferred = () => {
-    if (deferredQueue.length === 0) return []
-    let pending = deferredQueue.splice(0)
-    let completions: Array<Promise<void>> = []
-    for (let { run, resolve, reject } of pending) {
-      let completion = Promise.resolve(run())
-      completion.then(resolve, reject)
-      completions.push(completion)
-    }
-    return completions
   }
+  let queue: Deferred[] = []
+  return {
+    defer(run: () => Promise<void> | void) {
+      return new Promise<void>((resolve, reject) => {
+        queue.push({ run, resolve, reject })
+      })
+    },
+    drain() {
+      if (queue.length === 0) return []
+      let completions: Array<Promise<void>> = []
+      while (queue.length > 0) {
+        let pending = queue.splice(0)
+        for (let { run, resolve, reject } of pending) {
+          let completion = Promise.resolve(run())
+          completion.then(resolve, reject)
+          completions.push(completion)
+        }
+      }
+      return completions
+    },
+  }
+}
 
-  function foldEntry(type: string, detail: unknown) {
-    // The root event replaces the whole composite: its detail is the model,
-    // with the same validation the declaration applies to its seed.
-    if (type === 'root') {
-      if (detail === null || typeof detail !== 'object' || Array.isArray(detail)) {
-        throw new TypeError('customEvents root must be an object of remembered details.')
-      }
-      let next = detail as EventDetails
-      for (let name of Object.keys(next)) {
-        if (name === '*' || reservedNames.has(name)) {
-          throw new TypeError(`customEvents reserves the detail name "${name}".`)
+type DeferredQueue = ReturnType<typeof createDeferredQueue>
+
+/** The live fold session, tracked for the descriptor's dispatch deferral. */
+type FoldSessionRef = { current: { dirty: boolean } | undefined }
+
+/**
+ * Runs a fold recipe against an open Immer draft session. Sync recipes
+ * flush once when they return, carrying their entries in the same carrier
+ * as the effect entry. Async recipes keep the draft open: the session
+ * proxy schedules a flush at every access, so mutations between awaits
+ * reach views at the next microtask boundary, and the returned settle
+ * resolves after the recipe and all its flushes complete.
+ */
+function runFoldRecipe(
+  foldFn: RememberedFoldFn<EventDetails>,
+  type: string,
+  detail: unknown,
+  live: EventDetails,
+  foldNames: ReadonlyMap<string, RememberedFoldFn<EventDetails>>,
+  sessionRef: FoldSessionRef,
+  deferred: DeferredQueue,
+  dispatchEntries: (entries: CustomEventsRuntimeEntry[]) => Promise<unknown>,
+): { entries: CustomEventsRuntimeEntry[]; settle?: Promise<void> } {
+  let currentDraft = createDraft(live) as Draft<EventDetails>
+  let session = { dirty: false }
+  let previousSession = sessionRef.current
+  sessionRef.current = session
+  let active = true
+  let flushScheduled = false
+  let asyncMode = false
+  let flushed: Array<Promise<unknown>> = []
+  let sliceEntries: CustomEventsRuntimeEntry[] = []
+
+  let flush = (): Array<Promise<void>> => {
+    flushScheduled = false
+    if (!active) return []
+    // Finishing a clean draft is a no-op that returns the base, so the
+    // flush needs no dirtiness probe.
+    let patches: Patch[] = []
+    let next = finishDraft(currentDraft, (patchList) =>
+      patches.push(...patchList),
+    ) as EventDetails
+    currentDraft = createDraft(live) as Draft<EventDetails>
+    session.dirty = false
+    if (patches.length > 0) {
+      let entries = entriesFromPatches(live, next, patches)
+      mirrorKeys(live, next, entries)
+      if (asyncMode) flushed.push(dispatchEntries(entries))
+      else sliceEntries.push(...entries)
+    }
+    // The session committed: run any dispatches deferred during it.
+    let deferredCompletions = deferred.drain()
+    if (asyncMode) flushed.push(...deferredCompletions)
+    return deferredCompletions
+  }
+  let scheduleFlush = () => {
+    if (flushScheduled || !active) return
+    flushScheduled = true
+    queueMicrotask(flush)
+  }
+  // The session proxy stays stable across flushes while forwarding to the
+  // current draft, which Immer revokes once finished. Fold names resolve to
+  // the live dispatch wrappers: the Immer draft only mirrors enumerable own
+  // properties, so the non-enumerable fold shadows would otherwise fall
+  // through to the prototype recipe methods.
+  let sessionProxy = new Proxy({} as object, {
+    get(_target, property) {
+      scheduleFlush()
+      if (foldNames.has(property as string)) return Reflect.get(live, property)
+      return Reflect.get(currentDraft, property)
+    },
+    set(_target, property, value) {
+      scheduleFlush()
+      session.dirty = true
+      return Reflect.set(currentDraft, property, value)
+    },
+    has(_target, property) {
+      scheduleFlush()
+      return Reflect.has(currentDraft, property)
+    },
+    deleteProperty(_target, property) {
+      scheduleFlush()
+      session.dirty = true
+      return Reflect.deleteProperty(currentDraft, property)
+    },
+  })
+
+  let result = foldFn(detail, sessionProxy as Draft<EventDetails>)
+  if (result instanceof Promise) {
+    asyncMode = true
+    let settle = (async () => {
+      await result
+      flush()
+      active = false
+      sessionRef.current = previousSession
+      await Promise.all(flushed)
+    })()
+    return {
+      // The handler event itself; its state updates route per flush.
+      entries: [{ type, detail }],
+      settle,
+    }
+  }
+  let deferredCompletions = flush()
+  active = false
+  sessionRef.current = previousSession
+  if (deferredCompletions.length > 0) {
+    return {
+      entries: sliceEntries,
+      settle: Promise.all(deferredCompletions).then(() => {}),
+    }
+  }
+  return { entries: sliceEntries }
+}
+
+/**
+ * A registered session reaction: its source's type and path, and the
+ * callback the runner invokes inside the dispatch session with `this` bound
+ * to the value at the path (or the session for the field itself).
+ */
+type Reaction = {
+  type: string
+  path: readonly unknown[]
+  callback: (event: EventSourceEvent) => unknown
+}
+
+/**
+ * The reaction namespace over a descriptor's event sources: calling a source
+ * with a callback registers a reaction instead of an element effect. Nested
+ * accessors recurse, so deep paths register against the value at that
+ * address.
+ */
+function createReactionNamespace(descriptorOn: object, reactions: Reaction[]): object {
+  let wrapSource = (source: object): object =>
+    new Proxy(source, {
+      apply(_target, _thisArg, args) {
+        let protocol = Reflect.get(_target, EVENT_SOURCE) as
+          | (EventSourceProtocol & { path?: readonly unknown[] })
+          | undefined
+        if (protocol) {
+          reactions.push({
+            type: protocol.type,
+            path: protocol.path ?? [],
+            callback: args[0] as (event: EventSourceEvent) => unknown,
+          })
+          return undefined
+        }
+        let result = Reflect.apply(_target as (...args: unknown[]) => unknown, _thisArg, args)
+        return result !== null &&
+          (typeof result === 'object' || typeof result === 'function')
+          ? wrapSource(result)
+          : result
+      },
+      get(target, property, receiver) {
+        let value = Reflect.get(target, property, receiver)
+        if (
+          property !== EVENT_SOURCE &&
+          value !== null &&
+          (typeof value === 'object' || typeof value === 'function')
+        ) {
+          return wrapSource(value)
+        }
+        return value
+      },
+    })
+  return new Proxy(descriptorOn, {
+    get(target, property, receiver) {
+      if (property === '*') {
+        return (callback: (event: EventSourceEvent) => unknown) => {
+          reactions.push({ type: ALL_EVENTS, path: [], callback })
         }
       }
-      let entries: CustomEventsRuntimeEntry[] = []
-      for (let key of Object.keys(next)) {
-        let previous = live[key]
-        if (!Object.is(previous, next[key])) {
-          entries.push(detailEntry(key, previous, next[key]))
-          live[key] = next[key]
-        }
-      }
-      for (let key of Object.keys(live)) {
-        if (!Object.hasOwn(next, key)) {
-          let previous = live[key]
-          delete live[key]
-          entries.push(
-            previous instanceof Set
-              ? { type: key, detail: undefined, addresses: [[]] }
-              : detailEntry(key, previous, undefined),
+      let value = Reflect.get(target, property, receiver)
+      return value !== null && typeof value === 'function' ? wrapSource(value) : value
+    },
+  })
+}
+
+/**
+ * The shared fold dispatcher: fold recipes run through an Immer session,
+ * and a field write with registered reactions runs as one session with the
+ * implied slice write and the reactions' derivations in a single carrier.
+ */
+function createFoldEntry(args: {
+  foldFns: Map<string, RememberedFoldFn<EventDetails>>
+  live: () => EventDetails
+  sessionRef: FoldSessionRef
+  deferred: DeferredQueue
+  reactions: Reaction[]
+  context: RememberedEventContext
+}): RememberedEventContext['fold'] {
+  let { foldFns, live, sessionRef, deferred, reactions, context } = args
+
+  let runFieldReactions = (type: string, detail: unknown) => {
+    let fieldReactions = reactions.filter(
+      (reaction) => reaction.type === type || reaction.type === ALL_EVENTS,
+    )
+    if (fieldReactions.length === 0 || !Object.hasOwn(live(), type)) return
+    let session = runFoldRecipe(
+      (value, draft) => {
+        let previous = live()[type]
+        if (!Object.is(previous, value)) draft[type] = value
+        for (let reaction of fieldReactions) {
+          let currentAtPath = readPath(draft[type], reaction.path)
+          let previousAtPath = readPath(previous, reaction.path)
+          let changed =
+            reaction.path.length === 0
+              ? !Object.is(previous, value)
+              : !Object.is(previousAtPath, currentAtPath)
+          if (!changed) continue
+          reaction.callback.call(
+            reaction.path.length === 0 ? draft : currentAtPath,
+            { type, detail: currentAtPath },
           )
         }
-      }
-      return entries
-    }
+      },
+      type,
+      detail,
+      live(),
+      foldFns,
+      sessionRef,
+      deferred,
+      (entries) => context.dispatchEntries!(entries),
+    )
+    let entries = session.entries
+    let addresses = entries.flatMap((entry) => entry.addresses ?? [])
+    entries.unshift({
+      type,
+      detail,
+      ...(addresses.length > 0 ? { addresses } : {}),
+    })
+    if (session.settle) return { entries, settle: session.settle }
+    return entries
+  }
 
+  return (type: string, detail: unknown) => {
     let foldFn = foldFns.get(type)
     if (foldFn) {
-      // A fold recipe runs against an Immer draft of the live composite. Sync
-      // recipes flush once when they return, carrying their entries in the
-      // same carrier as the effect entry. Async recipes keep the draft open:
-      // the session proxy schedules a flush at every access, so mutations
-      // between awaits reach views at the next microtask boundary, and the
-      // dispatch settles after the handler and all its flushes complete.
-      let currentDraft = createDraft(live) as Draft<EventDetails>
-      let active = true
-      let flushScheduled = false
-      let asyncMode = false
-      let flushed: Array<Promise<unknown>> = []
-      let deferredCompletions: Array<Promise<void>> = []
-      let sliceEntries: CustomEventsRuntimeEntry[] = []
-      deferredQueue = []
-      let flush = () => {
-        flushScheduled = false
-        if (!active) return
-        // Finishing a clean draft is a no-op that returns the base, so the
-        // flush needs no dirtiness probe.
-        let patches: Patch[] = []
-        let next = finishDraft(currentDraft, (patchList) =>
-          patches.push(...patchList),
-        ) as EventDetails
-        if (patches.length > 0) {
-          let entries = entriesFromPatches(live, next, patches)
-          mirrorKeys(live, next, entries)
-          if (asyncMode) flushed.push(context.dispatchEntries!(entries))
-          else sliceEntries.push(...entries)
-        }
-        currentDraft = createDraft(live) as Draft<EventDetails>
-        sessionDraft = currentDraft
-        // The session committed: run any dispatches deferred during it.
-        let deferred = drainDeferred()
-        if (asyncMode) flushed.push(...deferred)
-        else deferredCompletions.push(...deferred)
-      }
-      let scheduleFlush = () => {
-        if (flushScheduled || !active) return
-        flushScheduled = true
-        queueMicrotask(flush)
-      }
-      // The session proxy stays stable across flushes while forwarding to the
-      // current draft, which Immer revokes once finished.
-      let session = new Proxy({} as object, {
-        get(_target, property) {
-          scheduleFlush()
-          return Reflect.get(currentDraft, property)
-        },
-        set(_target, property, value) {
-          scheduleFlush()
-          return Reflect.set(currentDraft, property, value)
-        },
-        has(_target, property) {
-          scheduleFlush()
-          return Reflect.has(currentDraft, property)
-        },
-        deleteProperty(_target, property) {
-          scheduleFlush()
-          return Reflect.deleteProperty(currentDraft, property)
-        },
-      })
-      sessionDraft = currentDraft
-      let result: unknown = foldFn(detail, session as Draft<EventDetails>)
-      if (result instanceof Promise) {
-        asyncMode = true
-        let settle = (async () => {
-          await result
-          flush()
-          active = false
-          sessionDraft = undefined
-          await Promise.all(flushed)
-        })()
-        return {
-          // The handler event itself; its state updates route per flush.
-          entries: [{ type, detail }],
-          settle,
-        }
-      }
-      flush()
-      deferredCompletions.push(...drainDeferred())
-      active = false
-      sessionDraft = undefined
-      let entries = sliceEntries
+      let session = runFoldRecipe(
+        foldFn,
+        type,
+        detail,
+        live(),
+        foldFns,
+        sessionRef,
+        deferred,
+        (entries) => context.dispatchEntries!(entries),
+      )
+      let entries = session.entries
       // The effect entry rides the same routes as its folded output so the
       // fan-out covers exactly the affected addresses.
       let addresses = entries.flatMap((entry) => entry.addresses ?? [])
@@ -304,69 +351,134 @@ function createCompositeDescriptor(
         detail,
         ...(addresses.length > 0 ? { addresses } : {}),
       })
-      if (deferredCompletions.length > 0) {
-        return {
-          entries,
-          settle: Promise.all(deferredCompletions).then(() => {}),
-        }
-      }
+      if (session.settle) return { entries, settle: session.settle }
       return entries
     }
 
-    // A detail dispatch is the implicit fold that replaces itself.
-    if (Object.hasOwn(live, type)) {
-      let previous = live[type]
+    // A function-valued own field that is not a fold (an arrow helper) is
+    // dispatched as a transient occurrence, never a slice replace, so the
+    // field survives.
+    if (typeof (live() as Record<string, unknown>)[type] === 'function') {
+      return [{ type, detail }]
+    }
+
+    // A detail dispatch is the implicit fold that replaces itself; a
+    // field with registered reactions runs as one session first.
+    if (Object.hasOwn(live(), type)) {
+      let reacted = runFieldReactions(type, detail)
+      if (reacted) return reacted
+      let previous = live()[type]
       if (Object.is(previous, detail)) return []
-      live[type] = detail
-      return [detailEntry(type, previous, detail)]
+      live()[type] = detail
+      return [{ type, detail, addresses: sliceAddresses(previous, detail) }]
     }
     return undefined
   }
-
-  let context: RememberedEventContext = {
-    getState: () => live,
-    fold: foldEntry,
-    pendingSession,
-    deferDispatch,
-  }
-  let events = createCustomEventsDescriptor<EventDetails, EventDetails>(context)
-  return events as unknown as CustomEventsCompositeDescriptor<
-    EventDetails,
-    Record<string, CompositeHandler<EventDetails, any>>
-  >
 }
 
 /**
- * The runtime entry of a top-level key write, computed directly from the
- * previous and next values: primitives route by owner identity, Sets by the
- * new value, and everything else by the whole-key route.
+ * Defines a composite: `class GameEvents extends Events {}` plus
+ * `GameEvents.define()`. The class carries only the static — its instance
+ * side stays empty, so the composite keeps the subclass's own fields as
+ * slices, its methods as fold recipes, and the constructor's `api`
+ * registers session reactions (`api.on.<slice>(callback)`). The returned
+ * object is the pure event surface; the model is read through views or
+ * `events.detail`.
  */
-function ownerAddresses(previous: unknown, detail: unknown) {
-  let addresses: Array<readonly unknown[]> = []
-  if (previous !== undefined && previous !== null) {
-    addresses.push([canonicalAddressSegment(previous)])
+export class Events {
+  static define<X extends object, Args extends unknown[]>(
+    this: new (api: EventsApi<X>, ...args: Args) => X,
+    ...args: Args
+  ): CustomEventsDefined<X> {
+    return defineEvents(this, ...args)
   }
-  if (detail !== undefined && detail !== null) {
-    addresses.push([canonicalAddressSegment(detail)])
-  }
-  return addresses
 }
 
-function detailEntry(type: string, previous: unknown, detail: unknown): CustomEventsRuntimeEntry {
-  if (isPrimitive(previous) && isPrimitive(detail)) {
-    return { type, detail, addresses: ownerAddresses(previous, detail) }
+function defineEvents<X extends object, Args extends unknown[]>(
+  Class: new (api: EventsApi<X>, ...args: Args) => X,
+  ...args: Args
+): CustomEventsDefined<X> {
+  let instance: X | undefined
+  let live = (): EventDetails => instance as unknown as EventDetails
+
+  // Collect the fold methods from the class prototype. The class is plain:
+  // nothing is reserved, so every function is a fold recipe.
+  let foldFns = new Map<string, RememberedFoldFn<EventDetails>>()
+  let prototype = Class.prototype as { [key: string]: unknown }
+  for (let name of Object.getOwnPropertyNames(prototype)) {
+    if (name === 'constructor') continue
+    let value = prototype[name]
+    if (typeof value === 'function') {
+      let method = value as (this: unknown, ...args: unknown[]) => unknown
+      foldFns.set(
+        name,
+        ((detail, draft) => method.call(draft, detail)) as RememberedFoldFn<EventDetails>,
+      )
+    }
   }
-  if (previous instanceof Set || detail instanceof Set) {
-    return { type, detail, addresses: [ownerAddress(detail)] }
+
+  let sessionRef: FoldSessionRef = { current: undefined }
+  let deferred = createDeferredQueue()
+  let pendingSession = () => sessionRef.current?.dirty === true
+  let occurrenceKeys = () => new Set<string>(foldFns.keys())
+  let reactions: Reaction[] = []
+  let context: RememberedEventContext = {
+    getState: live,
+    fold: () => undefined,
+    pendingSession,
+    deferDispatch: deferred.defer,
+    occurrenceKeys,
   }
-  return { type, detail, addresses: [[]] }
+  context.fold = createFoldEntry({ foldFns, live, sessionRef, deferred, reactions, context })
+  let descriptor = createCustomEventsDescriptor<EventDetails, EventDetails>(context)
+  let api = {
+    on: createReactionNamespace(descriptor.on as unknown as object, reactions),
+  } as unknown as EventsApi<X>
+
+  instance = new Class(api, ...args)
+  // Marks the instance draftable so fold recipes receive an Immer session
+  // proxy. Non-enumerable so the composite spread stays model-only.
+  Object.defineProperty(instance, immerable, { value: true })
+  // Fold shadows: invoking a fold field dispatches the event under its name.
+  for (let name of foldFns.keys()) {
+    Object.defineProperty(instance, name, {
+      value: (detail: unknown) => {
+        void (descriptor.dispatchEvent as (input: never) => unknown)({ [name]: detail } as never)
+      },
+      writable: true,
+      configurable: true,
+    })
+  }
+
+  return descriptor as unknown as CustomEventsDefined<X>
 }
 
 /**
- * Mirrors the folded keys onto the live composite at the top level, so the
- * seed object a caller holds reads the current model. Keys without entries
- * keep their references (Immer shares untouched subtrees), so the
- * assignments are no-ops except for the folded keys.
+ * The routing of a slice write: scalar slices route by owner identity, Set
+ * slices by the owner's address, and composite slices by their root.
+ */
+function sliceAddresses(previous: unknown, next: unknown): Array<readonly unknown[]> {
+  if (isPrimitive(previous) && isPrimitive(next)) {
+    let addresses: Array<readonly unknown[]> = []
+    if (previous !== undefined && previous !== null) {
+      addresses.push([canonicalAddressSegment(previous)])
+    }
+    if (next !== undefined && next !== null) {
+      addresses.push([canonicalAddressSegment(next)])
+    }
+    return addresses
+  }
+  if (previous instanceof Set || next instanceof Set) {
+    return [[canonicalAddressSegment(next)]]
+  }
+  return [[]]
+}
+
+/**
+ * Mirrors the folded keys onto the live model at the top level, so the
+ * instance a caller holds reads the current model. Keys without entries keep
+ * their references (Immer shares untouched subtrees), so the assignments are
+ * no-ops except for the folded keys.
  */
 function mirrorKeys(live: EventDetails, next: EventDetails, entries: CustomEventsRuntimeEntry[]) {
   for (let entry of entries) {
@@ -384,10 +496,6 @@ function sameAddress(left: readonly unknown[], right: readonly unknown[]) {
 
 function isPrimitive(value: unknown) {
   return value === null || typeof value !== 'object'
-}
-
-function ownerAddress(value: unknown): readonly unknown[] {
-  return [canonicalAddressSegment(value)]
 }
 
 function appendAddress(addresses: Array<readonly unknown[]>, address: readonly unknown[]) {
@@ -446,7 +554,7 @@ function entriesFromPatches(
     let previousOwner = previousState[key]
 
     if (isPrimitive(previousOwner) && isPrimitive(nextValue)) {
-      addresses = ownerAddresses(previousOwner, nextValue)
+      addresses = sliceAddresses(previousOwner, nextValue)
     }
     entries.push({ type: key, detail: nextValue, addresses })
   }

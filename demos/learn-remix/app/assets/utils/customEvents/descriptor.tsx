@@ -10,17 +10,14 @@ import {
 import {
   ALL_EVENTS,
   canonicalAddressSegment,
-  createCurrentTargetEvent,
   createCustomEventsRuntimeState,
   customEventsRuntime,
-  isPropertyKey,
   readPath,
   samePropertyKey,
   subscribeSource,
   type CustomEventsRuntimeEntry,
   type CustomEventsRuntimeState,
 } from './runtime.ts'
-import { reservedCustomEventsNames } from './types.ts'
 import type {
   CustomEventsAsHost,
   CustomEventsDescriptor,
@@ -36,10 +33,7 @@ const DEFAULT_CUSTOM_EVENTS_INIT: EventInit = {
   bubbles: true,
   cancelable: false,
 }
-const reservedNames = new Set<string>(reservedCustomEventsNames)
 const customEventInitKeys = new Set(['bubbles', 'composed', 'signal'])
-// Runtime twin of the type-only marker; the source proxy exposes its metadata.
-const onMetadata = Symbol('on')
 
 // Evented-view namespace: `evented.<tag>` resolves to the tag string itself, so
 // JSX creates a host element directly with no component runtime layer. The
@@ -51,12 +45,10 @@ export const customEventsEvented = new Proxy(Object.create(null), {
   },
 })
 
-type InternalEntryOptions = CustomEventInit
-
 export type RememberedEventContext = {
   getState(): EventDetails
-  /** Folds a dispatched event into the remembered composite; absent for pure descriptors. */
-  fold?(
+  /** Folds a dispatched event into the remembered composite. */
+  fold(
     type: string,
     detail: unknown,
   ):
@@ -66,9 +58,11 @@ export type RememberedEventContext = {
   /** Dispatches folded entries as a transaction; used by async fold sessions. */
   dispatchEntries?(entries: CustomEventsRuntimeEntry[]): Promise<unknown>
   /** True while a fold session holds uncommitted draft mutations. */
-  pendingSession?(): boolean
+  pendingSession(): boolean
   /** Defers a dispatch until the active fold session commits and flushes. */
-  deferDispatch?(run: () => Promise<void> | void): Promise<void>
+  deferDispatch(run: () => Promise<void> | void): Promise<void>
+  /** Fold names: fields that occupy the composite as callables, never data reads. */
+  occurrenceKeys(): ReadonlySet<string>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -127,8 +121,8 @@ function customEventsOnMixin(
 
 export function createCustomEventsDescriptor<
   Events extends EventDetails,
-  State extends EventDetails | never = never,
->(state?: RememberedEventContext): CustomEventsDescriptor<Events, State> {
+  State extends EventDetails,
+>(state: RememberedEventContext): CustomEventsDescriptor<Events, State> {
   let runtime: CustomEventsRuntimeState | undefined
   let getRuntime = () => (runtime ??= createCustomEventsRuntimeState())
   // The descriptor carries a native EventTarget channel: native listeners
@@ -137,41 +131,28 @@ export function createCustomEventsDescriptor<
   // Completions that must settle before the dispatch resolves: async fold
   // sessions register their handler and flush completion here.
   let settlers: Array<Promise<void>> = []
-  if (state) {
-    state.dispatchEntries = (entries) => {
-      let target = customEventsRuntime.defaultHost(getRuntime())
-      if (target === undefined) {
-        throw new TypeError('customEvents dispatchEntries requires a registered host.')
-      }
-      return customEventsRuntime.dispatch(getRuntime(), target, createTransaction(entries))
+  state.dispatchEntries = (entries) => {
+    let target = customEventsRuntime.defaultHost(getRuntime())
+    if (target === undefined) {
+      throw new TypeError('customEvents dispatchEntries requires a registered host.')
     }
+    return customEventsRuntime.dispatch(getRuntime(), target, createTransaction(entries))
   }
 
   function resolveEntry(
     type: string,
     detail: unknown,
-    options?: InternalEntryOptions,
+    options?: CustomEventInit,
   ): CustomEventsRuntimeEntry[] {
     options?.signal?.throwIfAborted()
     if (type === ALL_EVENTS) {
-      throw new TypeError('customEvents reserves "*" for subscriptions.')
+      throw new TypeError('customEvents "*" is the wildcard and cannot be dispatched.')
     }
-    // A composite descriptor folds the root write into its live composite;
-    // without one there is nothing to replace.
-    if (type === 'root' && !state) {
-      throw new TypeError('customEvents reserves "root" for composite descriptors.')
-    }
-    // Descriptor API names cannot be events.
-    if (reservedNames.has(type)) {
-      throw new TypeError(`customEvents reserves "${type}" for its API.`)
-    }
-    if (state?.fold) {
-      let folded = state.fold(type, detail)
-      if (folded !== undefined) {
-        if (Array.isArray(folded)) return folded
-        settlers.push(folded.settle)
-        return folded.entries
-      }
+    let folded = state.fold(type, detail)
+    if (folded !== undefined) {
+      if (Array.isArray(folded)) return folded
+      settlers.push(folded.settle)
+      return folded.entries
     }
     return [{ type, detail }]
   }
@@ -207,10 +188,7 @@ export function createCustomEventsDescriptor<
   // event-named details builds a single-event or transaction carrier, and a
   // function of the composite builds the input at dispatch time.
   let create = (...args: Array<unknown>) => {
-    let [typeOrEvents, detailOrInit] = args as [
-      string | Record<string, unknown> | ((root: EventDetails) => Record<string, unknown>),
-      unknown?,
-    ]
+    let [typeOrEvents, detailOrInit] = args as [string | Record<string, unknown>, unknown?]
     if (typeof typeOrEvents === 'string') {
       let init = args.length >= 2 ? (detailOrInit as CustomEventInit) : undefined
       if (args.length >= 2 && !isCustomEventInit(detailOrInit)) {
@@ -223,15 +201,6 @@ export function createCustomEventsDescriptor<
         getEventInit(init),
         resolveEntry(typeOrEvents, null, init),
       )
-    }
-
-    if (typeof typeOrEvents === 'function') {
-      // A derived input: computed from the live composite at dispatch time,
-      // so handlers never hold the model. Per-name values are data.
-      if (!state) {
-        throw new TypeError('customEvents derived inputs require a remembered descriptor.')
-      }
-      return create(typeOrEvents(state.getState()), detailOrInit)
     }
 
     if (isRecord(typeOrEvents)) {
@@ -264,12 +233,11 @@ export function createCustomEventsDescriptor<
   }
 
   // The descriptor doubles as the wildcard event source: subscribing to it
-  // matches every descriptor event. On a remembered descriptor the
-  // composite is read for every matched event.
+  // matches every descriptor event and reads the whole composite.
   let wildcardSource: EventSource = {
     [EVENT_SOURCE]: {
       type: ALL_EVENTS,
-      ...(state ? { read: () => state.getState() } : {}),
+      read: () => state.getState(),
       subscribe(subscriber, signal) {
         subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
       },
@@ -298,20 +266,10 @@ export function createCustomEventsDescriptor<
     return completion
   }
   let dispatchEvent = ((...args: unknown[]) => {
-    let first = args[0]
-    if (first instanceof Event) {
-      return EventTarget.prototype.dispatchEvent.call(base, first)
-    }
-    if (state?.pendingSession?.()) {
+    if (state.pendingSession()) {
       // A fold session is mid-mutation: dispatching now would read and write
       // against the uncommitted draft window, so the dispatch runs after the
       // session's next flush instead.
-      if (!state.deferDispatch) {
-        throw new TypeError(
-          'customEvents dispatch during an active handler session is unsupported.',
-        )
-      }
-      // The deferral path is always the event-named input form.
       return state.deferDispatch(() => performDispatch(...args) as Promise<void>)
     }
     return performDispatch(...args)
@@ -333,6 +291,20 @@ export function createCustomEventsDescriptor<
     }
     return customEventsOnMixin(getRuntime(), undefined, listener)
   }
+  // The wildcard is also a view source: the same protocol the descriptor
+  // carries, so `on={events.on['*']}` mounts a whole-composite view.
+  Object.defineProperty(wildcardOn, EVENT_SOURCE, {
+    value: {
+      type: ALL_EVENTS,
+      read: () => state.getState(),
+      subscribe(
+        subscriber: import('remix/ui').EventSourceSubscriber,
+        signal: AbortSignal,
+      ) {
+        subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
+      },
+    },
+  })
   let sources = new Map<string, object>()
   let on = new Proxy(Object.create(null), {
     get(_, property) {
@@ -340,11 +312,10 @@ export function createCustomEventsDescriptor<
       if (typeof property !== 'string') return undefined
       let source = sources.get(property)
       if (!source) {
-        let readRoot =
-          state && Object.hasOwn(state.getState(), property)
-            ? () => state.getState()[property]
-            : undefined
-        source = createSource(property, readRoot)
+        // Sources decide at read time whether their name is a data field or
+        // an occurrence, so creation never depends on field initialization
+        // (constructor-time reaction registrations precede the fields).
+        source = createSource(property)
         sources.set(property, source)
       }
       return source
@@ -358,27 +329,23 @@ export function createCustomEventsDescriptor<
 
   let createSource = (
     type: string,
-    readRoot: (() => unknown) | undefined,
     path: readonly unknown[] = [],
     read?: () => unknown,
   ): object => {
-    // One object is the source: evented views consume it through the
-    // EVENT_SOURCE protocol, while the internal onMetadata symbol
-    // resolves to the same representation.
     let metadata: EventSourceMetadata & EventSourceProtocol = {
       type,
       path,
-      // On a remembered descriptor every source yields detail-shaped input:
-      // remembered properties read their current value, while occurrences fill
-      // their slot from the matched event and read undefined otherwise.
-      ...(readRoot
-        ? { read: read ?? (() => readPath(readRoot(), path)) }
-        : state
-          ? {
-              read: (trigger?: EventSourceEvent) =>
-                trigger && trigger.type === type ? trigger.detail : undefined,
-            }
-          : {}),
+      // Every source yields detail-shaped input: data properties read their
+      // current value, while occurrences fill their slot from the matched
+      // event and read undefined otherwise. The field-existence decision is
+      // made at read time so creation never depends on field initialization.
+      read: read ?? ((trigger?: EventSourceEvent) => {
+        let current = state.getState()
+        if (Object.hasOwn(current, type) && !state.occurrenceKeys().has(type)) {
+          return readPath(current[type], path)
+        }
+        return trigger && trigger.type === type ? trigger.detail : undefined
+      }),
       subscribe(subscriber, signal) {
         subscribeSource(getRuntime(), 'view', subscriber, signal, { type, path })
       },
@@ -391,27 +358,25 @@ export function createCustomEventsDescriptor<
       if (read === undefined) {
         let source = nested.get(canonical)
         if (!source) {
-          source = createSource(type, readRoot, [...path, canonical])
+          source = createSource(type, [...path, canonical])
           nested.set(canonical, source)
         }
         return source
       }
-      return createSource(type, readRoot, [...path, canonical], read)
+      return createSource(type, [...path, canonical], read)
     }
     let onNode = (listener: (event: Event) => void | Promise<unknown>) =>
       customEventsOnMixin(getRuntime(), metadata, listener)
     return new Proxy(onNode, {
       get(_, property) {
-        if (property === EVENT_SOURCE || property === onMetadata) return metadata
-        let current = metadata.read?.()
-        if (property === 'get' && current instanceof Map) return (key: unknown) => at(key)
-        if (property === 'has' && current instanceof Set) return (value: unknown) => at(value)
+        if (property === EVENT_SOURCE) return metadata
+        // The get/has/as accessors are data-independent so deep chains can
+        // be navigated before their values exist (reaction registration).
+        if (property === 'get') return (key: unknown) => at(key)
+        if (property === 'has') return (value: unknown) => at(value)
         if (property === 'as') {
           return (value: unknown) =>
-            at(
-              value,
-              readRoot ? () => samePropertyKey(readPath(readRoot(), path), value) : undefined,
-            )
+            at(value, () => samePropertyKey(readPath(state.getState()[type], path), value))
         }
         return at(property)
       },
@@ -420,6 +385,9 @@ export function createCustomEventsDescriptor<
 
   let proxy = new Proxy(descriptorTarget, {
     get(target, property, receiver) {
+      if (property === 'detail') {
+        return state.getState()
+      }
       if (property === EVENT_SOURCE) {
         return wildcardSource[EVENT_SOURCE]
       }
@@ -437,11 +405,6 @@ export function createCustomEventsDescriptor<
         return Reflect.get(target, property, target)
       }
       return undefined
-    },
-    apply(_target, _thisArg, args) {
-      // The descriptor doubles as its wildcard source: calling it scopes an
-      // element-owned effect to every descriptor event.
-      return wildcardOn(args[0])
     },
   })
   eventsProxy = proxy

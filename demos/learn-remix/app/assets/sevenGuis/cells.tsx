@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented } from '../utils/customEvents/index.tsx'
 import { taskCss } from './styles.ts'
 
 const columns = ['A', 'B', 'C', 'D', 'E', 'F'] as const
@@ -77,27 +77,25 @@ const cellCss = css({
   boxSizing: 'border-box',
 })
 
-export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCells() {
-  let formulas: Values = { A0: '10', B0: '20', C0: '=A0+B0' }
-  let renderCounts = new Map<CellId, number>()
-  let events = customEvents(
-    {
-      values: calculate(formulas),
-      formulas,
-      focusTarget: cellId('A', 0),
+class CellsEvents extends Events {
+  formulas: Values = { A0: '10', B0: '20', C0: '=A0+B0' }
+  values = calculate(this.formulas)
+  focusTarget = cellId('A', 0)
 
-      // A single-parameter recipe declares a transient occurrence. cellDrafted
-      // is dispatched on the cell element itself, so only that cell's draft
-      // view re-resolves while the composite stays untouched.
-    },
-    {
-      cellDrafted: (text: string) => {},
-      commitCell: (payload: { id: string; text: string }, detail) => {
-        detail.formulas[payload.id as CellId] = payload.text
-        Object.assign(detail.values, calculate(detail.formulas))
-      },
-    },
-  )
+  // A fires occurrence dispatched on the cell element itself, so only that
+  // cell's draft view re-resolves while the composite stays untouched.
+  cellDrafted(detail: string) {}
+  commitCell(payload: { id: string; text: string }) {
+    this.formulas[payload.id as CellId] = payload.text
+    Object.assign(this.values, calculate(this.formulas))
+  }
+}
+
+export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCells() {
+  let renderCounts = new Map<CellId, number>()
+
+  let events = CellsEvents.define()
+
   return () => (
     <section mix={[taskCss]}>
       <h2>Cells</h2>
@@ -147,17 +145,15 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                           currentTarget.focus()
                         }),
                         on('blur', ({ currentTarget }) => {
-                          events.dispatchEvent({
-                            commitCell: { id, text: currentTarget.value },
-                          })
+                          events.dispatchEvent({ commitCell: { id, text: currentTarget.value } })
                           // Clear the local draft with the freshly committed value.
                           currentTarget.dispatchEvent(
-                            events.create((detail) => ({ cellDrafted: detail.values[id] ?? '' })),
+                            events.create({ cellDrafted: events.detail.values[id] ?? '' }),
                           )
                         }),
                         on('focus', ({ currentTarget }) => {
                           currentTarget.dispatchEvent(
-                            events.create((detail) => ({ cellDrafted: detail.formulas[id] ?? '' })),
+                            events.create({ cellDrafted: events.detail.formulas[id] ?? '' }),
                           )
                           currentTarget.select()
                         }),

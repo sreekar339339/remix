@@ -1,5 +1,5 @@
 import { clientEntry, css, on, ref } from 'remix/ui'
-import { customEvents, evented } from './utils/customEvents/index.tsx'
+import { Events, evented } from './utils/customEvents/index.tsx'
 
 type Player = 'X' | 'O'
 type Result = Player | 'Draw'
@@ -38,50 +38,51 @@ const arrowKeyIdxIncrementMap = {
 const isArrowKey = (eventKey: unknown): eventKey is keyof typeof arrowKeyIdxIncrementMap =>
   Object.hasOwn(arrowKeyIdxIncrementMap, eventKey as string)
 
+class TicTacToeEvents extends Events {
+  position = new Map<number, Player>()
+  result = null as Result | null
+  focusTarget = NaN
+
+  place(cellId: number) {
+    if (this.position.has(cellId) || this.result !== null) return
+    let nextPlayer: Player = this.position.size % 2 === 0 ? 'X' : 'O'
+    this.position.set(cellId, nextPlayer)
+    let result = deriveResult(this.position)
+    this.result = result
+    if (result === null) {
+      let nextFreeCellIdx = cellId
+      while (this.position.has(nextFreeCellIdx)) {
+        nextFreeCellIdx = (nextFreeCellIdx + 1) % 9
+        if (nextFreeCellIdx === cellId) break
+      }
+      this.focusTarget = nextFreeCellIdx
+    }
+  }
+
+  moveFocus({ cellId, increment }: { cellId: number; increment: number }) {
+    let boundIdx = increment < 0 ? 0 : 8
+    let nextFreeCellIdx = cellId
+    while (nextFreeCellIdx === cellId || this.position.has(nextFreeCellIdx)) {
+      nextFreeCellIdx += increment
+      if (
+        (boundIdx === 0 && nextFreeCellIdx < boundIdx) ||
+        (boundIdx === 8 && nextFreeCellIdx > boundIdx)
+      ) {
+        break
+      }
+    }
+    this.focusTarget = nextFreeCellIdx
+  }
+
+  reset() {
+    this.position.clear()
+    this.result = null
+    this.focusTarget = 0
+  }
+}
+
 export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTacToeCustomEvents() {
-  let events = customEvents(
-    {
-      position: new Map<number, Player>(),
-      result: null as Result | null,
-      focusTarget: NaN,
-    },
-    {
-      place: (cellId: number, detail) => {
-        if (detail.position.has(cellId) || detail.result !== null) return
-        let nextPlayer: Player = detail.position.size % 2 === 0 ? 'X' : 'O'
-        detail.position.set(cellId, nextPlayer)
-        let result = deriveResult(detail.position)
-        detail.result = result
-        if (result === null) {
-          let nextFreeCellIdx = cellId
-          while (detail.position.has(nextFreeCellIdx)) {
-            nextFreeCellIdx = (nextFreeCellIdx + 1) % 9
-            if (nextFreeCellIdx === cellId) break
-          }
-          detail.focusTarget = nextFreeCellIdx
-        }
-      },
-      moveFocus: ({ cellId, increment }: { cellId: number; increment: number }, detail) => {
-        let boundIdx = increment < 0 ? 0 : 8
-        let nextFreeCellIdx = cellId
-        while (nextFreeCellIdx === cellId || detail.position.has(nextFreeCellIdx)) {
-          nextFreeCellIdx += increment
-          if (
-            (boundIdx === 0 && nextFreeCellIdx < boundIdx) ||
-            (boundIdx === 8 && nextFreeCellIdx > boundIdx)
-          ) {
-            break
-          }
-        }
-        detail.focusTarget = nextFreeCellIdx
-      },
-      reset: (_, detail) => {
-        detail.position.clear()
-        detail.result = null
-        detail.focusTarget = 0
-      },
-    },
-  )
+  let events = TicTacToeEvents.define()
 
   return () => (
     <div

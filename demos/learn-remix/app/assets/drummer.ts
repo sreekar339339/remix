@@ -1,18 +1,18 @@
 import { TypedEventTarget } from 'remix/ui'
-import { customEvents, type CustomEventsEventMap } from './utils/customEvents/index.tsx'
+import { Events, type EventsMapOf } from './utils/customEvents/index.tsx'
 
 type TempoBpm = number
 
-type DrummerEvents = {
-  playbackStarted: TempoBpm
-  playbackStopped: TempoBpm
-  tempoSet: TempoBpm
+class DrummerEvents extends Events {
+  playbackStarted(detail: TempoBpm) {}
+  playbackStopped(detail: TempoBpm) {}
+  tempoSet(detail: TempoBpm) {}
 }
 
-export class Drummer extends TypedEventTarget<CustomEventsEventMap<DrummerEvents>> {
+export class Drummer extends TypedEventTarget<EventsMapOf<DrummerEvents>> {
   #isPlaying = false
   #tempoBpm = 90
-  events = customEvents<DrummerEvents>().asHost(this)
+  events = DrummerEvents.define().asHost(this)
 
   constructor() {
     super()

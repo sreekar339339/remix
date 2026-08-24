@@ -1,22 +1,22 @@
 import { clientEntry, css, on, ref, type Handle } from 'remix/ui'
 import { routes } from '../routes.ts'
-import { customEvents, type CustomEventsEventMap } from './utils/customEvents/index.tsx'
+import { Events, type EventsOf } from './utils/customEvents/index.tsx'
 
 type Book = {
   title: string
 }
 
-type SearchEvents = {
-  booksFound: Array<Book>
-  booksNotFound: { reason: 'emptyList' | { other: string } }
-  errorOccurred: Error
-  queryEmpty: null
-  querySubmitted: { query: string }
+class SearchBooksEvents extends Events {
+  booksFound(detail: Array<Book>) {}
+  booksNotFound(detail: { reason: 'emptyList' | { other: string } }) {}
+  errorOccurred(detail: Error) {}
+  queryEmpty() {}
+  querySubmitted(detail: { query: string }) {}
 }
 
-type SearchEvent = CustomEventsEventMap<SearchEvents>[keyof SearchEvents]
+type SearchEvent = EventsOf<SearchBooksEvents>
 
-const events = customEvents<SearchEvents>()
+const events = SearchBooksEvents.define()
 
 async function fetchBooks(query: string, input: HTMLInputElement, signal: AbortSignal) {
   let options = { signal }

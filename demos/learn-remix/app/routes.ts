@@ -16,4 +16,5 @@ export const routes = route({
   sevenGuis: get('sevenGuis'),
   kanban: get('kanban'),
   listUpdates: get('listUpdates'),
+  jobRunner: get('jobRunner'),
 })

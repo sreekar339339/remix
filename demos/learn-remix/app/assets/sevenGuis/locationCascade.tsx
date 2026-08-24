@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented, type EventsApi } from '../utils/customEvents/index.tsx'
 import { inputCss, rowCss, taskCss } from './styles.ts'
 
 type Location = {
@@ -46,36 +46,35 @@ function labelOf(options: readonly Location[], id: string | null) {
   return options.find((option) => option.id === id)?.label ?? '—'
 }
 
-export const LocationCascade = clientEntry(import.meta.url, function LocationCascade() {
-  let events = customEvents(
-    {
-      country: '',
-      states: [] as readonly Location[],
-      state: null as string | null,
-      cities: [] as readonly Location[],
-      city: null as string | null,
+class LocationCascadeEvents extends Events {
+  country = ''
+  states = [] as readonly Location[]
+  state = null as string | null
+  cities = [] as readonly Location[]
+  city = null as string | null
 
-      // Each fold shadows its slice: selecting a country owns the country
-      // detail and derives the next level — the state options — resetting the
-      // deeper selection chain.
-      // city has no derivation, so it stays a plain detail: dispatching city
-      // replaces its slice directly.
-    },
-    {
-      country: (id: string, detail) => {
-        detail.country = id
-        detail.states = STATES[id] ?? []
-        detail.state = null
-        detail.cities = []
-        detail.city = null
-      },
-      state: (id: string, detail) => {
-        detail.state = id
-        detail.cities = CITIES[id] ?? []
-        detail.city = null
-      },
-    },
-  )
+  constructor(api: EventsApi<LocationCascadeEvents>) {
+    super()
+    // Reactions derive the next cascade level and reset the deeper
+    // selection chain when a slice is written. city has no derivation, so
+    // it stays a plain detail.
+    api.on.country(function ({ detail }) {
+      this.states = STATES[detail] ?? []
+      this.state = null
+      this.cities = []
+      this.city = null
+    })
+    api.on.state(function ({ detail }) {
+      this.cities = CITIES[detail ?? ''] ?? []
+      this.city = null
+    })
+  }
+}
+
+export const LocationCascade = clientEntry(import.meta.url, function LocationCascade() {
+
+
+  let events = LocationCascadeEvents.define()
   return () => (
     <section mix={taskCss}>
       <h2>Location Cascade</h2>

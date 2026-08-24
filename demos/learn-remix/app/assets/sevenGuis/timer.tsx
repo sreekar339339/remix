@@ -1,23 +1,26 @@
 import { clientEntry, on, ref } from 'remix/ui'
-import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented, type EventsApi } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
+class SevenGuisTimerEvents extends Events {
+  elapsed = 0
+  duration = 10
+
+  constructor(api: EventsApi<SevenGuisTimerEvents>) {
+    super()
+    api.on.duration(function ({ detail }) {
+      this.elapsed = Math.min(this.elapsed, detail)
+    })
+  }
+
+  tick(delta: number) {
+    this.elapsed = Math.min(this.duration, this.elapsed + delta)
+  }
+}
+
 export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTimer() {
-  let events = customEvents(
-    {
-      elapsed: 0,
-      duration: 10,
-    },
-    {
-      tick: (delta: number, detail) => {
-        detail.elapsed = Math.min(detail.duration, detail.elapsed + delta)
-      },
-      setDuration: (duration: number, detail) => {
-        detail.duration = duration
-        detail.elapsed = Math.min(detail.elapsed, duration)
-      },
-    },
-  )
+  let events = SevenGuisTimerEvents.define()
+
   return () => (
     <section
       mix={[
@@ -39,7 +42,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
       <h2>Timer</h2>
       <div>
         <evented.progress
-          on={events}
+          on={events.on['*']}
           value={(current) => Math.min(1, current.elapsed / current.duration)}
           max={1}
         />
@@ -58,7 +61,7 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
           mix={[
             inputCss,
             on('input', ({ currentTarget }) => {
-              events.dispatchEvent({ setDuration: currentTarget.valueAsNumber })
+              events.dispatchEvent({ duration: currentTarget.valueAsNumber })
             }),
           ]}
         />

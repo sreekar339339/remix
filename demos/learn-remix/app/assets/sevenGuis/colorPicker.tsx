@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented, type EventsApi } from '../utils/customEvents/index.tsx'
 import { inputCss, rowCss, taskCss } from './styles.ts'
 
 type Color = {
@@ -87,99 +87,102 @@ const swatchCss = css({
   border: '1px solid #d4d4d8',
 })
 
-export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
-  let events = customEvents(
-    {
-      hex: '#000000',
-      red: '0',
-      green: '0',
-      blue: '0',
-      hue: '0',
-      saturation: '0',
-      lightness: '0',
+type ColorModel = {
+  hex: string
+  red: string
+  green: string
+  blue: string
+  hue: string
+  saturation: string
+  lightness: string
+}
 
-      // Each fold shadows its slice. The hex fold derives every channel from
-      // its own input; a channel fold derives the hex and the other channels,
-      // cross-reading its siblings — so the composite can never hold a
-      // contradictory color. A fold only derives when its whole input parses;
-      // invalid input leaves the last good model alone.
-    },
-    {
-      hex: (value: string, detail) => {
-        detail.hex = value
-        let color = parseHex(value)
-        if (color) apply(detail, color)
-      },
-      red: (value: string, detail) => {
-        detail.red = value
-        let red = parseChannel(value, 255)
-        let green = parseChannel(detail.green, 255)
-        let blue = parseChannel(detail.blue, 255)
-        if (red === undefined || green === undefined || blue === undefined) return
-        apply(detail, { red, green, blue })
-      },
-      green: (value: string, detail) => {
-        detail.green = value
-        let red = parseChannel(detail.red, 255)
-        let green = parseChannel(value, 255)
-        let blue = parseChannel(detail.blue, 255)
-        if (red === undefined || green === undefined || blue === undefined) return
-        apply(detail, { red, green, blue })
-      },
-      blue: (value: string, detail) => {
-        detail.blue = value
-        let red = parseChannel(detail.red, 255)
-        let green = parseChannel(detail.green, 255)
-        let blue = parseChannel(value, 255)
-        if (red === undefined || green === undefined || blue === undefined) return
-        apply(detail, { red, green, blue })
-      },
-      hue: (value: string, detail) => {
-        detail.hue = value
-        let hue = parseChannel(value, 360)
-        let saturation = parseChannel(detail.saturation, 100)
-        let lightness = parseChannel(detail.lightness, 100)
-        if (hue === undefined || saturation === undefined || lightness === undefined) return
-        apply(detail, hslToRgb(hue, saturation, lightness))
-      },
-      saturation: (value: string, detail) => {
-        detail.saturation = value
-        let hue = parseChannel(detail.hue, 360)
-        let saturation = parseChannel(value, 100)
-        let lightness = parseChannel(detail.lightness, 100)
-        if (hue === undefined || saturation === undefined || lightness === undefined) return
-        apply(detail, hslToRgb(hue, saturation, lightness))
-      },
-      lightness: (value: string, detail) => {
-        detail.lightness = value
-        let hue = parseChannel(detail.hue, 360)
-        let saturation = parseChannel(detail.saturation, 100)
-        let lightness = parseChannel(value, 100)
-        if (hue === undefined || saturation === undefined || lightness === undefined) return
-        apply(detail, hslToRgb(hue, saturation, lightness))
-      },
-    },
-  )
-  function apply(
-    detail: {
-      hex: string
-      red: string
-      green: string
-      blue: string
-      hue: string
-      saturation: string
-      lightness: string
-    },
-    color: Color,
-  ) {
-    let hsl = rgbToHsl(color)
-    detail.hex = rgbToHex(color)
-    detail.red = formatChannel(color.red)
-    detail.green = formatChannel(color.green)
-    detail.blue = formatChannel(color.blue)
-    detail.hue = formatHue(hsl.hue)
-    detail.saturation = formatChannel(hsl.saturation)
-    detail.lightness = formatChannel(hsl.lightness)
+function applyColor(model: ColorModel, color: Color) {
+  let hsl = rgbToHsl(color)
+  model.hex = rgbToHex(color)
+  model.red = formatChannel(color.red)
+  model.green = formatChannel(color.green)
+  model.blue = formatChannel(color.blue)
+  model.hue = formatHue(hsl.hue)
+  model.saturation = formatChannel(hsl.saturation)
+  model.lightness = formatChannel(hsl.lightness)
+}
+
+class ColorPickerEvents extends Events {
+  hex = '#000000'
+  red = '0'
+  green = '0'
+  blue = '0'
+  hue = '0'
+  saturation = '0'
+  lightness = '0'
+
+  // Reactions own each channel's update: dispatching `{ red: value }`
+  // writes the slice and derives the hex and the other channels from the
+  // current siblings — so the composite can never hold a contradictory
+  // color. A reaction only derives when its whole input parses; invalid
+  // input leaves the last good model alone.
+  constructor(api: EventsApi<ColorPickerEvents>) {
+    super()
+    api.on.hex(function ({ detail }) {
+      let color = parseHex(detail)
+      if (color) applyColor(this, color)
+    })
+    api.on.red(function ({ detail }) {
+      let red = parseChannel(detail, 255)
+      let green = parseChannel(this.green, 255)
+      let blue = parseChannel(this.blue, 255)
+      if (red === undefined || green === undefined || blue === undefined) return
+      applyColor(this, { red, green, blue })
+    })
+    api.on.green(function ({ detail }) {
+      let red = parseChannel(this.red, 255)
+      let green = parseChannel(detail, 255)
+      let blue = parseChannel(this.blue, 255)
+      if (red === undefined || green === undefined || blue === undefined) return
+      applyColor(this, { red, green, blue })
+    })
+    api.on.blue(function ({ detail }) {
+      let red = parseChannel(this.red, 255)
+      let green = parseChannel(this.green, 255)
+      let blue = parseChannel(detail, 255)
+      if (red === undefined || green === undefined || blue === undefined) return
+      applyColor(this, { red, green, blue })
+    })
+    api.on.hue(function ({ detail }) {
+      let hue = parseChannel(detail, 360)
+      let saturation = parseChannel(this.saturation, 100)
+      let lightness = parseChannel(this.lightness, 100)
+      if (hue === undefined || saturation === undefined || lightness === undefined) return
+      applyColor(this, hslToRgb(hue, saturation, lightness))
+    })
+    api.on.saturation(function ({ detail }) {
+      let hue = parseChannel(this.hue, 360)
+      let saturation = parseChannel(detail, 100)
+      let lightness = parseChannel(this.lightness, 100)
+      if (hue === undefined || saturation === undefined || lightness === undefined) return
+      applyColor(this, hslToRgb(hue, saturation, lightness))
+    })
+    api.on.lightness(function ({ detail }) {
+      let hue = parseChannel(this.hue, 360)
+      let saturation = parseChannel(this.saturation, 100)
+      let lightness = parseChannel(detail, 100)
+      if (hue === undefined || saturation === undefined || lightness === undefined) return
+      applyColor(this, hslToRgb(hue, saturation, lightness))
+    })
+  }
+}
+
+export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
+
+  let events = ColorPickerEvents.define()
+  let setColorChannel = {
+    red: (value: string) => events.dispatchEvent({ red: value }),
+    green: (value: string) => events.dispatchEvent({ green: value }),
+    blue: (value: string) => events.dispatchEvent({ blue: value }),
+    hue: (value: string) => events.dispatchEvent({ hue: value }),
+    saturation: (value: string) => events.dispatchEvent({ saturation: value }),
+    lightness: (value: string) => events.dispatchEvent({ lightness: value }),
   }
 
   return () => (
@@ -219,9 +222,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
                   mix={[
                     inputCss,
                     on('input', ({ currentTarget }) => {
-                      events.dispatchEvent({
-                        [channel]: currentTarget.value,
-                      } as Record<(typeof channel)[number], string>)
+                      setColorChannel[channel](currentTarget.value)
                     }),
                   ]}
                 />
@@ -248,9 +249,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
                   mix={[
                     inputCss,
                     on('input', ({ currentTarget }) => {
-                      events.dispatchEvent({
-                        [channel]: currentTarget.value,
-                      } as Record<(typeof channel)[number], string>)
+                      setColorChannel[channel](currentTarget.value)
                     }),
                   ]}
                 />

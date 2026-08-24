@@ -1,21 +1,32 @@
 import { clientEntry, css, on, ref, type Handle } from 'remix/ui'
 import { routes } from '../routes.ts'
-import { customEvents, evented } from './utils/customEvents/index.tsx'
+import { Events, evented, type CustomEventsDefined, type EventsApi } from './utils/customEvents/index.tsx'
 
 type Book = {
   title: string
 }
 
-const events = customEvents<{
-  booksFound: Array<Book>
-  booksNotFound: { reason: 'emptyList' | { other: string } }
-  errorOccurred: Error
-  queryEmpty: null
-  querySubmitted: { query: string }
-}>()
+type SearchView =
+  | { type: 'queryEmpty' }
+  | { type: 'querySubmitted'; query: string }
+  | { type: 'booksFound'; books: Array<Book> }
+  | { type: 'booksNotFound'; reason: 'emptyList' | { other: string } }
+  | { type: 'errorOccurred'; error: Error }
 
-async function fetchBooks(query: string, input: HTMLInputElement, signal: AbortSignal) {
-  let opts = { signal }
+class SearchEvents extends Events {
+  view: SearchView
+  constructor(_api: EventsApi<SearchEvents>, view: SearchView) {
+    super()
+    this.view = view
+  }
+}
+
+async function fetchBooks(
+  events: CustomEventsDefined<SearchEvents>,
+  query: string,
+  input: HTMLInputElement,
+  signal: AbortSignal,
+) {
   try {
     let response = await fetch(
       routes.searchBooks.books.href(undefined, { searchParams: { q: query } }),
@@ -34,18 +45,21 @@ async function fetchBooks(query: string, input: HTMLInputElement, signal: AbortS
     let json = await response.json()
     if (!('docs' in json)) {
       return input.dispatchEvent(
-        events.create({ booksNotFound: { reason: { other: json.detail[0].msg } } }, opts),
+        events.create({ view: { type: 'booksNotFound', reason: { other: json.detail[0].msg } } }),
       )
     }
     let books = json.docs as Array<Book>
     input.dispatchEvent(
-      books.length
-        ? events.create({ booksFound: books }, opts)
-        : events.create({ booksNotFound: { reason: 'emptyList' } }, opts),
+      events.create({
+        view: books.length
+          ? { type: 'booksFound', books }
+          : { type: 'booksNotFound', reason: 'emptyList' },
+      }),
     )
   } catch (error) {
-    input.dispatchEvent(events.create({ errorOccurred: error as Error }, opts))
-  } finally {
+    // A stale search's abort must not surface an error view.
+    if (signal.aborted) return
+    input.dispatchEvent(events.create({ view: { type: 'errorOccurred', error: error as Error } }))
   }
 }
 
@@ -53,34 +67,38 @@ export const SearchBooksWithoutFrame = clientEntry(
   import.meta.url,
   function SearchBooksWithoutFrame(handle: Handle<{ initialQuery: string }>) {
     let initialQuery = handle.props.initialQuery.trim()
-    let initialEvent = initialQuery
-      ? events.create({ querySubmitted: { query: initialQuery } })
-      : events.create('queryEmpty')
+    let events = SearchEvents.define(initialQuery ? { type: 'querySubmitted', query: initialQuery } : { type: 'queryEmpty' },
+    )
     let interacted = false
+    let inputElement: HTMLInputElement | undefined
+
+    function dispatchView(view: SearchView) {
+      if (inputElement) inputElement.dispatchEvent(events.create({ view }))
+    }
 
     return () => (
       <div mix={events.asHost()}>
         <label>
           Search{' '}
           <evented.input
-            on={events}
-            initial={initialEvent}
+            on={events.on.view}
             type="text"
             defaultValue={initialQuery}
-            class={(_, event) => (event.type === 'querySubmitted' ? 'pending' : '')}
+            class={(view) => (view.type === 'querySubmitted' ? 'pending' : '')}
             mix={[
               inputCss,
               on('input', ({ currentTarget }, signal) => {
                 interacted = true
                 let query = currentTarget.value.trim()
-                if (!query) return void currentTarget.dispatchEvent(events.create('queryEmpty'))
-                currentTarget.dispatchEvent(events.create({ querySubmitted: { query } }))
-                fetchBooks(query, currentTarget, signal)
+                if (!query) return void dispatchView({ type: 'queryEmpty' })
+                dispatchView({ type: 'querySubmitted', query })
+                fetchBooks(events, query, currentTarget, signal)
               }),
-              events.on['*'](({ currentTarget, type }) => {
-                if (type !== 'querySubmitted') currentTarget.select()
+              events.on['*'](({ currentTarget, detail }) => {
+                if (detail.type !== 'querySubmitted') currentTarget.select()
               }),
               ref((input, signal) => {
+                inputElement = input
                 queueMicrotask(() => {
                   if (!signal.aborted && !interacted) {
                     input.dispatchEvent(new InputEvent('input'))
@@ -90,33 +108,33 @@ export const SearchBooksWithoutFrame = clientEntry(
             ]}
           />
         </label>
-        <evented.div on={events} initial={initialEvent}>
-          {(_, event) => {
-            switch (event.type) {
+        <evented.div on={events.on.view}>
+          {(view) => {
+            switch (view.type) {
               case 'queryEmpty':
                 return <p>Enter the title of any book.</p>
               case 'querySubmitted':
-                return <p>{`fetching books with title containing "${event.detail.query}"...`}</p>
+                return <p>{`fetching books with title containing "${view.query}"...`}</p>
               case 'booksFound':
                 return (
                   <ul>
-                    {event.detail.map((book) => (
+                    {view.books.map((book) => (
                       <li>{book.title}</li>
                     ))}
                   </ul>
                 )
               case 'booksNotFound':
-                if (event.detail.reason === 'emptyList') {
+                if (view.reason === 'emptyList') {
                   return <p>No books were found for this title at this time.</p>
                 }
                 return (
-                  <p>Could not fetch books for this title. Reason: {event.detail.reason.other}.</p>
+                  <p>Could not fetch books for this title. Reason: {view.reason.other}.</p>
                 )
               case 'errorOccurred':
                 return (
                   <p>
-                    Unexpected error occured, try again! {event.detail.message}
-                    Cause: {event.detail.cause as string}.
+                    Unexpected error occured, try again! {view.error.message}
+                    Cause: {view.error.cause as string}.
                   </p>
                 )
             }

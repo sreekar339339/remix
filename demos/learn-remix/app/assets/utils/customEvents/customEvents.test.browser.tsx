@@ -2,29 +2,13 @@ import * as assert from 'remix/assert'
 import { describe, it } from 'remix/test'
 import { on, ref } from 'remix/ui'
 import { render } from 'remix/ui/test'
-import { customEvents, evented } from './index.tsx'
-import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
-import type { EventDetails } from './types.ts'
-
-type TestEvents = {
-  submitted: { id: string }
-  paid: null
-  focusRequested: null
-}
-
-function createEvents() {
-  return customEvents<TestEvents>()
-}
-
-async function settleEffects() {
-  await Promise.resolve()
-  await Promise.resolve()
-  await Promise.resolve()
-}
+import { Events, evented } from './index.tsx'
+import { customEventsRuntime } from './runtime.ts'
+import { createEvents, settleEffects } from './customEvents.test-utils.tsx'
 
 describe('customEvents', () => {
   it('resolves evented.<tag> to the intrinsic tag string with typed callback inputs', async (t) => {
-    let events = customEvents<TestEvents>()
+    let events = createEvents()
     assert.equal(evented.output, 'output')
     assert.equal(evented.button, 'button')
     assert.equal(typeof evented.div, 'string')
@@ -39,7 +23,7 @@ describe('customEvents', () => {
           >
             {(order) => order?.id ?? ''}
           </evented.output>
-          <evented.output on={events} aria-label="wildcard">
+          <evented.output on={events.on['*']} aria-label="wildcard">
             {(value, event) => (event ? event.type : '')}
           </evented.output>
         </section>
@@ -62,23 +46,20 @@ describe('customEvents', () => {
   })
 
   it('routes Map and Set folds to item and whole-key subscribers', async (t) => {
-    let events = customEvents(
-      {
-        position: new Map([
-          ['a', 'X'],
-          ['b', 'O'],
-        ]),
-        selected: new Set(['red']),
-      },
-      {
-        set: ({ key, value }: { key: string; value: string }, detail) => {
-          detail.position.set(key, value)
-        },
-        add: (value: string, detail) => {
-          detail.selected.add(value)
-        },
-      },
-    )
+    class __CollectionsEvents extends Events {
+      position = new Map([
+        ['a', 'X'],
+        ['b', 'O'],
+      ])
+      selected = new Set(['red'])
+      set({ key, value }: { key: string; value: string }) {
+        this.position.set(key, value)
+      }
+      add(value: string) {
+        this.selected.add(value)
+      }
+    }
+    let events = __CollectionsEvents.define()
     let calls = { mapA: 0, mapB: 0, mapAll: 0, red: 0, blue: 0 }
     let positionEvents = 0
     events.addEventListener('position', () => positionEvents++)
@@ -140,26 +121,23 @@ describe('customEvents', () => {
   })
 
   it('renders keyed children from a remembered descriptor without component updates', async (t) => {
-    let events = customEvents(
-      {
-        circles: new Map<number, { id: number; x: number; r: number }>([
-          [1, { id: 1, x: 10, r: 5 }],
-          [2, { id: 2, x: 20, r: 5 }],
-        ]),
-      },
-      {
-        resize: ({ id, r }: { id: number; r: number }, detail) => {
-          let circle = detail.circles.get(id)
-          if (circle) circle.r = r
-        },
-        add: (circle: { id: number; x: number; r: number }, detail) => {
-          detail.circles.set(circle.id, circle)
-        },
-        replace: (circles: Map<number, { id: number; x: number; r: number }>, detail) => {
-          detail.circles = circles
-        },
-      },
-    )
+    class __CanvasEvents extends Events {
+      circles = new Map<number, { id: number; x: number; r: number }>([
+        [1, { id: 1, x: 10, r: 5 }],
+        [2, { id: 2, x: 20, r: 5 }],
+      ])
+      resize({ id, r }: { id: number; r: number }) {
+        let circle = this.circles.get(id)
+        if (circle) circle.r = r
+      }
+      add(circle: { id: number; x: number; r: number }) {
+        this.circles.set(circle.id, circle)
+      }
+      replace(circles: Map<number, { id: number; x: number; r: number }>) {
+        this.circles = circles
+      }
+    }
+    let events = __CanvasEvents.define()
     function Canvas() {
       return () => (
         <evented.svg on={events.on.circles}>
@@ -215,26 +193,23 @@ describe('customEvents', () => {
   })
 
   it('reconciles keyed children through the keyed diff', async (t) => {
-    let events = customEvents(
-      {
-        circles: new Map<number, { id: number; x: number; r: number }>([
-          [1, { id: 1, x: 10, r: 5 }],
-          [2, { id: 2, x: 20, r: 5 }],
-        ]),
-      },
-      {
-        resize: ({ id, r }: { id: number; r: number }, detail) => {
-          let circle = detail.circles.get(id)
-          if (circle) circle.r = r
-        },
-        add: (circle: { id: number; x: number; r: number }, detail) => {
-          detail.circles.set(circle.id, circle)
-        },
-        remove: (id: number, detail) => {
-          detail.circles.delete(id)
-        },
-      },
-    )
+    class __ReconcileCanvasEvents extends Events {
+      circles = new Map<number, { id: number; x: number; r: number }>([
+        [1, { id: 1, x: 10, r: 5 }],
+        [2, { id: 2, x: 20, r: 5 }],
+      ])
+      resize({ id, r }: { id: number; r: number }) {
+        let circle = this.circles.get(id)
+        if (circle) circle.r = r
+      }
+      add(circle: { id: number; x: number; r: number }) {
+        this.circles.set(circle.id, circle)
+      }
+      remove(id: number) {
+        this.circles.delete(id)
+      }
+    }
+    let events = __ReconcileCanvasEvents.define()
     function Canvas() {
       return () => (
         <evented.svg on={events.on.circles}>
@@ -286,22 +261,19 @@ describe('customEvents', () => {
   })
 
   it('settles coalesced bursts of list folds on the final value', async (t) => {
-    let events = customEvents(
-      {
-        items: new Map<number, { id: number; label: string }>([
-          [1, { id: 1, label: 'one' }],
-          [2, { id: 2, label: 'two' }],
-        ]),
-      },
-      {
-        add: (item: { id: number; label: string }, detail) => {
-          detail.items.set(item.id, item)
-        },
-        remove: (id: number, detail) => {
-          detail.items.delete(id)
-        },
-      },
-    )
+    class __ItemsEvents extends Events {
+      items = new Map<number, { id: number; label: string }>([
+        [1, { id: 1, label: 'one' }],
+        [2, { id: 2, label: 'two' }],
+      ])
+      add(item: { id: number; label: string }) {
+        this.items.set(item.id, item)
+      }
+      remove(id: number) {
+        this.items.delete(id)
+      }
+    }
+    let events = __ItemsEvents.define()
     let viewCalls = 0
 
     function Items() {
@@ -352,33 +324,30 @@ describe('customEvents', () => {
   })
 
   it('routes deep patches through every nested identity boundary', async (t) => {
-    let events = customEvents(
-      {
-        columns: new Map([
-          [
-            'column:todo',
-            {
-              cards: new Map([
-                ['card:one', { urgent: false }],
-                ['card:two', { urgent: false }],
-              ]),
-            },
-          ],
-          [
-            'column:done',
-            {
-              cards: new Map([['card:three', { urgent: false }]]),
-            },
-          ],
-        ]),
-      },
-      {
-        toggle: ({ columnId, cardId }: { columnId: string; cardId: string }, detail) => {
-          let card = detail.columns.get(columnId)?.cards.get(cardId)
-          if (card) card.urgent = !card.urgent
-        },
-      },
-    )
+    class __BoardEvents extends Events {
+      columns = new Map([
+        [
+          'column:todo',
+          {
+            cards: new Map([
+              ['card:one', { urgent: false }],
+              ['card:two', { urgent: false }],
+            ]),
+          },
+        ],
+        [
+          'column:done',
+          {
+            cards: new Map([['card:three', { urgent: false }]]),
+          },
+        ],
+      ])
+      toggle({ columnId, cardId }: { columnId: string; cardId: string }) {
+        let card = this.columns.get(columnId)?.cards.get(cardId)
+        if (card) card.urgent = !card.urgent
+      }
+    }
+    let events = __BoardEvents.define()
     let calls = { todo: 0, done: 0, one: 0, two: 0, three: 0 }
 
     function Board() {
@@ -422,17 +391,14 @@ describe('customEvents', () => {
 
   it('preserves object identity in Map fold addresses', async (t) => {
     let recordKey = {}
-    let events = customEvents(
-      {
-        records: new Map<object, { value: number }>([[recordKey, { value: 1 }]]),
-      },
-      {
-        set: ({ key, value }: { key: object; value: number }, detail) => {
-          let record = detail.records.get(key)
-          if (record) record.value = value
-        },
-      },
-    )
+    class __RecordEvents extends Events {
+      records = new Map<object, { value: number }>([[recordKey, { value: 1 }]])
+      set({ key, value }: { key: object; value: number }) {
+        let record = this.records.get(key)
+        if (record) record.value = value
+      }
+    }
+    let events = __RecordEvents.define()
     let renders = 0
 
     function RecordValue() {
@@ -456,22 +422,19 @@ describe('customEvents', () => {
   })
 
   it('derives array index routes by default', async (t) => {
-    let events = customEvents(
-      {
-        items: ['first', 'second'],
-      },
-      {
-        set: ({ index, value }: { index: number; value: string }, detail) => {
-          detail.items[index] = value
-        },
-        removeFirst: (_detail, detail) => {
-          detail.items.splice(0, 1)
-        },
-        replace: (items: string[], detail) => {
-          detail.items = items
-        },
-      },
-    )
+    class __ArrayItemsEvents extends Events {
+      items = ['first', 'second']
+      set({ index, value }: { index: number; value: string }) {
+        this.items[index] = value
+      }
+      removeFirst() {
+        this.items.splice(0, 1)
+      }
+      replace(items: string[]) {
+        this.items = items
+      }
+    }
+    let events = __ArrayItemsEvents.define()
     let calls = { first: 0, second: 0, all: 0 }
 
     function Items() {
@@ -510,30 +473,27 @@ describe('customEvents', () => {
 
   it('routes object arrays by index', async (t) => {
     type Circle = { id: number; diameter: number }
-    let events = customEvents(
-      {
-        circles: [
-          { id: 7, diameter: 30 },
-          { id: 8, diameter: 40 },
-        ],
-        values: { A0: '10', B0: '20' },
-      },
-      {
-        resize: ({ index, diameter }: { index: number; diameter: number }, detail) => {
-          let circle = detail.circles[index]
-          if (circle) circle.diameter = diameter
-        },
-        setValue: ({ key, value }: { key: string; value: string }, detail) => {
-          ;(detail.values as Record<string, string>)[key] = value
-        },
-        removeFirst: (_detail, detail) => {
-          detail.circles.splice(0, 1)
-        },
-        replace: (circles: Circle[], detail) => {
-          detail.circles = circles
-        },
-      },
-    )
+    class __ArrayCirclesEvents extends Events {
+      circles: Circle[] = [
+        { id: 7, diameter: 30 },
+        { id: 8, diameter: 40 },
+      ]
+      values = { A0: '10', B0: '20' }
+      resize({ index, diameter }: { index: number; diameter: number }) {
+        let circle = this.circles[index]
+        if (circle) circle.diameter = diameter
+      }
+      setValue({ key, value }: { key: string; value: string }) {
+        ;(this.values as Record<string, string>)[key] = value
+      }
+      removeFirst() {
+        this.circles.splice(0, 1)
+      }
+      replace(circles: Circle[]) {
+        this.circles = circles
+      }
+    }
+    let events = __ArrayCirclesEvents.define()
     let calls = { circle0: 0, circle1: 0, A0: 0, B0: 0 }
 
     function Collections() {
@@ -581,16 +541,13 @@ describe('customEvents', () => {
   })
 
   it('routes scalar identity values by value and notifies owners via as()', async (t) => {
-    let events = customEvents(
-      {
-        selected: null as string | null,
-      },
-      {
-        select: (id: string | null, detail) => {
-          detail.selected = id
-        },
-      },
-    )
+    class __SelectionEvents extends Events {
+      selected: string | null = null
+      select(id: string | null) {
+        this.selected = id
+      }
+    }
+    let events = __SelectionEvents.define()
     let calls = { first: 0, second: 0, all: 0 }
     let effectOrder: string[] = []
 
@@ -670,17 +627,14 @@ describe('customEvents', () => {
   })
 
   it('keeps element-dispatched occurrences on the origin element', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-      },
-      {
-        increment: (amount: number, detail) => {
-          detail.count += amount
-        },
-        countDrafted: (count: number) => {},
-      },
-    )
+    class __EditorEvents extends Events {
+      count = 0
+      increment(amount: number) {
+        this.count += amount
+      }
+      countDrafted(detail: number) {}
+    }
+    let events = __EditorEvents.define()
     let drafts = 0
     let listenerRenders = 0
 
@@ -699,7 +653,10 @@ describe('customEvents', () => {
             ]}
           />
           <evented.output aria-label="listener" on={events.on.countDrafted}>
-            {(count) => (count === undefined ? 'idle' : `${count}:${++listenerRenders}`)}
+            {(count) => {
+              listenerRenders++
+              return `${count}`
+            }}
           </evented.output>
         </section>
       )
@@ -709,37 +666,37 @@ describe('customEvents', () => {
     t.after(() => result.cleanup())
     let source = result.$('[aria-label="source"]') as HTMLButtonElement
     let listener = result.$('[aria-label="listener"]') as HTMLOutputElement
+    let rendersAtElementDispatch = listenerRenders
 
     await result.act(() => source.click())
     await settleEffects()
     assert.equal(drafts, 1)
-    assert.equal(listener.textContent, 'idle')
+    // The element-dispatched event stays on the origin: the descriptor's
+    // listener was never told, so its view did not re-render.
+    assert.equal(listenerRenders, rendersAtElementDispatch)
 
     await result.act(async () => {
       events.dispatchEvent({ countDrafted: 2 })
       await settleEffects()
     })
-    assert.equal(listenerRenders, 1)
-    assert.equal(listener.textContent, '2:1')
+    assert.equal(listenerRenders, rendersAtElementDispatch + 1)
+    assert.equal(result.$('[aria-label="listener"]')?.textContent, '2')
   })
 
   it('renders the whole composite through the wildcard source', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-      },
-      {
-        increment: (amount: number, detail) => {
-          detail.count += amount
-        },
-        countDrafted: (count: number) => {},
-      },
-    )
+    class __SnapshotEvents extends Events {
+      count = 0
+      increment(amount: number) {
+        this.count += amount
+      }
+      countDrafted(detail: number) {}
+    }
+    let events = __SnapshotEvents.define()
     let seen: Array<[{ count: number }, unknown]> = []
 
     function Snapshot() {
       return () => (
-        <evented.output on={events} aria-label="composite">
+        <evented.output on={events.on['*']} aria-label="composite">
           {(detail, event) => {
             seen.push([detail, event?.type])
             if (false) {
@@ -767,7 +724,8 @@ describe('customEvents', () => {
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="composite"]')?.textContent, 'count:1')
-    assert.deepEqual(seen[seen.length - 1], [{ count: 1 }, 'count'])
+    assert.equal((seen[seen.length - 1]![0] as { count: number }).count, 1)
+    assert.equal(seen[seen.length - 1]![1], 'count')
 
     await result.act(async () => {
       events.dispatchEvent({ countDrafted: 2 })
@@ -776,7 +734,8 @@ describe('customEvents', () => {
     // The wildcard reads the composite for every event; occurrences ride along
     // as the matched event instead of replacing the input.
     assert.equal(result.$('[aria-label="composite"]')?.textContent, 'count:1 raw:2')
-    assert.deepEqual(seen[seen.length - 1], [{ count: 1 }, 'countDrafted'])
+    assert.equal((seen[seen.length - 1]![0] as { count: number }).count, 1)
+    assert.equal(seen[seen.length - 1]![1], 'countDrafted')
   })
 
   it('creates typed local-name events', () => {
@@ -819,8 +778,6 @@ describe('customEvents', () => {
       events.create('paid', 'unexpected')
       // @ts-expect-error - `*` is reserved for subscriptions.
       events.create('*')
-      // @ts-expect-error - native DOM event names are reserved.
-      customEvents<'click'>()
       // @ts-expect-error - descriptor events are completed, non-cancelable facts.
       events.create('paid', { cancelable: true })
       // @ts-expect-error - dispatchEvent is self-only; target.dispatchEvent(events.create(...)) for hosted.
@@ -860,1533 +817,5 @@ describe('customEvents', () => {
       }
       assert.equal(thrown, reason)
     }
-  })
-
-  it('supports event names that collide with Function properties', async (t) => {
-    let events = customEvents<'name' | 'length' | 'bind' | 'toString'>()
-
-    function CollidingEventNames() {
-      return () => (
-        <section mix={events.asHost()}>
-          <evented.output on={events.on.name} aria-label="name">
-            {(value, event) => event?.type}
-          </evented.output>
-          <evented.output on={events.on.length} aria-label="length">
-            {(value, event) => event?.type}
-          </evented.output>
-          <evented.output on={events.on.bind} aria-label="bind">
-            {(value, event) => event?.type}
-          </evented.output>
-          <evented.output on={events.on.toString} aria-label="toString">
-            {(value, event) => event?.type}
-          </evented.output>
-        </section>
-      )
-    }
-
-    let result = render(<CollidingEventNames />)
-    t.after(() => result.cleanup())
-    let section = result.$('section') as HTMLElement
-
-    await result.act(async () => {
-      section.dispatchEvent(events.create({ name: null, length: null, bind: null, toString: null }))
-    })
-
-    for (let type of ['name', 'length', 'bind', 'toString']) {
-      assert.equal(result.$(`[aria-label="${type}"]`)?.textContent, type)
-    }
-  })
-
-  it('updates reactive props and children before running DOM effects', async (t) => {
-    let events = createEvents()
-
-    function Checkout() {
-      return () => (
-        <section mix={events.asHost()}>
-          <button
-            aria-label="submit"
-            mix={on('click', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events.create({ submitted: { id: 'order-1' } }))
-            })}
-          >
-            Submit
-          </button>
-          <evented.form
-            on={events.on.submitted}
-            initial={events.create({ submitted: { id: 'idle' } })}
-            aria-label="form"
-            class={(order, event) => (order?.id === 'idle' ? '' : 'pending')}
-            aria-busy={(order, event) => order?.id !== 'idle'}
-            mix={events.on.submitted(({ currentTarget }) => {
-              currentTarget.dataset.committed = String(currentTarget.classList.contains('pending'))
-            })}
-          >
-            {(order, event) => <output>{order?.id}</output>}
-          </evented.form>
-        </section>
-      )
-    }
-
-    let result = render(<Checkout />)
-    t.after(() => result.cleanup())
-    let form = result.$('[aria-label="form"]') as HTMLFormElement
-
-    assert.equal(form.className, '')
-    assert.equal(form.textContent, 'idle')
-
-    await result.act(() => (result.$('[aria-label="submit"]') as HTMLButtonElement).click())
-    await settleEffects()
-
-    assert.equal(result.$('[aria-label="form"]'), form)
-    assert.equal(form.className, 'pending')
-    assert.equal(form.getAttribute('aria-busy'), 'true')
-    assert.equal(form.textContent, 'order-1')
-    assert.equal(form.dataset.committed, 'true')
-  })
-
-  it('renders undefined until an occurrence first matches', async (t) => {
-    let events = createEvents()
-
-    function Confirmation() {
-      return () => (
-        <section mix={events.asHost()} aria-label="confirmation-host">
-          <evented.output
-            on={events.on.submitted}
-            hidden={(order, event) => order === undefined}
-            aria-label="confirmation"
-          >
-            {(order, event) => order?.id ?? null}
-          </evented.output>
-          <evented.output
-            on={events.on.submitted}
-            initial={events.create({ submitted: { id: 'initial' } })}
-            hidden={(order, event) => order?.id === 'hidden'}
-            aria-label="initial-confirmation"
-          >
-            {(order, event) => order?.id}
-          </evented.output>
-        </section>
-      )
-    }
-
-    let result = render(<Confirmation />)
-    t.after(() => result.cleanup())
-    let host = result.$('[aria-label="confirmation-host"]') as HTMLElement
-    let confirmation = result.$('[aria-label="confirmation"]') as HTMLOutputElement
-    let initialConfirmation = result.$('[aria-label="initial-confirmation"]') as HTMLOutputElement
-
-    assert.equal(confirmation.hidden, true)
-    assert.equal(confirmation.textContent, '')
-    assert.equal(initialConfirmation.hidden, false)
-    assert.equal(initialConfirmation.textContent, 'initial')
-
-    await result.act(() => host.dispatchEvent(events.create('paid')))
-    assert.equal(confirmation.hidden, true)
-
-    await result.act(() => host.dispatchEvent(events.create({ submitted: { id: 'order-1' } })))
-    assert.equal(confirmation.hidden, false)
-    assert.equal(confirmation.textContent, 'order-1')
-  })
-
-  it('commits the source view before downstream views', async (t) => {
-    let events = createEvents()
-
-    function Form() {
-      return () => (
-        <evented.form
-          on={events}
-          aria-label="source"
-          data-action={(value, event) => event?.type}
-          mix={[
-            events.asHost(),
-            on('focusout', ({ currentTarget }) => {
-              currentTarget.dataset.actionSeenOnFocusout = currentTarget.dataset.action ?? 'missing'
-            }),
-          ]}
-        >
-          <evented.input
-            on={events}
-            aria-label="input"
-            disabled={(value, event) => event?.type === 'submitted'}
-          />
-        </evented.form>
-      )
-    }
-
-    let result = render(<Form />)
-    t.after(() => result.cleanup())
-    let form = result.$('[aria-label="source"]') as HTMLFormElement
-    let input = result.$('[aria-label="input"]') as HTMLInputElement
-    input.focus()
-
-    await result.act(async () => {
-      form.dispatchEvent(events.create({ submitted: { id: 'order-1' } }))
-      await settleEffects()
-    })
-
-    assert.equal(input.disabled, true)
-    assert.equal(form.dataset.action, 'submitted')
-    assert.equal(form.dataset.actionSeenOnFocusout, 'submitted')
-  })
-
-  it('broadcasts named groups and wildcards to every listener', async (t) => {
-    let events = createEvents()
-    let initialOutcome = events.create('paid')
-
-    function Orders() {
-      return () => (
-        <section mix={events.asHost()}>
-          <button
-            aria-label="update"
-            mix={on('click', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events.create({ submitted: { id: 'first' } }))
-            })}
-          />
-          {['first', 'second'].map((id) => (
-            <evented.output
-              on={[events.on.submitted, events.on.paid]}
-              initial={initialOutcome}
-              aria-label={id}
-              mix={events.on['*'](({ currentTarget, type }) => {
-                currentTarget.dataset.effect = type
-              })}
-            >
-              {(input, event) => (event.type === 'submitted' ? (input?.[0]?.id ?? '') : 'idle')}
-            </evented.output>
-          ))}
-          <evented.output on={events} initial={initialOutcome} aria-label="all">
-            {(value, event) => (event.type === 'paid' ? 'idle' : event.type)}
-          </evented.output>
-        </section>
-      )
-    }
-
-    let result = render(<Orders />)
-    t.after(() => result.cleanup())
-
-    await result.act(() => (result.$('[aria-label="update"]') as HTMLButtonElement).click())
-    await settleEffects()
-
-    let first = result.$('[aria-label="first"]') as HTMLOutputElement
-    let second = result.$('[aria-label="second"]') as HTMLOutputElement
-    assert.equal(first.textContent, 'first')
-    assert.equal(first.dataset.effect, 'submitted')
-    assert.equal(second.textContent, 'first')
-    assert.equal(second.dataset.effect, 'submitted')
-    assert.equal(result.$('[aria-label="all"]')?.textContent, 'submitted')
-
-    await result.act(() => {
-      let section = result.$('section') as HTMLElement
-      section.dispatchEvent(events.create({ submitted: { id: 'first-again' } }, { composed: true }))
-      section.dispatchEvent(events.create({ submitted: { id: 'second' } }, { composed: true }))
-    })
-
-    assert.equal(first.textContent, 'second')
-    assert.equal(second.textContent, 'second')
-    assert.equal(first.dataset.effect, 'submitted')
-    assert.equal(second.dataset.effect, 'submitted')
-  })
-
-  it('keeps unhosted events local and routes siblings through explicit hosts', async (t) => {
-    let events = createEvents()
-
-    function Scopes() {
-      return () => (
-        <div>
-          <button
-            aria-label="local"
-            mix={[
-              events.on.paid(({ currentTarget }) => {
-                currentTarget.dataset.received = 'true'
-              }),
-              on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create('paid', { bubbles: false }))
-              }),
-            ]}
-          />
-          <section>
-            <button
-              aria-label="unhosted-source"
-              mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create('paid'))
-              })}
-            />
-            <output
-              aria-label="unhosted-listener"
-              mix={events.on.paid(({ currentTarget }) => {
-                currentTarget.textContent = 'received'
-              })}
-            />
-          </section>
-          <section mix={events.asHost()}>
-            <button
-              aria-label="hosted-source"
-              mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create('paid'))
-              })}
-            />
-            <output
-              aria-label="hosted-listener"
-              mix={events.on.paid(({ currentTarget }) => {
-                currentTarget.textContent = 'received'
-              })}
-            />
-          </section>
-        </div>
-      )
-    }
-
-    let result = render(<Scopes />)
-    t.after(() => result.cleanup())
-    let local = result.$('[aria-label="local"]') as HTMLButtonElement
-    let foreignEventReachedParent = false
-    result.container.addEventListener('paid', () => {
-      foreignEventReachedParent = true
-    })
-
-    await result.act(() => local.click())
-    assert.equal(local.dataset.received, 'true')
-
-    await result.act(() =>
-      (result.$('[aria-label="unhosted-source"]') as HTMLButtonElement).click(),
-    )
-    assert.equal(result.$('[aria-label="unhosted-listener"]')?.textContent, '')
-
-    await result.act(() => (result.$('[aria-label="hosted-source"]') as HTMLButtonElement).click())
-    assert.equal(result.$('[aria-label="hosted-listener"]')?.textContent, 'received')
-
-    foreignEventReachedParent = false
-    ;(result.$('[aria-label="hosted-source"]') as HTMLButtonElement).dispatchEvent(
-      new CustomEvent('paid', { bubbles: true }),
-    )
-    assert.equal(foreignEventReachedParent, true)
-  })
-
-  it('contains non-composed events and lets composed events cross nested hosts', async (t) => {
-    let events = createEvents()
-
-    function NestedHosts() {
-      return () => (
-        <section
-          mix={[
-            events.asHost(),
-            events.on.submitted(({ currentTarget, detail }) => {
-              currentTarget.dataset.latest = detail.id
-            }),
-          ]}
-        >
-          <form mix={events.asHost()}>
-            <button
-              aria-label="local"
-              mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(events.create({ submitted: { id: 'local' } }))
-              })}
-            />
-            <button
-              aria-label="composed"
-              mix={on('click', ({ currentTarget }) => {
-                currentTarget.dispatchEvent(
-                  events.create({ submitted: { id: 'composed' } }, { composed: true }),
-                )
-              })}
-            />
-          </form>
-        </section>
-      )
-    }
-
-    let result = render(<NestedHosts />)
-    t.after(() => result.cleanup())
-    let root = result.$('section') as HTMLElement
-
-    await result.act(() => (result.$('[aria-label="local"]') as HTMLButtonElement).click())
-    assert.equal(root.dataset.latest, undefined)
-
-    await result.act(() => (result.$('[aria-label="composed"]') as HTMLButtonElement).click())
-    assert.equal(root.dataset.latest, 'composed')
-  })
-
-  it('dispatches a transaction and awaits view updates and ordered effects', async (t) => {
-    let events = createEvents()
-    let viewUpdates = 0
-    let effects: string[] = []
-    let dispatchTarget!: HTMLButtonElement
-
-    function Transaction() {
-      return () => (
-        <section mix={events.asHost()}>
-          <button
-            aria-label="dispatch"
-            mix={ref((button) => {
-              dispatchTarget = button
-            })}
-          />
-          <evented.output
-            on={events}
-            aria-label="view"
-            mix={events.on['*'](async ({ type, currentTarget }) => {
-              await Promise.resolve()
-              effects.push(`${type}:${currentTarget.textContent}`)
-            })}
-          >
-            {(value, event) => event && `${event.type}:${++viewUpdates}`}
-          </evented.output>
-        </section>
-      )
-    }
-
-    let result = render(<Transaction />)
-    t.after(() => result.cleanup())
-
-    await result.act(() =>
-      dispatchTarget.dispatchEvent(events.create({ submitted: { id: 'batched' }, paid: null })),
-    )
-    await settleEffects()
-
-    assert.equal(result.$('[aria-label="view"]')?.textContent, 'paid:1')
-    assert.deepEqual(effects, ['submitted:paid:1', 'paid:paid:1'])
-  })
-
-  it('mirrors batch entries only on a bridged domain EventTarget', async () => {
-    let domain = new EventTarget()
-    let events = createEvents().asHost(domain)
-    let nativeCalls: string[] = []
-    domain.addEventListener('submitted', (event) => {
-      nativeCalls.push(`submitted:${(event as CustomEvent<{ id: string }>).detail.id}`)
-    })
-    domain.addEventListener('paid', () => nativeCalls.push('paid'))
-
-    domain.dispatchEvent(events.create({ submitted: { id: 'batch' }, paid: null }))
-    domain.dispatchEvent(events.create({ paid: null }))
-    domain.dispatchEvent(events.create({ paid: null }))
-
-    assert.deepEqual(nativeCalls, ['submitted:batch', 'paid', 'paid', 'paid'])
-  })
-
-  it('catches a mount-time event after listener setup', async (t) => {
-    let events = createEvents()
-
-    function MountedInput() {
-      return () => (
-        <input
-          aria-label="input"
-          mix={[
-            events.asHost(),
-            on('input', ({ currentTarget }) => {
-              currentTarget.dispatchEvent(events.create('paid'))
-            }),
-            events.on.paid(({ currentTarget }) => {
-              currentTarget.dataset.ready = 'true'
-            }),
-            ref((input) => input.dispatchEvent(new InputEvent('input'))),
-          ]}
-        />
-      )
-    }
-
-    let result = render(<MountedInput />)
-    t.after(() => result.cleanup())
-    await result.act(() => Promise.resolve())
-
-    assert.equal((result.$('[aria-label="input"]') as HTMLInputElement).dataset.ready, 'true')
-  })
-
-  it('indexes subscriptions by phase, type, and event address', async () => {
-    let runtime = createCustomEventsRuntimeState()
-    let host = document.createElement('section')
-    let origin = document.createElement('button')
-    host.append(origin)
-    let unregisterHost = customEventsRuntime.registerHost(runtime, host)
-    let calls: string[] = []
-    let cleanups: Array<() => void> = []
-    let assertCalls = (...expected: string[]) => {
-      assert.deepEqual([...calls].sort(), [...expected].sort())
-    }
-
-    function subscribe(
-      name: string,
-      addresses: Record<string, ReadonlyArray<string>> | null,
-      eventTypes: ReadonlySet<string> | null,
-      phase: 'view' | 'effect' = 'view',
-    ) {
-      let element = document.createElement('output')
-      host.append(element)
-      let subscription = {
-        element,
-        eventTypes,
-        ...(addresses === null ? {} : { addresses: new Map(Object.entries(addresses)) }),
-        notify(event: CustomEvent) {
-          calls.push(`${name}:${event.type}`)
-        },
-      }
-      let cleanup =
-        phase === 'effect'
-          ? customEventsRuntime.subscribe(runtime, 'effect', subscription)
-          : customEventsRuntime.subscribe(runtime, 'view', subscription)
-      cleanups.push(cleanup)
-      return cleanup
-    }
-
-    let removeExact = subscribe('exact', { updated: ['first'] }, new Set(['updated']))
-    let removeBroad = subscribe('broad', null, new Set(['updated']))
-    subscribe('other-key', { updated: ['second'] }, new Set(['updated']))
-    subscribe('wildcard', { '*': ['first'] }, null)
-    subscribe('effect', { updated: ['first'] }, new Set(['updated']), 'effect')
-
-    function event(key?: string) {
-      let init = { bubbles: true, cancelable: false }
-      return customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
-        {
-          type: 'updated',
-          detail: null,
-          ...(key === undefined ? {} : { addresses: [[String(key)]] }),
-        },
-      ])
-    }
-
-    await customEventsRuntime.dispatch(runtime, origin, event('first'))
-    assertCalls('broad:updated', 'exact:updated', 'wildcard:updated', 'effect:updated')
-
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event('second'))
-    assertCalls('broad:updated', 'other-key:updated')
-
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event())
-    assertCalls(
-      'exact:updated',
-      'broad:updated',
-      'other-key:updated',
-      'wildcard:updated',
-      'effect:updated',
-    )
-
-    removeExact()
-    removeBroad()
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event('first'))
-    assertCalls('wildcard:updated', 'effect:updated')
-
-    for (let cleanup of cleanups) cleanup()
-    unregisterHost()
-  })
-
-  it('notifies whole-key and addressed subscribers for every event', async () => {
-    let runtime = createCustomEventsRuntimeState()
-    let host = document.createElement('section')
-    let origin = document.createElement('button')
-    host.append(origin)
-    let unregisterHost = customEventsRuntime.registerHost(runtime, host)
-    let calls: string[] = []
-    let cleanups: Array<() => void> = []
-    let init = { bubbles: true, cancelable: false }
-
-    function subscribe(name: string, address: readonly string[]) {
-      let element = document.createElement('output')
-      host.append(element)
-      let subscription = {
-        element,
-        eventTypes: new Set(['updated']),
-        addresses: new Map([['updated', address]]),
-        notify() {
-          calls.push(name)
-        },
-      }
-      let cleanup = customEventsRuntime.subscribe(runtime, 'view', subscription)
-      cleanups.push(cleanup)
-    }
-
-    subscribe('whole', [])
-    subscribe('key', ['circle:1'])
-
-    function event(addresses: readonly (readonly string[])[]) {
-      return customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
-        {
-          type: 'updated',
-          detail: null,
-          addresses,
-        },
-      ])
-    }
-
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event([['circle:1']]))
-    assert.deepEqual(calls, ['whole', 'key'])
-
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event([['circle:2']]))
-    assert.deepEqual(calls, ['whole'])
-
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event([[]]))
-    assert.deepEqual(calls, ['whole', 'key'])
-
-    // Entries without addresses notify every subscriber.
-    calls = []
-    await customEventsRuntime.dispatch(runtime, origin, event(undefined as never))
-    assert.deepEqual(calls, ['whole', 'key'])
-
-    for (let cleanup of cleanups) cleanup()
-    unregisterHost()
-  })
-
-  it('derives host containment independently of registration order', () => {
-    let runtime = createCustomEventsRuntimeState()
-    let parent = document.createElement('main')
-    let host = document.createElement('section')
-    parent.append(host)
-    let reachedParent = false
-    parent.addEventListener('updated', () => {
-      reachedParent = true
-    })
-
-    let unsubscribe = customEventsRuntime.subscribe(runtime, 'view', {
-      element: host,
-      eventTypes: new Set(['updated']),
-      notify() {},
-    })
-    let unregisterHost = customEventsRuntime.registerHost(runtime, host)
-    let init = { bubbles: true, cancelable: false }
-    host.dispatchEvent(
-      customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
-        {
-          type: 'updated',
-          detail: null,
-        },
-      ]),
-    )
-
-    assert.equal(reachedParent, false)
-    unregisterHost()
-    unsubscribe()
-  })
-})
-
-describe('remembered customEvents', () => {
-  it('folds remembered replaces and fold events into the root composite', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-        label: 'idle',
-      },
-      {
-        inc: (amount: number, detail) => {
-          detail.count += amount
-        },
-      },
-    )
-    let seen: Array<[unknown, unknown]> = []
-
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail, event) => {
-            seen.push([detail, event?.type])
-            return `${detail.label}:${detail.count}`
-          }}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ inc: 2 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
-    // The effect entry notifies the root, then the affected remembered event folds.
-    assert.deepEqual(seen[seen.length - 1], [{ count: 2, label: 'idle' }, 'count'])
-
-    await result.act(async () => {
-      await events.dispatchEvent({ count: 5, label: 'ready' })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'ready:5')
-    assert.deepEqual(seen[seen.length - 1], [{ count: 5, label: 'ready' }, 'label'])
-
-    if (false) {
-      // @ts-expect-error - remembered descriptors have no state namespace.
-      events.on.state
-      // @ts-expect-error - remembered descriptors have no sync read.
-      events.on.value
-      // @ts-expect-error - writes go through dispatch, not update.
-      events.on.update
-      // @ts-expect-error - remembered details are typed by their seeds.
-      events.dispatchEvent({ count: 'not-a-number' })
-      // @ts-expect-error - seeds cannot overwrite the descriptor API.
-      customEvents({ root: { dispatchEvent: 1 } })
-      // @ts-expect-error - seeds cannot use native DOM event names.
-      customEvents({ root: { click: false } })
-    }
-  })
-
-  it('dispatches occurrences with and without details', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-        // A declared occurrence with a detail.
-      },
-      {
-        countDrafted: (count: number) => {},
-      },
-    )
-    let seen: Array<[unknown, unknown]> = []
-
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail, event) => {
-            seen.push([detail, event?.type])
-            if (event?.type === 'refreshRequested') return `refresh:${detail.count}`
-            if (event?.type === 'countDrafted') return `draft:${event.detail}`
-            return `count:${detail.count}`
-          }}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'count:0')
-
-    await result.act(async () => {
-      await events.dispatchEvent('refreshRequested')
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'refresh:0')
-    assert.deepEqual(seen[seen.length - 1], [{ count: 0 }, 'refreshRequested'])
-
-    await result.act(async () => {
-      await events.dispatchEvent({ countDrafted: 42 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'draft:42')
-    assert.deepEqual(seen[seen.length - 1], [{ count: 0 }, 'countDrafted'])
-  })
-
-  it('runs effect folds atomically and routes patches fine-grained', async (t) => {
-    type Item = { id: number; label: string }
-    let events = customEvents(
-      {
-        items: new Map<number, Item>([[1, { id: 1, label: 'one' }]]),
-      },
-      {
-        rename: ({ id, label }: { id: number; label: string }, detail) => {
-          let item = detail.items.get(id)
-          if (!item) return
-          detail.items.set(id, { ...item, label })
-        },
-      },
-    )
-    let rootCalls = 0
-
-    function View() {
-      return () => (
-        <section>
-          <evented.output on={events} aria-label="root">
-            {(detail) => {
-              rootCalls++
-              return `${detail.items.size} items`
-            }}
-          </evented.output>
-          <evented.div on={events.on.items}>
-            {(items) => (
-              <>
-                {[...items.entries()].map(([id, item]) => (
-                  <evented.div key={id} className="item" on={events.on.items.get(id)}>
-                    {(current) => current?.label ?? item.label}
-                  </evented.div>
-                ))}
-              </>
-            )}
-          </evented.div>
-        </section>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(rootCalls, 1)
-    let item = result.$('.item')!
-
-    await result.act(async () => {
-      await events.dispatchEvent({ rename: { id: 1, label: 'first' } })
-      await settleEffects()
-    })
-    // The effect entry rides the diffed Map item routes, so the whole-key
-    // views re-resolve while the item element follows its own keyed route,
-    // preserving its DOM identity.
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '1 items')
-    assert.equal(result.$('.item')?.textContent, 'first')
-    assert.equal(result.$('.item'), item)
-    assert.equal(rootCalls, 2, `rootCalls=${rootCalls}`)
-  })
-
-  it("keeps the fold event's own detail visible to its subscribers", async (t) => {
-    let events = customEvents(
-      {
-        elapsed: 0,
-      },
-      {
-        tick: (delta: number, detail) => {
-          detail.elapsed += delta
-        },
-      },
-    )
-    let seen: Array<[unknown, unknown]> = []
-
-    function View() {
-      return () => (
-        <evented.output on={events.on.tick} aria-label="tick">
-          {(delta, latest) => {
-            seen.push([delta, latest?.type])
-            return delta === undefined ? '' : `${delta}`
-          }}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="tick"]')?.textContent, '')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ tick: 0.5 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="tick"]')?.textContent, '0.5')
-    assert.deepEqual(seen[seen.length - 1], [0.5, 'tick'])
-  })
-
-  it('folds null through the bare-name sugar for remembered events', async (t) => {
-    let events = customEvents({ kind: 'one-way' }, {})
-    let seen: unknown[] = []
-
-    function View() {
-      return () => (
-        <evented.output on={events.on.kind} aria-label="kind">
-          {(kind) => {
-            seen.push(kind)
-            return `${kind}`
-          }}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="kind"]')?.textContent, 'one-way')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ kind: 'return' })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="kind"]')?.textContent, 'return')
-  })
-
-  it('keeps remembered seeds live and rejects reserved names', () => {
-    let seeds = { count: 0 }
-    let events = customEvents(seeds, {})
-    events.dispatchEvent({ count: 1 })
-    assert.equal(seeds.count, 1)
-    events.dispatchEvent({ count: 2 })
-    assert.equal(seeds.count, 2)
-    assert.throws(() => {
-      customEvents(Object.freeze({ count: 0 }), {})
-    }, /must not be frozen/)
-    assert.throws(() => {
-      customEvents({ on: 1 }, {}) as any
-    }, /reserves the detail name/)
-    assert.throws(() => {
-      customEvents({ count: 0 }, { create: (_detail, detail) => {} })
-    }, /reserves "create"/)
-
-    let events2 = customEvents({ count: 0 }, {})
-    assert.throws(() => events2.dispatchEvent({ on: 1 } as any), /reserves "on"/)
-    assert.throws(() => events2.dispatchEvent({ create: 1 } as any), /reserves "create"/)
-    assert.throws(() => events2.dispatchEvent({ root: 5 } as any), /root must be an object/)
-    assert.throws(
-      () => events2.dispatchEvent({ root: { on: 1 } } as any),
-      /reserves the detail name/,
-    )
-    // Pure descriptors have no composite, so `root` is not writable there.
-    let pure = customEvents<'querySubmitted'>()
-    assert.throws(() => pure.dispatchEvent({ root: { query: 'x' } } as any), /reserves "root"/)
-  })
-
-  it('exposes the root composite as the named events.root source', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-        label: 'idle',
-      },
-      {
-        inc: (amount: number, detail) => {
-          detail.count += amount
-        },
-      },
-    )
-    let seen: Array<[unknown, unknown]> = []
-
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail, event) => {
-            seen.push([detail, event?.type])
-            return `${detail.label}:${detail.count}`
-          }}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
-
-    await result.act(async () => {
-      await events.dispatchEvent('refresh')
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
-    assert.deepEqual(seen[seen.length - 1], [{ count: 0, label: 'idle' }, 'refresh'])
-
-    await result.act(async () => {
-      await events.dispatchEvent({ inc: 2 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:2')
-    assert.deepEqual(seen[seen.length - 1], [{ count: 2, label: 'idle' }, 'count'])
-  })
-
-  it('lets a fold shadow a same-named root detail', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-        label: 'idle',
-        // The fold shadows the count slice: dispatching count runs the recipe
-        // instead of the implicit replace-itself fold.
-      },
-      {
-        count: (value: string, detail) => {
-          detail.count = value.length
-          detail.label = `len:${value}`
-        },
-      },
-    )
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail) => `${detail.label}:${detail.count}`}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ count: 'abcd' })
-      await settleEffects()
-    })
-    // The fold ran, not the slice replace: count derived from the detail.
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'len:abcd:4')
-
-    if (false) {
-      // @ts-expect-error - the shadowing fold's detail (string) wins over the slice (number).
-      events.dispatchEvent({ count: 5 })
-    }
-  })
-
-  it('derives sibling details through shadowing folds', async (t) => {
-    let events = customEvents(
-      {
-        celsius: '',
-        fahrenheit: '',
-        // Each fold shadows its root detail: dispatching the name runs the
-        // recipe instead of the implicit replace-itself fold, so the recipe
-        // derives the other unit from the detail.
-      },
-      {
-        celsius: (value: string, detail) => {
-          detail.celsius = value
-          let number = Number(value)
-          if (Number.isFinite(number) && value.trim() !== '') {
-            detail.fahrenheit = String(number * (9 / 5) + 32)
-          }
-        },
-        fahrenheit: (value: string, detail) => {
-          detail.fahrenheit = value
-          let number = Number(value)
-          if (Number.isFinite(number) && value.trim() !== '') {
-            detail.celsius = String((number - 32) * (5 / 9))
-          }
-        },
-      },
-    )
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail) => `${detail.celsius}/${detail.fahrenheit}`}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    // The composite starts from its root data.
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '/')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ celsius: '25' })
-      await settleEffects()
-    })
-    // The celsius fold ran (shadowing the slice) and derived fahrenheit.
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '25/77')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ fahrenheit: '212' })
-      await settleEffects()
-    })
-    // The fahrenheit fold derived celsius; its own write stands.
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '100/212')
-
-    if (false) {
-      // @ts-expect-error - the shadowing fold's detail (string) wins over the slice.
-      events.dispatchEvent({ celsius: 25 })
-    }
-  })
-
-  it('declares transient occurrences with a single-parameter recipe', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-      },
-      {
-        drafted: (text: string) => {},
-      },
-    )
-    let drafts: Array<unknown> = []
-
-    function View() {
-      return () => (
-        <section>
-          <evented.output on={events.on.drafted} aria-label="draft">
-            {(draft) => {
-              drafts.push(draft)
-              return `${draft}`
-            }}
-          </evented.output>
-          <evented.output on={events} aria-label="root">
-            {(detail) => `${detail.count}`}
-          </evented.output>
-        </section>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '0')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ drafted: 'one' })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="draft"]')?.textContent, 'one')
-    // The occurrence leaves the composite untouched.
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '0')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ drafted: 'two' })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="draft"]')?.textContent, 'two')
-    assert.deepEqual(drafts.slice(-2), ['one', 'two'])
-  })
-
-  it('declares detail-less occurrences with a zero-parameter recipe', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-      },
-      {
-        bookingConfirmed: () => {},
-      },
-    )
-    let seen: unknown[] = []
-
-    function View() {
-      return () => (
-        <section>
-          <evented.output on={events.on.bookingConfirmed} aria-label="signal">
-            {(detail) => {
-              seen.push(detail)
-              return detail === null ? 'idle' : 'matched'
-            }}
-          </evented.output>
-          <evented.output on={events} aria-label="root">
-            {(detail) => `${detail.count}`}
-          </evented.output>
-        </section>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '0')
-
-    await result.act(async () => {
-      await events.dispatchEvent('bookingConfirmed')
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="signal"]')?.textContent, 'idle')
-    // The detail-less occurrence leaves the composite untouched.
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '0')
-    assert.deepEqual(seen.slice(-1), [null])
-  })
-
-  it('declares an occurrence vocabulary without a root composite', async (t) => {
-    let events = customEvents({
-      drafted: (text: string) => {},
-      refresh: () => {},
-    })
-
-    function View() {
-      return () => (
-        <section>
-          <evented.output on={events.on.drafted} aria-label="draft">
-            {(draft) => draft ?? ''}
-          </evented.output>
-          <evented.div on={events} aria-label="wild">
-            {(_, event) => event?.type ?? 'none'}
-          </evented.div>
-        </section>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="draft"]')?.textContent, '')
-    assert.equal(result.$('[aria-label="wild"]')?.textContent, 'none')
-
-    // The declaration typed the detail from the recipe's first parameter.
-    await result.act(async () => {
-      await events.dispatchEvent({ drafted: 'hello' })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="draft"]')?.textContent, 'hello')
-    assert.equal(result.$('[aria-label="wild"]')?.textContent, 'drafted')
-
-    // A zero-parameter recipe declares a detail-less occurrence.
-    await result.act(async () => {
-      await events.dispatchEvent('refresh')
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="wild"]')?.textContent, 'refresh')
-
-    if (false) {
-      // @ts-expect-error - every declaration value is an occurrence recipe.
-      customEvents({ count: 5 })
-    }
-
-    // The runtime enforces both rules outright.
-    assert.throws(
-      () => customEvents({ inc: ((_amount: number, _root: {}) => {}) as any }),
-      /remembered composite/,
-    )
-    assert.throws(() => customEvents({ count: 5 } as any), /expects a recipe/)
-  })
-
-  it('delivers the owning element as the currentTarget of view callbacks', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-      },
-      {},
-    )
-
-    let current: unknown
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail, event) => {
-            current = event?.currentTarget
-            return `${detail.count}`
-          }}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-
-    await result.act(async () => {
-      await events.dispatchEvent({ count: 1 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]'), current)
-
-    if (false) {
-      // The matched event's currentTarget is the element type, not EventTarget.
-      ;<evented.button on={events.on.count}>
-        {(_, event) => {
-          event?.currentTarget?.focus()
-          return null
-        }}
-      </evented.button>
-    }
-  })
-
-  it('renders children against the freshly patched props of the same update', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-      },
-      {},
-    )
-    let current: unknown
-    function View() {
-      return () => (
-        <evented.button
-          on={events.on.count}
-          data-count={(count) => `count-${count}`}
-          aria-label="button"
-        >
-          {(_, event) => event?.currentTarget?.dataset.count ?? 'none'}
-        </evented.button>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="button"]')?.textContent, 'none')
-
-    // The children callback runs after the reactive props were patched to
-    // the DOM, so the element's dataset reflects the same update's value.
-    await result.act(async () => {
-      await events.dispatchEvent({ count: 1 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="button"]')?.textContent, 'count-1')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ count: 2 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="button"]')?.textContent, 'count-2')
-  })
-
-  it('updates views progressively from async fold handlers', async (t) => {
-    let events = customEvents(
-      {
-        phase: 'idle',
-        value: 0,
-      },
-      {
-        load: async (url: string, detail) => {
-          detail.phase = 'loading'
-          // A macrotask boundary lets the session's flush run first, so the
-          // loading state reaches views before the handler completes.
-          await new Promise((resolve) => setTimeout(resolve, 0))
-          detail.phase = 'ready'
-          detail.value = Number(url)
-        },
-      },
-    )
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="phase">
-          {(detail) => `${detail.phase}:${detail.value}`}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="phase"]')?.textContent, 'idle:0')
-
-    // The await boundary flushed the loading mutation already, before the
-    // handler completed.
-    let completion = events.dispatchEvent({ load: '42' })
-    await settleEffects()
-    assert.equal(result.$('[aria-label="phase"]')?.textContent, 'loading:0')
-
-    // The dispatch settles after the handler and its remaining flushes.
-    await completion
-    assert.equal(result.$('[aria-label="phase"]')?.textContent, 'ready:42')
-  })
-
-  it('queues dispatch during an active fold session until its flush', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-        label: 'idle',
-      },
-      {
-        bump: (amount: number, detail) => {
-          detail.count += amount
-          events.dispatchEvent({ label: 'bumped' })
-        },
-      },
-    )
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail) => `${detail.count}:${detail.label}`}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '0:idle')
-
-    // The nested dispatch was deferred past the bump fold's flush, so both
-    // writes land against the committed state and the dispatch settles after
-    // the nested event too.
-    await result.act(async () => {
-      await events.dispatchEvent({ bump: 1 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '1:bumped')
-  })
-
-  it('queues dispatch from async handlers until the session flushes', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-        log: '',
-      },
-      {
-        work: async (amount: number, detail) => {
-          detail.count += amount
-          events.dispatchEvent({ log: 'done' })
-          await Promise.resolve()
-        },
-      },
-    )
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail) => `${detail.count}:${detail.log}`}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-
-    await result.act(async () => {
-      await events.dispatchEvent({ work: 2 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, '2:done')
-  })
-
-  it('settles the dispatch with the async handler rejection', async () => {
-    let seed = { count: 0 }
-    let events = customEvents(seed, {
-      fail: async (_detail: null, detail) => {
-        detail.count = 1
-        await Promise.resolve()
-        throw new Error('boom')
-      },
-    })
-    let completion = events.dispatchEvent({ fail: null })
-    // The first mutation flushed before the rejection; the dispatch still
-    // rejects with the handler's error.
-    await settleEffects()
-    assert.equal(seed.count, 1)
-    await assert.rejects(completion, /boom/)
-  })
-
-  it('derives dispatch inputs from the composite at dispatch time', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-        label: 'idle',
-      },
-      {
-        inc: (amount: number, detail) => {
-          detail.count += amount
-        },
-        drafted: (text: string) => {},
-      },
-    )
-    function View() {
-      return () => (
-        <section>
-          <evented.output on={events} aria-label="root">
-            {(detail) => `${detail.label}:${detail.count}`}
-          </evented.output>
-          <evented.output on={events.on.drafted} aria-label="draft">
-            {(draft) => `${draft}`}
-          </evented.output>
-        </section>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
-
-    if (false) {
-      // @ts-expect-error - derived dispatch inputs read the composite readonly.
-      events.dispatchEvent((detail) => (detail.count = 1))
-    }
-
-    // A derived occurrence detail: the input is computed from the live
-    // composite at dispatch, so the handler never holds the model.
-    await result.act(async () => {
-      await events.dispatchEvent((detail) => ({ drafted: `count=${detail.count}` }))
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="draft"]')?.textContent, 'count=0')
-
-    // A derived input is computed once, before any entry folds: the callback
-    // sees the pre-dispatch composite, and per-name values are data.
-    await result.act(async () => {
-      await events.dispatchEvent((detail) => ({ count: detail.count + 1, inc: detail.count }))
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:1')
-
-    // A derived root write replaces the composite with the returned model.
-    await result.act(async () => {
-      await events.dispatchEvent((detail) => ({
-        count: detail.count * 10,
-        label: 'derived',
-      }))
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'derived:10')
-
-    // A function value of an event name is a plain detail, not a callback.
-    let details: unknown[] = []
-    let functionDetail = () => 'fn'
-    events.addEventListener('drafted', (event) =>
-      details.push((event as CustomEvent<unknown>).detail),
-    )
-    events.dispatchEvent({ drafted: functionDetail as unknown as string })
-    assert.equal(details[details.length - 1], functionDetail)
-
-    // Derived inputs require a composite: pure descriptors reject them.
-    let pure = customEvents<'ping'>()
-    assert.throws(
-      () => pure.dispatchEvent(((root: unknown) => ({ ping: 1 })) as any),
-      /remembered descriptor/,
-    )
-  })
-
-  it('replaces the whole composite via a root write', async (t) => {
-    let events = customEvents(
-      {
-        count: 0,
-        label: 'idle',
-      },
-      {
-        inc: (amount: number, detail) => {
-          detail.count += amount
-        },
-      },
-    )
-    function View() {
-      return () => (
-        <evented.output on={events} aria-label="root">
-          {(detail) => `${detail.label}:${detail.count}`}
-        </evented.output>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:0')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ count: 5, label: 'ready' })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'ready:5')
-
-    // A root write replaces the composite wholesale: slices it omits are gone.
-    await result.act(async () => {
-      await events.dispatchEvent({ root: { count: 7 } } as any)
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'undefined:7')
-
-    // The composite is replaced before later entries in the same transaction.
-    await result.act(async () => {
-      await events.dispatchEvent({ root: { count: 1, label: 'folded' }, inc: 2 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'folded:3')
-
-    // The built event carries the composite as the root event's detail.
-    await result.act(async () => {
-      await events.dispatchEvent(events.create({ root: { count: 9, label: 'built' } }))
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="root"]')?.textContent, 'built:9')
-  })
-
-  it('reads and routes deep number-keyed collections by canonical segment', async (t) => {
-    let events = customEvents(
-      {
-        boards: new Map([
-          [
-            1,
-            {
-              cards: new Map([
-                [10, { label: 'ten' }],
-                [20, { label: 'twenty' }],
-              ]),
-            },
-          ],
-        ]),
-      },
-      {
-        rename: (id: number, detail) => {
-          let card = detail.boards.get(1)?.cards.get(id)
-          if (card) card.label = `${card.label}!`
-        },
-      },
-    )
-    let calls = { board: 0, ten: 0, twenty: 0 }
-
-    function Board() {
-      return () => (
-        <section>
-          <evented.output on={events.on.boards}>{() => String(++calls.board)}</evented.output>
-          <evented.output on={events.on.boards.get(1).cards.get(10).label}>
-            {() => String(++calls.ten)}
-          </evented.output>
-          <evented.output on={events.on.boards.get(1).cards.get(20).label}>
-            {() => String(++calls.twenty)}
-          </evented.output>
-        </section>
-      )
-    }
-
-    let result = render(<Board />)
-    t.after(() => result.cleanup())
-    assert.deepEqual(calls, { board: 1, ten: 1, twenty: 1 })
-
-    // A deep recipe write reaches only the addressed card and the whole-key
-    // view, resolving through number keys by their canonical string form.
-    await result.act(async () => {
-      await events.dispatchEvent({ rename: 10 })
-      await settleEffects()
-    })
-    assert.deepEqual(calls, { board: 2, ten: 2, twenty: 1 })
-
-    await result.act(async () => {
-      await events.dispatchEvent({ rename: 20 })
-      await settleEffects()
-    })
-    assert.deepEqual(calls, { board: 3, ten: 2, twenty: 2 })
   })
 })

@@ -1,5 +1,5 @@
 import { addEventListeners, type Handle, type RemixNode } from 'remix/ui'
-import { customEvents, evented } from './utils/customEvents/index.tsx'
+import { Events, evented, type CustomEventsEventMap, type EventsApi } from './utils/customEvents/index.tsx'
 
 export type AppContextValue = {
   user: { name: string; age: number } | null
@@ -9,25 +9,37 @@ export type AppContextValue = {
   }
 }
 
-export const createAppContext = (value: AppContextValue) => customEvents(value, {})
-export function AppProvider(
-  handle: Handle<
-    { children?: RemixNode },
-    { events: ReturnType<typeof createAppContext>; value: AppContextValue }
-  >,
-) {
-  let value: AppContextValue = {
+export class AppContextEvents extends Events {
+  // The descriptor's EventTarget channel is typed through its event map, so
+  // addEventListeners(events, ...) narrows the named listeners.
+  declare readonly __eventMap?: CustomEventsEventMap<{ context: AppContextValue }>
+
+  context: AppContextValue
+
+  constructor(_api: EventsApi<AppContextEvents>, context: AppContextValue) {
+    super()
+    this.context = context
+  }
+}
+
+export const createAppContext = (value: AppContextValue) => AppContextEvents.define(value)
+export function AppProvider(handle: Handle<
+  { children?: RemixNode },
+  ReturnType<typeof createAppContext>
+>) {
+  let events = createAppContext({
     user: null,
     settings: { layout: 'normal', theme: 'system' },
-  }
-  let events = createAppContext(value)
-  handle.context.set({ events, value })
+  })
+  handle.context.set(events)
 
   handle.queueTask(async () => {
-    // perform auth and other async stuff and dispatch context value
+    // perform auth and other async stuff and dispatch the context value
     events.dispatchEvent({
-      user: { age: 23, name: 'Bob Lazar' },
-      settings: { layout: 'zen', theme: 'light' },
+      context: {
+        user: { age: 23, name: 'Bob Lazar' },
+        settings: { layout: 'zen', theme: 'light' },
+      },
     })
   })
 
@@ -37,37 +49,39 @@ export function AppProvider(
 // Components subscribe to the shared descriptor with evented views or the
 // descriptor's own EventTarget channel (addEventListener/addEventListeners).
 export function UserDisplay2(handle: Handle) {
-  let { events, value } = handle.context.get(AppProvider)
+  let events = handle.context.get(AppProvider)
 
   addEventListeners(events, handle.signal, {
-    user() {
+    context() {
       handle.update()
     },
   })
 
   return () => (
     <div>
-      <div>{value.user?.name ?? 'Not logged in'}</div>
+      <div>{events.detail.context.user?.name ?? 'Not logged in'}</div>
     </div>
   )
 }
 
 export function EventUserDisplay(handle: Handle) {
-  let { events } = handle.context.get(AppProvider)
+  let events = handle.context.get(AppProvider)
 
   return () => (
     <div>
-      <evented.div on={events.on.user.name}>{(user) => user ?? 'Not logged in'}</evented.div>
+      <evented.div on={events.on.context.user.name}>
+        {(user) => user ?? 'Not logged in'}
+      </evented.div>
     </div>
   )
 }
 
 export function SettingsDisplay(handle: Handle) {
-  let { events } = handle.context.get(AppProvider)
+  let events = handle.context.get(AppProvider)
 
   return () => (
     <div>
-      <evented.div on={events.on.settings}>
+      <evented.div on={events.on.context.settings}>
         {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
       </evented.div>
     </div>

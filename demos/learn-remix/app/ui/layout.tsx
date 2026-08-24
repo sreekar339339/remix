@@ -30,6 +30,7 @@ export function Layout(handle: Handle<{ children: RemixNode; url?: URL; params?:
           <a href={routes.sevenGuis.href()}>7GUIs</a>
           <a href={routes.kanban.href()}>Kanban experiment</a>
           <a href={routes.listUpdates.href()}>List updates</a>
+          <a href={routes.jobRunner.href()}>Job runner</a>
         </nav>
         <section mix={css({ maxWidth: '70%' })}>{handle.props.children}</section>
       </main>

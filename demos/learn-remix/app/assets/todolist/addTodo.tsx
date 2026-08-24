@@ -48,7 +48,7 @@ export function AddTodo(handle: Handle<Props<'form'>>) {
       <label>
         Enter a todo{' '}
         <evented.input
-          on={events}
+          on={events.on['*']}
           disabled={(_, event) => event?.type === 'actionSubmitted'}
           class={(_, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
           mix={[

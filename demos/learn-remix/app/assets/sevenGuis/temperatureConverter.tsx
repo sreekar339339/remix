@@ -1,5 +1,5 @@
 import { clientEntry, on } from 'remix/ui'
-import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented, type EventsApi } from '../utils/customEvents/index.tsx'
 import { inputCss, rowCss, taskCss } from './styles.ts'
 
 function parseTemperature(value: string) {
@@ -11,34 +11,34 @@ function formatTemperature(value: number) {
   return Number(value.toFixed(2)).toString()
 }
 
+class TemperatureConverterEvents extends Events {
+  celsius = ''
+  fahrenheit = ''
+  constructor(api: EventsApi<TemperatureConverterEvents>) {
+    super()
+    // Dispatching either unit writes its slice and runs the reaction, so
+    // editing one converts the other.
+    api.on.celsius(function ({ detail }) {
+      let number = parseTemperature(detail)
+      if (number !== undefined) {
+        this.fahrenheit = formatTemperature(number * (9 / 5) + 32)
+      }
+    })
+    api.on.fahrenheit(function ({ detail }) {
+      let number = parseTemperature(detail)
+      if (number !== undefined) {
+        this.celsius = formatTemperature((number - 32) * (5 / 9))
+      }
+    })
+  }
+}
+
 export const SevenGuisTemperatureConverter = clientEntry(
   import.meta.url,
   function SevenGuisTemperatureConverter() {
-    let events = customEvents(
-      {
-        celsius: '',
-        fahrenheit: '',
-        // Each fold shadows its root detail: dispatching the name runs the
-        // recipe instead of the implicit replace-itself fold, so editing either
-        // unit converts the other.
-      },
-      {
-        celsius: (value: string, detail) => {
-          detail.celsius = value
-          let number = parseTemperature(value)
-          if (number !== undefined) {
-            detail.fahrenheit = formatTemperature(number * (9 / 5) + 32)
-          }
-        },
-        fahrenheit: (value: string, detail) => {
-          detail.fahrenheit = value
-          let number = parseTemperature(value)
-          if (number !== undefined) {
-            detail.celsius = formatTemperature((number - 32) * (5 / 9))
-          }
-        },
-      },
-    )
+
+    let events = TemperatureConverterEvents.define()
+
     return () => (
       <section mix={taskCss}>
         <h2>Temperature Converter</h2>

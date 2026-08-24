@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { customEvents, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented } from '../utils/customEvents/index.tsx'
 import { buttonCss, rowCss, taskCss } from './styles.ts'
 
 const items = [
@@ -8,13 +8,12 @@ const items = [
   { id: 'charlie', label: 'Charlie' },
 ]
 
+class KeyedSelectionEvents extends Events {
+  selectedId = items[0]!.id
+}
+
 export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelection() {
-  let events = customEvents(
-    {
-      selectedId: items[0]!.id,
-    },
-    {},
-  )
+  let events = KeyedSelectionEvents.define()
 
   let renderCounts = new Map<string, number>()
 
