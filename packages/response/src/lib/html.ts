@@ -83,6 +83,8 @@ function prependDoctypeToStream(stream: ReadableStream<Uint8Array>): ReadableStr
 
         // Pass through remaining chunks
         while (true) {
+          // Keep the result intact so TypeScript 7 can narrow value from done. The abortable UI
+          // stream uses the same pattern.
           let result = await reader.read()
           if (result.done) break
           controller.enqueue(result.value)

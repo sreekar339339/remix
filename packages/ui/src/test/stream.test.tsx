@@ -12,6 +12,7 @@ import { invariant } from '../runtime/invariant.ts'
 
 const rmxDataScriptSelector = 'script[type="application/json"]#rmx-data'
 const flushMarkerPattern = /<!--\s*rmx:flush\s+(?:document|fragment)\s*-->/g
+const managedModulePreloadPattern = /<link data-rmx-module-preload rel="modulepreload"/g
 
 describe('stream', () => {
   function getLatestRmxDataScript(root: ParentNode): HTMLScriptElement {
@@ -664,9 +665,19 @@ describe('stream', () => {
       )
       let html = await drain(stream)
 
-      expect(html).toContain('<style data-rmx=')
+      expect(html).toContain('<style data-rmx-style=')
       expect(html).toMatch(/class="base rmxc-[a-z0-9]+ rmxc-[a-z0-9]+"/)
       expect(html).toContain('.rmxc-')
+    })
+
+    it('prevents css mixin styles from breaking out of style tags', async () => {
+      let html = await renderToString(
+        <div mix={[css({ color: '</style><script>globalThis.__xss = true</script><style>' })]} />,
+      )
+
+      expect(html).not.toContain('</style><script>')
+      expect(html).not.toContain('<script>globalThis.__xss = true</script>')
+      expect(html).toContain('color: \\3C /style>\\3C script>globalThis.__xss = true\\3C /script>')
     })
   })
 
@@ -757,7 +768,7 @@ describe('stream', () => {
       let html = await drain(stream)
 
       // Should have a style tag in head
-      expect(html).toContain('<style data-rmx=')
+      expect(html).toContain('<style data-rmx-style=')
       expect(html).toContain('.rmxc-')
       expect(html).toContain('color: red')
       expect(html).toContain('font-size: 16px')
@@ -863,7 +874,7 @@ describe('stream', () => {
 
       expect(html).toContain('<template')
       // One tag in the outer frame's template, one in the inner frame's.
-      let tags = html.match(/data-rmx="[^"]+"/g) ?? []
+      let tags = html.match(/data-rmx-style="[^"]+"/g) ?? []
       expect(tags).toHaveLength(2)
       expect(new Set(tags).size).toBe(1)
     })
@@ -879,7 +890,7 @@ describe('stream', () => {
       let html = await drain(stream)
 
       // Style should be in the head section
-      expect(html).toContain('<html><head><style data-rmx=')
+      expect(html).toContain('<html><head><style data-rmx-style=')
       expect(html).toContain('color: purple')
       expect(html).toContain('</style></head><body>')
     })
@@ -889,7 +900,7 @@ describe('stream', () => {
       let html = await drain(stream)
 
       // Style should be in a head element
-      expect(html).toMatch(/^<head><style data-rmx=/)
+      expect(html).toMatch(/^<head><style data-rmx-style=/)
       expect(html).toContain('color: orange')
       expect(html).toMatch(/<\/style><\/head><div class="rmxc-[a-z0-9]+">No HTML root<\/div>$/)
     })
@@ -996,7 +1007,7 @@ describe('stream', () => {
 
       // Styles should be injected into existing head, preserving other content
       expect(html).toContain('<head>')
-      expect(html).toContain('<style data-rmx=')
+      expect(html).toContain('<style data-rmx-style=')
       expect(html).toContain('font-weight: bold')
       expect(html).toContain('<title>Page Title</title>')
       expect(html).toContain('<meta charset="utf-8" />')
@@ -1006,9 +1017,361 @@ describe('stream', () => {
       let headMatch = html.match(/<head>(.*?)<\/head>/s)
       expect(headMatch).toBeTruthy()
       let headContent = headMatch![1]
-      expect(headContent).toContain('<style data-rmx=')
+      expect(headContent).toContain('<style data-rmx-style=')
       expect(headContent).toContain('<title>Page Title</title>')
       expect(headContent).toContain('<meta charset="utf-8" />')
+    })
+  })
+
+  describe('client entry preloads', () => {
+    function Island() {
+      return () => <section>Island</section>
+    }
+
+    let ClientIsland = clientEntry('/island.ts#Island', Island)
+
+    it('emits and deduplicates client entry preloads in the document head', async () => {
+      let html = await drain(
+        renderToStream(
+          <html>
+            <head />
+            <body>
+              <ClientIsland />
+              <ClientIsland />
+            </body>
+          </html>,
+          {
+            resolveClientEntry() {
+              return {
+                href: '/assets/island.js',
+                exportName: 'Island',
+                preloads: ['/assets/island.js', '/assets/shared.js', '/assets/island.js'],
+              }
+            },
+          },
+        ),
+      )
+
+      expect(html.match(/href="\/assets\/island\.js"/g)).toHaveLength(1)
+      expect(html.match(/href="\/assets\/shared\.js"/g)).toHaveLength(1)
+      expect(html).toContain(
+        '<link data-rmx-module-preload rel="modulepreload" href="/assets/island.js" />',
+      )
+      expect(html).not.toContain('"preloads"')
+    })
+
+    it('leaves authored module preloads outside framework deduplication', async () => {
+      let html = await drain(
+        renderToStream(
+          <html>
+            <head>
+              <link rel="modulepreload" href="/assets/island.js" />
+            </head>
+            <body>
+              <ClientIsland />
+            </body>
+          </html>,
+          {
+            resolveClientEntry() {
+              return {
+                href: '/assets/island.js',
+                exportName: 'Island',
+                preloads: ['/assets/island.js'],
+              }
+            },
+          },
+        ),
+      )
+
+      expect(html.match(/href="\/assets\/island\.js"/g)).toHaveLength(2)
+      expect(html.match(managedModulePreloadPattern)).toHaveLength(1)
+    })
+
+    it('groups fragment preloads and styles in a leading transport head', async () => {
+      let html = await drain(
+        renderToStream(
+          <main mix={[css({ color: 'purple' })]}>
+            <ClientIsland />
+          </main>,
+          {
+            resolveClientEntry() {
+              return {
+                href: '/assets/island.js',
+                exportName: 'Island',
+                preloads: ['/assets/island.js'],
+              }
+            },
+          },
+        ),
+      )
+
+      expect(html).toMatch(
+        /^<head><link data-rmx-module-preload rel="modulepreload" href="\/assets\/island\.js" \/><style data-rmx-style=/,
+      )
+      expect(html).toMatch(/<\/style><\/head><main class="rmxc-[a-z0-9]+">/)
+    })
+
+    it('hoists module preloads from blocking frames', async () => {
+      let html = await drain(
+        renderToStream(
+          <html>
+            <head>
+              <title>Books</title>
+            </head>
+            <body>
+              <Frame src="/frame" />
+            </body>
+          </html>,
+          {
+            resolveFrame() {
+              return renderToStream(<ClientIsland />, {
+                resolveClientEntry() {
+                  return {
+                    href: '/assets/island.js',
+                    exportName: 'Island',
+                    preloads: ['/assets/island.js'],
+                  }
+                },
+              })
+            },
+          },
+        ),
+      )
+
+      let head = html.match(/<head>(.*?)<\/head>/s)?.[1]
+      expect(head).toContain(
+        '<link data-rmx-module-preload rel="modulepreload" href="/assets/island.js" />',
+      )
+      expect(html.match(managedModulePreloadPattern)).toHaveLength(1)
+    })
+
+    it('leaves styles in a blocking frame head when hoisting its preloads', async () => {
+      let html = await drain(
+        renderToStream(
+          <html>
+            <head>
+              <title>Books</title>
+            </head>
+            <body>
+              <Frame src="/frame" />
+            </body>
+          </html>,
+          {
+            resolveFrame() {
+              return renderToStream(
+                <main mix={[css({ color: 'purple' })]}>
+                  <ClientIsland />
+                </main>,
+                {
+                  resolveClientEntry() {
+                    return {
+                      href: '/assets/island.js',
+                      exportName: 'Island',
+                      preloads: ['/assets/island.js'],
+                    }
+                  },
+                },
+              )
+            },
+          },
+        ),
+      )
+
+      expect(html.match(managedModulePreloadPattern)).toHaveLength(1)
+      expect(html).toMatch(/<body><!-- rmx:f:[^ ]+ --><head><style data-rmx-style=/)
+    })
+
+    it('does not inspect marker-shaped markup outside the leading frame head', async () => {
+      let markerShapedMarkup =
+        '<link data-rmx-module-preload rel="modulepreload" href="/assets/not-a-preload.js" />'
+      let html = await drain(
+        renderToStream(
+          <html>
+            <head>
+              <title>Books</title>
+            </head>
+            <body>
+              <Frame src="/frame" />
+            </body>
+          </html>,
+          {
+            resolveFrame() {
+              return `<script type="text/plain">${markerShapedMarkup}</script>`
+            },
+          },
+        ),
+      )
+
+      expect(html).toContain(`<script type="text/plain">${markerShapedMarkup}</script>`)
+      expect(html.match(managedModulePreloadPattern)).toHaveLength(1)
+    })
+
+    it('does not inspect the leading frame head after its generated preload prefix', async () => {
+      let markerShapedMarkup =
+        '<link data-rmx-module-preload rel="modulepreload" href="/assets/not-a-preload.js" />'
+      let html = await drain(
+        renderToStream(
+          <html>
+            <head>
+              <title>Books</title>
+            </head>
+            <body>
+              <Frame src="/frame" />
+            </body>
+          </html>,
+          {
+            resolveFrame() {
+              return [
+                '<head>',
+                '<link data-rmx-module-preload rel="modulepreload" href="/assets/island.js" />',
+                '<style data-rmx-style="rmxc-frame">@layer rmx-ui.rmxc-frame { color: purple }</style>',
+                `<script type="text/plain">${markerShapedMarkup}</script>`,
+                '</head><main>Frame</main>',
+              ].join('')
+            },
+          },
+        ),
+      )
+
+      expect(html).toContain(
+        '<head><style data-rmx-style="rmxc-frame">@layer rmx-ui.rmxc-frame { color: purple }</style>' +
+          `<script type="text/plain">${markerShapedMarkup}</script></head>`,
+      )
+      expect(html.match(/href="\/assets\/island\.js"/g)).toHaveLength(1)
+    })
+
+    it('creates a document head for module preloads when one is omitted', async () => {
+      let html = await drain(
+        renderToStream(
+          <html>
+            <body>
+              <ClientIsland />
+            </body>
+          </html>,
+          {
+            resolveClientEntry() {
+              return {
+                href: '/assets/island.js',
+                exportName: 'Island',
+                preloads: ['/assets/island.js'],
+              }
+            },
+          },
+        ),
+      )
+
+      expect(html).toContain(
+        '<html><head><link data-rmx-module-preload rel="modulepreload" href="/assets/island.js" /></head><body>',
+      )
+    })
+
+    it('hoists module preloads through nested blocking frames', async () => {
+      let html = await drain(
+        renderToStream(
+          <html>
+            <head>
+              <title>Books</title>
+            </head>
+            <body>
+              <Frame src="/outer" />
+            </body>
+          </html>,
+          {
+            resolveFrame() {
+              return renderToStream(<Frame src="/inner" />, {
+                resolveFrame() {
+                  return renderToStream(<ClientIsland />, {
+                    resolveClientEntry() {
+                      return {
+                        href: '/assets/island.js',
+                        exportName: 'Island',
+                        preloads: ['/assets/island.js'],
+                      }
+                    },
+                  })
+                },
+              })
+            },
+          },
+        ),
+      )
+
+      let head = html.match(/<head>(.*?)<\/head>/s)?.[1]
+      expect(head).toContain(
+        '<link data-rmx-module-preload rel="modulepreload" href="/assets/island.js" />',
+      )
+      expect(html.match(managedModulePreloadPattern)).toHaveLength(1)
+    })
+
+    it('keeps module preloads with non-blocking frame content', async () => {
+      let html = await drain(
+        renderToStream(<Frame src="/frame" fallback={<p>Loading</p>} />, {
+          resolveFrame() {
+            return renderToStream(<ClientIsland />, {
+              resolveClientEntry() {
+                return {
+                  href: '/assets/island.js',
+                  exportName: 'Island',
+                  preloads: ['/assets/island.js'],
+                }
+              },
+            })
+          },
+        }),
+      )
+
+      expect(html).toContain('<template id="f')
+      expect(html).toContain(
+        '<head><link data-rmx-module-preload rel="modulepreload" href="/assets/island.js" /></head>',
+      )
+    })
+
+    it('preloads fallback and resolved client entries at their respective stream stages', async () => {
+      let ResolvedIsland = clientEntry('/resolved.ts#ResolvedIsland', function ResolvedIsland() {
+        return () => <section>Resolved</section>
+      })
+      let html = await drain(
+        renderToStream(<Frame src="/frame" fallback={<ClientIsland />} />, {
+          resolveClientEntry() {
+            return {
+              href: '/assets/fallback.js',
+              exportName: 'Island',
+              preloads: ['/assets/fallback.js'],
+            }
+          },
+          resolveFrame() {
+            return renderToStream(<ResolvedIsland />, {
+              resolveClientEntry() {
+                return {
+                  href: '/assets/resolved.js',
+                  exportName: 'ResolvedIsland',
+                  preloads: ['/assets/resolved.js'],
+                }
+              },
+            })
+          },
+        }),
+      )
+
+      let templateIndex = html.indexOf('<template')
+      expect(html.indexOf('href="/assets/fallback.js"')).toBeLessThan(templateIndex)
+      expect(html.indexOf('href="/assets/resolved.js"')).toBeGreaterThan(templateIndex)
+    })
+
+    it('validates preload URLs returned by resolveClientEntry', async () => {
+      await expect(
+        drain(
+          renderToStream(<ClientIsland />, {
+            resolveClientEntry() {
+              return {
+                href: '/assets/island.js',
+                exportName: 'Island',
+                preloads: [''],
+              }
+            },
+          }),
+        ),
+      ).rejects.toThrow('resolveClientEntry preloads must contain non-empty strings')
     })
   })
 
@@ -1860,7 +2223,7 @@ describe('stream', () => {
 
       expect(result).not.toContain('<!DOCTYPE')
       expect(result).toContain('<template')
-      expect(result).toContain('<head><style data-rmx=')
+      expect(result).toContain('<head><style data-rmx-style=')
       expect(result).toContain('<div class="rmxc-')
       expect(result).toContain('>Resolved</div>')
     })

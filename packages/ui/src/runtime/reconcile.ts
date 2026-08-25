@@ -2,6 +2,7 @@ import type { Component, ComponentHandle, FrameContent, FrameHandle } from './co
 import { createComponent } from './component.ts'
 import type { FrameRuntime } from './frame.ts'
 import { createFrame, isFrameRuntime } from './frame.ts'
+import { unwrapFrameResolution } from './frame-resolution.ts'
 import { createRangeRoot } from './vdom.ts'
 import type {
   CommittedFragmentNode,
@@ -63,6 +64,7 @@ import {
 } from './mixins/mixin.ts'
 import { isOnMixinDescriptor, type OnMixinDescriptor } from './mixins/on-mixin.ts'
 import { createComponentErrorEvent } from './error-event.ts'
+import { componentStalenessCheck } from './refresh.ts'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -492,6 +494,15 @@ export function diffVNodes(
 ): CommittedVNode {
   if (curr === null) {
     return insert(next, domParent, vParent, context, anchor, cursor)
+  }
+
+  if (
+    componentStalenessCheck !== null &&
+    curr.kind === 'component' &&
+    next.kind === 'component' &&
+    componentStalenessCheck(curr.type) === true
+  ) {
+    return replace(curr, next, domParent, vParent, context, anchor)
   }
 
   if (curr.kind !== next.kind || curr.type !== next.type) {
@@ -1251,22 +1262,19 @@ function insertFrame(
     let start = cursor.current
     let end = findFrameEndComment(start)
     if (end) {
-      let frameId = getFrameIdFromComment(start)
-      let marker = frameId ? runtime.data.f?.[frameId] : undefined
-      let src = marker?.src ?? getFrameSrc(node)
       let instance = runtime.frameInstances.get(start)
+      let src = instance?.handle.src ?? getFrameSrc(node)
       if (!instance) {
         instance = createFrame([start, end], {
           name: getFrameName(node),
           src,
-          marker: frameId && marker ? { ...marker, id: frameId } : undefined,
           errorTarget: runtime.errorTarget,
           loadModule: runtime.loadModule,
           resolveFrame: runtime.resolveFrame,
           pendingClientEntries: runtime.pendingClientEntries,
           scheduler: runtime.scheduler,
           styleManager: runtime.styleManager,
-          data: runtime.data,
+          data: {},
           moduleCache: runtime.moduleCache,
           moduleLoads: runtime.moduleLoads,
           frameInstances: runtime.frameInstances,
@@ -1316,7 +1324,7 @@ function insertFrame(
     pendingClientEntries: runtime.pendingClientEntries,
     scheduler: runtime.scheduler,
     styleManager: runtime.styleManager,
-    data: runtime.data,
+    data: {},
     moduleCache: runtime.moduleCache,
     moduleLoads: runtime.moduleLoads,
     frameInstances: runtime.frameInstances,
@@ -1364,8 +1372,15 @@ function resolveClientFrame(
   state.resolveController = resolveController
 
   Promise.resolve()
-    .then(() => runtime.resolveFrame(frameSrc, resolveController.signal, getFrameName(node)))
-    .then(async (content) => {
+    .then(() =>
+      runtime.resolveFrame(frameSrc, {
+        signal: resolveController.signal,
+        target: getFrameName(node),
+      }),
+    )
+    .then(async (resolution) => {
+      if (state.resolveToken !== token || resolveController.signal.aborted) return
+      let { content } = await unwrapFrameResolution(resolution)
       if (state.resolveToken !== token || resolveController.signal.aborted) return
       state.fallbackRoot?.dispose()
       state.fallbackRoot = undefined
@@ -1504,12 +1519,6 @@ function isFrameEndComment(node: Node | null | undefined): node is Comment {
 
 function isCommentNode(node: Node | null | undefined): node is Comment {
   return node?.nodeType === Node.COMMENT_NODE
-}
-
-function getFrameIdFromComment(comment: Comment): string | undefined {
-  let text = comment.data.trim()
-  if (!text.startsWith('rmx:f:')) return undefined
-  return text.slice('rmx:f:'.length)
 }
 
 function findFrameEndComment(start: Comment): Comment | null {

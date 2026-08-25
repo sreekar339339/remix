@@ -141,6 +141,15 @@ export interface Context<C> {
 export type FrameContent = ReadableStream<Uint8Array> | string | RemixNode
 
 /**
+ * Value returned by a browser frame resolver.
+ *
+ * Response bodies are rendered as frame content regardless of status. The default browser resolver
+ * rejects non-OK responses before returning them. When `fetch()` followed a redirect, the response's
+ * final URL updates the frame source and browser URL for a top-frame navigation.
+ */
+export type FrameResolution = FrameContent | Response
+
+/**
  * Events emitted by frame handles during reloads.
  */
 export type FrameHandleEventMap = {

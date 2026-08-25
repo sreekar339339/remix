@@ -1,8 +1,8 @@
-import type { FrameContent, FrameHandle } from './component.ts'
+import type { FrameHandle } from './component.ts'
 import { createFrameHandle } from './component.ts'
 import { invariant } from './invariant.ts'
 import type { RemixNode } from './jsx.ts'
-import { createFrameRuntime } from './frame.ts'
+import { createFrameRuntime, type ResolveFrame } from './frame.ts'
 import {
   createComponentErrorEvent,
   getComponentError,
@@ -14,6 +14,7 @@ import { toVNode } from './to-vnode.ts'
 import { TypedEventTarget } from './typed-event-target.ts'
 import { ROOT_VNODE, type CommittedVNode, type ReconcileContext, type RootVNode } from './vnode.ts'
 import { resetStyleState, defaultStyleManager } from './diff-props.ts'
+import { registerRoot, unregisterRoot } from './refresh.ts'
 import type { StyleManager } from '../style/index.ts'
 
 /**
@@ -28,6 +29,7 @@ export type VirtualRootEventMap = {
  */
 export type VirtualRoot = TypedEventTarget<VirtualRootEventMap> & {
   render: (element: RemixNode) => void
+  reconcile: () => void
   dispose: () => void
   flush: () => void
 }
@@ -41,11 +43,7 @@ export type VirtualRootOptions = {
   styleManager?: StyleManager
   frameInit?: {
     src?: string
-    resolveFrame: (
-      src: string,
-      signal?: AbortSignal,
-      target?: string,
-    ) => Promise<FrameContent> | FrameContent
+    resolveFrame: ResolveFrame
     loadModule?: (moduleUrl: string, exportName: string) => Promise<Function> | Function
   }
 }
@@ -75,6 +73,7 @@ export function createRangeRoot(
 ): VirtualRoot {
   let [start, end] = boundaries
   let vroot: CommittedVNode | null = null
+  let currentElement: RemixNode | undefined
   let styles = options.styleManager ?? defaultStyleManager
 
   let container = end.parentNode
@@ -120,9 +119,10 @@ export function createRangeRoot(
   }
   attachDomErrorForwarding()
 
-  return Object.assign(eventTarget, {
+  let root = Object.assign(eventTarget, {
     render(element: RemixNode) {
       attachDomErrorForwarding()
+      currentElement = element
 
       let vnode = toVNode(element)
       let vParent: RootVNode = {
@@ -146,8 +146,15 @@ export function createRangeRoot(
       scheduler.dequeue()
     },
 
+    reconcile() {
+      if (currentElement === undefined) return
+      root.render(currentElement)
+    },
+
     dispose() {
       detachDomErrorForwarding()
+      unregisterRoot(root)
+      currentElement = undefined
 
       if (!vroot) return
       let current = vroot
@@ -160,6 +167,9 @@ export function createRangeRoot(
       scheduler.dequeue()
     },
   })
+
+  registerRoot(root)
+  return root
 }
 
 /**
@@ -171,6 +181,7 @@ export function createRangeRoot(
  */
 export function createRoot(container: HTMLElement, options: VirtualRootOptions = {}): VirtualRoot {
   let vroot: CommittedVNode | null = null
+  let currentElement: RemixNode | undefined
   let styles = options.styleManager ?? defaultStyleManager
   if (container.innerHTML.trim() !== '') {
     // Adopt additively: multiple roots hydrating separate islands may share
@@ -216,9 +227,10 @@ export function createRoot(container: HTMLElement, options: VirtualRootOptions =
   }
   attachDomErrorForwarding()
 
-  return Object.assign(eventTarget, {
+  let root = Object.assign(eventTarget, {
     render(element: RemixNode) {
       attachDomErrorForwarding()
+      currentElement = element
 
       let vnode = toVNode(element)
       let vParent: RootVNode = {
@@ -239,8 +251,15 @@ export function createRoot(container: HTMLElement, options: VirtualRootOptions =
       scheduler.dequeue()
     },
 
+    reconcile() {
+      if (currentElement === undefined) return
+      root.render(currentElement)
+    },
+
     dispose() {
       detachDomErrorForwarding()
+      unregisterRoot(root)
+      currentElement = undefined
 
       if (!vroot) return
       let current = vroot
@@ -253,15 +272,14 @@ export function createRoot(container: HTMLElement, options: VirtualRootOptions =
       scheduler.dequeue()
     },
   })
+
+  registerRoot(root)
+  return root
 }
 
 function createRootFrameHandle(init: {
   src?: string
-  resolveFrame?: (
-    src: string,
-    signal?: AbortSignal,
-    target?: string,
-  ) => Promise<FrameContent> | FrameContent
+  resolveFrame?: ResolveFrame
   loadModule?: (moduleUrl: string, exportName: string) => Promise<Function> | Function
   errorTarget: EventTarget
   scheduler: Scheduler
@@ -287,7 +305,6 @@ function createRootFrameHandle(init: {
     pendingClientEntries: new Map(),
     scheduler: init.scheduler,
     styleManager: init.styleManager,
-    data: {},
     moduleCache: new Map(),
     moduleLoads: new Map(),
     frameInstances: new WeakMap(),
