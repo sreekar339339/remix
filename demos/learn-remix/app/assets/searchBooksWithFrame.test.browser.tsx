@@ -50,7 +50,8 @@ describe('SearchBooksWithFrame', () => {
 
     let result = render(<SearchBooksWithFrame initialQuery="" />, {
       frameInit: {
-        resolveFrame(src, signal) {
+        resolveFrame(src, options) {
+          let signal = options?.signal
           assert.ok(signal)
           return new Promise<FrameContent>((resolve) => {
             requests.push({ src, signal, resolve })
