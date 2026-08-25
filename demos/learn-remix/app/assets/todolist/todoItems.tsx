@@ -184,12 +184,12 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
               class={(_, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
               name="intent"
               value="update"
-              mix={[completeTodoButtonCss]}
+              mix={[completeTodoButtonCss, todoActionButtonCss]}
             >
               {(_, event) =>
                 (event?.type === 'actionSubmitted' ? event.detail?.completed ?? completed : completed)
                   ? '✓'
-                  : 'x'
+                  : ' '
               }
             </e.button>
           </form>
