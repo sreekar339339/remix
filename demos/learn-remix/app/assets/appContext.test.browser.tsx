@@ -4,12 +4,11 @@ import { addEventListeners, on, type Handle } from 'remix/ui'
 import { render } from 'remix/ui/test'
 import {
   AppProvider,
-  createAppContext,
+  AppContextEvents,
   EventUserDisplay,
   SettingsDisplay,
   UserDisplay2,
 } from './appContext.tsx'
-import type { AppContextValue } from './appContext.tsx'
 
 async function settleEvents() {
   await Promise.resolve()
@@ -18,106 +17,84 @@ async function settleEvents() {
 
 describe('AppContext', () => {
   it('updates its model and emits only the affected events', () => {
-    let context = createAppContext({
-      user: null,
-      settings: { layout: 'normal', theme: 'system' },
-    })
+    let context = AppContextEvents.define()
     let calls: string[] = []
     let controller = new AbortController()
 
     addEventListeners(context, controller.signal, {
-      context(event) {
-        calls.push(`context:${event.detail.user?.name ?? 'none'}`)
+      user(event) {
+        calls.push(`user:${event.detail?.name ?? 'none'}`)
       },
-    })
-    context.dispatchEvent({
-      context: { user: { name: 'Ada', age: 37 }, settings: { layout: 'normal', theme: 'system' } },
-    })
-
-    assert.equal(calls.join(','), 'context:Ada')
-
-    context.dispatchEvent({
-      context: {
-        user: { name: 'Grace', age: 85 },
-        settings: { layout: 'zen', theme: 'dark' },
+      settings(event) {
+        calls.push(`settings:${event.detail.theme}:${event.detail.layout}`)
       },
     })
 
-    assert.equal(calls.join(','), 'context:Ada,context:Grace')
+    // Only the user slice was written, so only the user listener fires.
+    context.dispatchEvent({ user: { name: 'Ada', age: 37 } })
+    assert.equal(calls.join(','), 'user:Ada')
+    assert.equal(context.detail.settings.theme, 'system')
+
+    // A transaction touching both slices fires both listeners in order.
+    context.dispatchEvent({
+      user: { name: 'Grace', age: 85 },
+      settings: { layout: 'zen', theme: 'dark' },
+    })
+    assert.equal(calls.join(','), 'user:Ada,user:Grace,settings:dark:zen')
   })
 
   it('supports explicit cleanup and AbortSignal-owned subscriptions', () => {
-    let context = createAppContext({
-      user: null,
-      settings: { layout: 'normal', theme: 'system' },
-    })
+    let context = AppContextEvents.define()
     let userController = new AbortController()
     let settingsController = new AbortController()
     let cleanedCalls = 0
     let abortedCalls = 0
 
-    let firstController = new AbortController()
-    let secondController = new AbortController()
-
-    addEventListeners(context, firstController.signal, {
-      context() {
+    addEventListeners(context, userController.signal, {
+      user() {
         cleanedCalls++
       },
     })
-    addEventListeners(context, secondController.signal, {
-      context() {
+    addEventListeners(context, settingsController.signal, {
+      settings() {
         abortedCalls++
       },
     })
 
     context.dispatchEvent({
-      context: {
-        user: { name: 'Ada', age: 37 },
-        settings: { layout: 'zen', theme: 'light' },
-      },
+      user: { name: 'Ada', age: 37 },
+      settings: { layout: 'zen', theme: 'light' },
     })
     assert.equal(cleanedCalls, 1)
     assert.equal(abortedCalls, 1)
 
-    firstController.abort()
-    secondController.abort()
+    userController.abort()
+    settingsController.abort()
     context.dispatchEvent({
-      context: {
-        user: { name: 'Grace', age: 85 },
-        settings: { layout: 'normal', theme: 'system' },
-      },
+      user: { name: 'Grace', age: 85 },
+      settings: { layout: 'normal', theme: 'system' },
     })
     assert.equal(cleanedCalls, 1)
     assert.equal(abortedCalls, 1)
   })
 
-  it('folds dispatches into the root seed object in place', async () => {
-    let value: AppContextValue = {
-      user: null,
-      settings: { layout: 'normal', theme: 'system' },
-    }
-    let context = createAppContext(value)
+  it('folds dispatches onto the live model in place', async () => {
+    let context = AppContextEvents.define()
+
+    await context.dispatchEvent({ user: { name: 'Ada', age: 37 } })
+    assert.equal(context.detail.user?.name, 'Ada')
+    assert.equal(context.detail.settings.theme, 'system')
+
+    await context.dispatchEvent({ settings: { layout: 'zen', theme: 'dark' } })
+    assert.equal(context.detail.settings.theme, 'dark')
+    assert.equal(context.detail.user?.name, 'Ada')
 
     await context.dispatchEvent({
-      context: { ...value, user: { name: 'Ada', age: 37 } },
+      user: { name: 'Grace', age: 85 },
+      settings: { layout: 'normal', theme: 'light' },
     })
-    assert.equal(context.detail.context.user?.name, 'Ada')
-    assert.equal(context.detail.context.settings.theme, 'system')
-
-    await context.dispatchEvent({
-      context: { ...context.detail.context, settings: { layout: 'zen', theme: 'dark' } },
-    })
-    assert.equal(context.detail.context.settings.theme, 'dark')
-    assert.equal(context.detail.context.user?.name, 'Ada')
-
-    await context.dispatchEvent({
-      context: {
-        user: { name: 'Grace', age: 85 },
-        settings: { layout: 'normal', theme: 'light' },
-      },
-    })
-    assert.equal(context.detail.context.user?.name, 'Grace')
-    assert.equal(context.detail.context.settings.theme, 'light')
+    assert.equal(context.detail.user?.name, 'Grace')
+    assert.equal(context.detail.settings.theme, 'light')
   })
 
   it('provides context and updates imperative and event-aware consumers', async (t) => {
@@ -129,9 +106,7 @@ describe('AppContext', () => {
           <button
             data-action="user"
             mix={on('click', () => {
-              events.dispatchEvent({
-                context: { ...events.detail.context, user: { name: 'Ada', age: 37 } },
-              })
+              events.dispatchEvent({ user: { name: 'Ada', age: 37 } })
             })}
           >
             Set user
@@ -139,9 +114,7 @@ describe('AppContext', () => {
           <button
             data-action="settings"
             mix={on('click', () => {
-              events.dispatchEvent({
-                context: { ...events.detail.context, settings: { layout: 'normal', theme: 'dark' } },
-              })
+              events.dispatchEvent({ settings: { layout: 'normal', theme: 'dark' } })
             })}
           >
             Set settings
