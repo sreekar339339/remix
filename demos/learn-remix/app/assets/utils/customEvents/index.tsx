@@ -99,6 +99,30 @@ type DeferredQueue = ReturnType<typeof createDeferredQueue>
 /** The live fold session, tracked for the descriptor's dispatch deferral. */
 type FoldSessionRef = { current: { dirty: boolean } | undefined }
 
+/** Cycle-detection threshold, not a loop bound — converging cascades are
+ * unbounded; only genuinely non-converging reaction cycles trip this. */
+const MAX_REACTION_FIRES = 100
+
+/** Reactions indexed by their slice for O(1) lookup per dispatched entry. */
+type ReactionIndex = { byKey: Map<string, Reaction[]>; wildcards: Reaction[] }
+
+function buildReactionIndex(reactions: Reaction[]): ReactionIndex {
+  let byKey = new Map<string, Reaction[]>()
+  let wildcards: Reaction[] = []
+  for (let reaction of reactions) {
+    if (reaction.type === ALL_EVENTS) wildcards.push(reaction)
+    else {
+      let list = byKey.get(reaction.type)
+      if (!list) byKey.set(reaction.type, (list = []))
+      list.push(reaction)
+    }
+  }
+  return { byKey, wildcards }
+}
+
+/** The work item the cross-fire scheduler processes per dispatched entry. */
+type CrossFire = { reaction: Reaction; entry: CustomEventsRuntimeEntry }
+
 /**
  * Runs a fold recipe against an open Immer draft session. Sync recipes
  * flush once when they return, carrying their entries in the same carrier
@@ -116,6 +140,12 @@ function runFoldRecipe(
   sessionRef: FoldSessionRef,
   deferred: DeferredQueue,
   dispatchEntries: (entries: CustomEventsRuntimeEntry[]) => Promise<unknown>,
+  cross?: {
+    /** Reactions indexed by slice, precomputed once per composite. */
+    index: ReactionIndex
+    /** Reactions already fired for this dispatch inside the recipe. */
+    suppress?: Set<Reaction>
+  },
 ): { entries: CustomEventsRuntimeEntry[]; settle?: Promise<void> } {
   let currentDraft = createDraft(live) as Draft<EventDetails>
   let session = { dirty: false }
@@ -126,6 +156,15 @@ function runFoldRecipe(
   let asyncMode = false
   let flushed: Array<Promise<unknown>> = []
   let sliceEntries: CustomEventsRuntimeEntry[] = []
+  // The cross-fire worklist: each flush enqueues the reactions its entries
+  // address, then processes them FIFO. Fired reactions mutate the fresh
+  // draft, so cascades chain across follow-up rounds until a round commits
+  // nothing new.
+  let queue: CrossFire[] = []
+  // Per-dispatch firing counts: converging cascades fire each reaction a
+  // handful of times; the budget exists solely to turn runaway cycles into
+  // a diagnosable error instead of an infinite loop.
+  let fires = new Map<Reaction, number>()
 
   let flush = (): Array<Promise<void>> => {
     flushScheduled = false
@@ -138,11 +177,60 @@ function runFoldRecipe(
     ) as EventDetails
     currentDraft = createDraft(live) as Draft<EventDetails>
     session.dirty = false
+    let entries: CustomEventsRuntimeEntry[] = []
     if (patches.length > 0) {
-      let entries = entriesFromPatches(live, next, patches)
+      entries = entriesFromPatches(live, next, patches)
       mirrorKeys(live, next, entries)
       if (asyncMode) flushed.push(dispatchEntries(entries))
       else sliceEntries.push(...entries)
+    }
+    // Every dispatched entry fires the reactions watching its slice against
+    // the fresh draft — whether the write came from this event's own
+    // dispatch or a cross-write from another reaction or fold. Routing
+    // mirrors the view/effect trie: root reactions fire on any event of
+    // their slice, deeper ones when an entry address reaches their path.
+    // Reactions already fired for this dispatch in the recipe are
+    // suppressed.
+    if (cross && entries.length > 0) {
+      for (let entry of entries) {
+        let matched = [
+          ...(cross.index.byKey.get(entry.type) ?? []),
+          ...cross.index.wildcards,
+        ]
+        for (let reaction of matched) {
+          if (cross.suppress?.has(reaction)) continue
+          // Mirror the subscription trie: a reaction fires when its path
+          // reaches along an entry address (change at or above it) or
+          // extends one (change below it collects the branch).
+          let routed =
+            reaction.path.length === 0 ||
+            (entry.addresses ?? []).some((address) => {
+              let shared = address.length
+              for (let i = 0; i < address.length && i < reaction.path.length; i++) {
+                if (!Object.is(address[i], reaction.path[i])) {
+                  shared = i
+                  break
+                }
+              }
+              return shared === address.length || shared === reaction.path.length
+            })
+          if (routed) queue.push({ reaction, entry })
+        }
+      }
+      while (queue.length > 0) {
+        let { reaction, entry } = queue.shift()!
+        let count = (fires.get(reaction) ?? 0) + 1
+        fires.set(reaction, count)
+        if (count > MAX_REACTION_FIRES)
+          throw new Error(
+            `customEvents reaction cascade exceeded ${MAX_REACTION_FIRES} firings — possible cycle involving "${reaction.type}"`,
+          )
+        let currentAtPath = readPath(Reflect.get(currentDraft, entry.type), reaction.path)
+        reaction.callback.call(
+          reaction.path.length === 0 ? sessionProxy : currentAtPath,
+          { type: entry.type, detail: currentAtPath },
+        )
+      }
     }
     // The session committed: run any dispatches deferred during it.
     let deferredCompletions = deferred.drain()
@@ -181,12 +269,28 @@ function runFoldRecipe(
     },
   })
 
+  // Sync sessions accumulate every generation into one carrier (an atomic
+  // view update); async ones dispatch progressively per flush. A round that
+  // commits nothing means the cascade has quiesced — the per-reaction fire
+  // budget turns a never-quiescing cascade into an error before this loops
+  // forever.
+  let drain = (): Array<Promise<void>> => {
+    let completions: Array<Promise<void>> = []
+    while (true) {
+      completions.push(...flush())
+      if (!session.dirty) break
+    }
+    return completions
+  }
+
   let result = foldFn(detail, sessionProxy as Draft<EventDetails>)
   if (result instanceof Promise) {
     asyncMode = true
     let settle = (async () => {
       await result
-      flush()
+      // Cross-write reactions chain follow-up generations; drain them here
+      // so every derived slice commits before the settle resolves.
+      drain()
       active = false
       sessionRef.current = previousSession
       await Promise.all(flushed)
@@ -197,7 +301,7 @@ function runFoldRecipe(
       settle,
     }
   }
-  let deferredCompletions = flush()
+  let deferredCompletions = drain()
   active = false
   sessionRef.current = previousSession
   if (deferredCompletions.length > 0) {
@@ -287,11 +391,22 @@ function createFoldEntry(args: {
 }): RememberedEventContext['fold'] {
   let { foldFns, live, sessionRef, deferred, reactions, context } = args
 
+  // Reactions are registered during construction, after this runs — build
+  // the slice index lazily on first dispatch.
+  let reactionIndex: ReactionIndex | undefined
+  let reactionIndexFor = (): ReactionIndex =>
+    (reactionIndex ??= buildReactionIndex(reactions))
+
   let runFieldReactions = (type: string, detail: unknown) => {
-    let fieldReactions = reactions.filter(
-      (reaction) => reaction.type === type || reaction.type === ALL_EVENTS,
-    )
+    let index = reactionIndexFor()
+    let fieldReactions = [
+      ...(index.byKey.get(type) ?? []),
+      ...index.wildcards,
+    ]
     if (fieldReactions.length === 0 || !Object.hasOwn(live(), type)) return
+    // Reactions fired here are suppressed at the flush, so the dispatch's
+    // own writes don't re-trigger them.
+    let fired = new Set<Reaction>()
     let session = runFoldRecipe(
       (value, draft) => {
         let previous = live()[type]
@@ -304,6 +419,7 @@ function createFoldEntry(args: {
               ? !Object.is(previous, value)
               : !Object.is(previousAtPath, currentAtPath)
           if (!changed) continue
+          fired.add(reaction)
           reaction.callback.call(
             reaction.path.length === 0 ? draft : currentAtPath,
             { type, detail: currentAtPath },
@@ -317,6 +433,7 @@ function createFoldEntry(args: {
       sessionRef,
       deferred,
       (entries) => context.dispatchEntries!(entries),
+      { index: reactionIndexFor(), suppress: fired },
     )
     let entries = session.entries
     let addresses = entries.flatMap((entry) => entry.addresses ?? [])
@@ -341,6 +458,7 @@ function createFoldEntry(args: {
         sessionRef,
         deferred,
         (entries) => context.dispatchEntries!(entries),
+        { index: reactionIndexFor() },
       )
       let entries = session.entries
       // The effect entry rides the same routes as its folded output so the

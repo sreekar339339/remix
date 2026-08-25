@@ -86,6 +86,10 @@ describe('reactions', () => {
   it('routes a deep reaction to the addressed item with change detection', async (t) => {
     class __DeepEvents extends Events {
       boards = new Map<number, { cards: Map<number, { label: string }> }>()
+      rename({ id, label }: { id: number; label: string }) {
+        let card = this.boards.get(1)?.cards.get(id)
+        if (card) card.label = label
+      }
       constructor(api: EventsApi<__DeepEvents>) {
     super()
         // The chain is fully typed: the callback binds this to the card's
@@ -115,7 +119,9 @@ describe('reactions', () => {
     t.after(() => result.cleanup())
     assert.equal(result.$('[aria-label="card"]')?.textContent, '')
 
-    let boards = new Map([[1, { cards: new Map([[10, { label: 'first' }]]) }]])
+    let boards = new Map([
+      [1, { cards: new Map([[10, { label: 'first' }], [20, { label: 'other' }]]) }],
+    ])
     await result.act(async () => {
       await events.dispatchEvent({ boards })
       await settleEffects()
@@ -123,12 +129,19 @@ describe('reactions', () => {
     assert.deepEqual(calls, ['card=first'])
     assert.equal(result.$('[aria-label="card"]')?.textContent, 'first!')
 
-    // An unchanged item at the path does not re-fire the reaction.
+    // A write below a sibling address does not reach this reaction.
     await result.act(async () => {
-      await events.dispatchEvent({ boards: new Map(boards) })
+      await events.dispatchEvent({ rename: { id: 20, label: 'changed' } })
       await settleEffects()
     })
     assert.deepEqual(calls, ['card=first'])
+
+    // A write at the addressed item fires it again with the fresh value.
+    await result.act(async () => {
+      await events.dispatchEvent({ rename: { id: 10, label: 'second' } })
+      await settleEffects()
+    })
+    assert.deepEqual(calls, ['card=first', 'card=second'])
   })
 
   it('fires a wildcard reaction on any field dispatch', async (t) => {
@@ -170,7 +183,7 @@ describe('reactions', () => {
     assert.equal(typeof events.dispatchEvent, 'function')
   })
 
-  it('leaves fold dispatches to their recipes; reactions observe only slices', async (t) => {
+  it('fires reactions from fold writes too, with the folded slice value', async (t) => {
     class __FoldEvents extends Events {
       count = 0
       inc(amount: number) {
@@ -187,8 +200,32 @@ describe('reactions', () => {
     let events = __FoldEvents.define()
     await events.dispatchEvent({ inc: 2 })
     await settleEffects()
-    assert.deepEqual(calls, [])
+    assert.deepEqual(calls, ['count=2'])
     assert.equal(events.detail.count, 2)
+  })
+
+  it('throws on runaway reaction cycles instead of looping forever', async (t) => {
+    class __PingPongEvents extends Events {
+      kick = 0
+      a = 0
+      b = 0
+      constructor(api: EventsApi<__PingPongEvents>) {
+        super()
+        // Neither `a` nor `b` is the dispatched field, so neither is ever
+        // suppressed — the two feed each other and never converge.
+        api.on.kick(function ({ detail }) {
+          this.a = detail
+        })
+        api.on.a(function () {
+          this.b += 1
+        })
+        api.on.b(function () {
+          this.a += 2
+        })
+      }
+    }
+    let events = __PingPongEvents.define()
+    assert.throws(() => events.dispatchEvent({ kick: 1 }), /possible cycle/)
   })
 
   it('routes fold-cross writes from a reaction through the session', async (t) => {

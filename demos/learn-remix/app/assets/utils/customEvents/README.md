@@ -293,6 +293,10 @@ routing.
   the implied slice write and the reaction run as one session.
 - A reaction fires when the value at its source path changes; a same-value
   dispatch is a no-op.
+- Reactions also fire when their slice changes from any other write — a
+  fold recipe or another reaction — chaining follow-up flushes within the
+  same session until derivations quiesce. A cascade that never settles
+  throws instead of looping.
 - Deep paths react to the value at that address, with `this` bound to the
   item and the detail typed to it:
   `api.on.columns.get(id).cards.get(cardId)(function ({ detail }) {

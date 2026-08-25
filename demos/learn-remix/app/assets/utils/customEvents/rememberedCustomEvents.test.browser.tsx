@@ -64,6 +64,7 @@ describe('remembered customEvents', () => {
     class __DraftedEvents extends Events {
       count = 0
       countDrafted(detail: number) {}
+      refreshRequested() {}
     }
     let events = __DraftedEvents.define()
     let seen: Array<[unknown, unknown]> = []

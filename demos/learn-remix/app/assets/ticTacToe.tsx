@@ -1,5 +1,5 @@
 import { clientEntry, css, on, ref } from 'remix/ui'
-import { Events, evented } from './utils/customEvents/index.tsx'
+import { Events, evented, type EventsApi } from './utils/customEvents/index.tsx'
 
 type Player = 'X' | 'O'
 type Result = Player | 'Draw'
@@ -42,21 +42,32 @@ class TicTacToeEvents extends Events {
   position = new Map<number, Player>()
   result = null as Result | null
   focusTarget = NaN
+  // Seeded with NaN so the first click (cell 0) is a value change; a
+  // selection is an intent, so the field only exists to carry the reaction.
+  selectedCellId = NaN
 
-  place(cellId: number) {
-    if (this.position.has(cellId) || this.result !== null) return
-    let nextPlayer: Player = this.position.size % 2 === 0 ? 'X' : 'O'
-    this.position.set(cellId, nextPlayer)
-    let result = deriveResult(this.position)
-    this.result = result
-    if (result === null) {
-      let nextFreeCellIdx = cellId
-      while (this.position.has(nextFreeCellIdx)) {
-        nextFreeCellIdx = (nextFreeCellIdx + 1) % 9
-        if (nextFreeCellIdx === cellId) break
+  constructor({ on }: EventsApi<TicTacToeEvents>) {
+    super()
+    on.selectedCellId(function ({ detail: cellId }) {
+      if (this.position.has(cellId) || this.result !== null) return
+      let nextPlayer: Player = this.position.size % 2 === 0 ? 'X' : 'O'
+      this.position.set(cellId, nextPlayer)
+    })
+    // Fires whenever the position slice changes, including cross-writes from
+    // the selectedCellId reaction above. An emptied position is a reset, not
+    // a placement — leave focus alone.
+    on.position(function ({ detail: position }) {
+      if (position.size === 0) return
+      this.result = deriveResult(position)
+      if (this.result === null) {
+        let nextFreeCellIdx = this.selectedCellId
+        while (this.position.has(nextFreeCellIdx)) {
+          nextFreeCellIdx = (nextFreeCellIdx + 1) % 9
+          if (nextFreeCellIdx === this.selectedCellId) break
+        }
+        this.focusTarget = nextFreeCellIdx
       }
-      this.focusTarget = nextFreeCellIdx
-    }
+    })
   }
 
   moveFocus({ cellId, increment }: { cellId: number; increment: number }) {
@@ -101,15 +112,16 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
           }),
           on('click', ({ target }) => {
             if (!(target instanceof HTMLElement)) return
-            let cellId = Number(target.dataset.idx)
-            events.dispatchEvent({ place: cellId })
+            events.dispatchEvent({ selectedCellId: Number(target.dataset.idx) })
           }),
           on('keydown', ({ key, target }) => {
             if (!isArrowKey(key)) return
             if (!(target instanceof HTMLElement)) return
-            let cellId = Number(target.dataset.idx)
             events.dispatchEvent({
-              moveFocus: { cellId, increment: arrowKeyIdxIncrementMap[key] },
+              moveFocus: {
+                cellId: Number(target.dataset.idx),
+                increment: arrowKeyIdxIncrementMap[key],
+              },
             })
           }),
         ]}

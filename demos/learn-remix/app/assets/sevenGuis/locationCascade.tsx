@@ -53,18 +53,18 @@ class LocationCascadeEvents extends Events {
   cities = [] as readonly Location[]
   city = null as string | null
 
-  constructor(api: EventsApi<LocationCascadeEvents>) {
+  constructor({ on }: EventsApi<LocationCascadeEvents>) {
     super()
     // Reactions derive the next cascade level and reset the deeper
     // selection chain when a slice is written. city has no derivation, so
     // it stays a plain detail.
-    api.on.country(function ({ detail }) {
+    on.country(function ({ detail }) {
       this.states = STATES[detail] ?? []
       this.state = null
       this.cities = []
       this.city = null
     })
-    api.on.state(function ({ detail }) {
+    on.state(function ({ detail }) {
       this.cities = CITIES[detail ?? ''] ?? []
       this.city = null
     })
@@ -72,8 +72,6 @@ class LocationCascadeEvents extends Events {
 }
 
 export const LocationCascade = clientEntry(import.meta.url, function LocationCascade() {
-
-
   let events = LocationCascadeEvents.define()
   return () => (
     <section mix={taskCss}>

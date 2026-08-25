@@ -104,7 +104,6 @@ function getTodoActionDetail(formData: FormData): TodoActionDetail {
 }
 
 export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
-  let initialActionSucceeded = events.create({ actionSucceeded: { completed: true } })
   let onSubmit = async (evt: Dispatched<SubmitEvent, HTMLUListElement>) => {
     evt.preventDefault()
     let form = evt.target as HTMLFormElement
@@ -180,18 +179,14 @@ export function TodoItems(handle: Handle<{ todos: Todo[] }>) {
             <input hidden name="completed" value={String(!completed)} />
             <input hidden name="id" value={id} />
             <evented.button
-              on={[events.on.actionSubmitted, events.on.actionSucceeded]}
+              on={events.on['*']}
               disabled={(_, event) => event?.type === 'actionSubmitted'}
               class={(_, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}
               name="intent"
               value="update"
             >
               {(_, event) =>
-                (
-                  event && (event.type === 'actionSubmitted' || event.type === 'actionSucceeded')
-                    ? ((event.detail as { completed?: boolean } | null)?.completed ?? completed)
-                    : completed
-                )
+                (event?.type === 'actionSubmitted' ? event.detail?.completed ?? completed : completed)
                   ? '✓'
                   : ''
               }

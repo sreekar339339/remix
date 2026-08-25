@@ -14,17 +14,17 @@ function formatTemperature(value: number) {
 class TemperatureConverterEvents extends Events {
   celsius = ''
   fahrenheit = ''
-  constructor(api: EventsApi<TemperatureConverterEvents>) {
+  constructor({on}: EventsApi<TemperatureConverterEvents>) {
     super()
     // Dispatching either unit writes its slice and runs the reaction, so
     // editing one converts the other.
-    api.on.celsius(function ({ detail }) {
+    on.celsius(function ({ detail }) {
       let number = parseTemperature(detail)
       if (number !== undefined) {
         this.fahrenheit = formatTemperature(number * (9 / 5) + 32)
       }
     })
-    api.on.fahrenheit(function ({ detail }) {
+    on.fahrenheit(function ({ detail }) {
       let number = parseTemperature(detail)
       if (number !== undefined) {
         this.celsius = formatTemperature((number - 32) * (5 / 9))

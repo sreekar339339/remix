@@ -122,48 +122,48 @@ class ColorPickerEvents extends Events {
   // current siblings — so the composite can never hold a contradictory
   // color. A reaction only derives when its whole input parses; invalid
   // input leaves the last good model alone.
-  constructor(api: EventsApi<ColorPickerEvents>) {
+  constructor({on}: EventsApi<ColorPickerEvents>) {
     super()
-    api.on.hex(function ({ detail }) {
+    on.hex(function ({ detail }) {
       let color = parseHex(detail)
       if (color) applyColor(this, color)
     })
-    api.on.red(function ({ detail }) {
+    on.red(function ({ detail }) {
       let red = parseChannel(detail, 255)
       let green = parseChannel(this.green, 255)
       let blue = parseChannel(this.blue, 255)
       if (red === undefined || green === undefined || blue === undefined) return
       applyColor(this, { red, green, blue })
     })
-    api.on.green(function ({ detail }) {
+    on.green(function ({ detail }) {
       let red = parseChannel(this.red, 255)
       let green = parseChannel(detail, 255)
       let blue = parseChannel(this.blue, 255)
       if (red === undefined || green === undefined || blue === undefined) return
       applyColor(this, { red, green, blue })
     })
-    api.on.blue(function ({ detail }) {
+    on.blue(function ({ detail }) {
       let red = parseChannel(this.red, 255)
       let green = parseChannel(this.green, 255)
       let blue = parseChannel(detail, 255)
       if (red === undefined || green === undefined || blue === undefined) return
       applyColor(this, { red, green, blue })
     })
-    api.on.hue(function ({ detail }) {
+    on.hue(function ({ detail }) {
       let hue = parseChannel(detail, 360)
       let saturation = parseChannel(this.saturation, 100)
       let lightness = parseChannel(this.lightness, 100)
       if (hue === undefined || saturation === undefined || lightness === undefined) return
       applyColor(this, hslToRgb(hue, saturation, lightness))
     })
-    api.on.saturation(function ({ detail }) {
+    on.saturation(function ({ detail }) {
       let hue = parseChannel(this.hue, 360)
       let saturation = parseChannel(detail, 100)
       let lightness = parseChannel(this.lightness, 100)
       if (hue === undefined || saturation === undefined || lightness === undefined) return
       applyColor(this, hslToRgb(hue, saturation, lightness))
     })
-    api.on.lightness(function ({ detail }) {
+    on.lightness(function ({ detail }) {
       let hue = parseChannel(this.hue, 360)
       let saturation = parseChannel(this.saturation, 100)
       let lightness = parseChannel(detail, 100)

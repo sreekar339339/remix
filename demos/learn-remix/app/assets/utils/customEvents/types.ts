@@ -198,10 +198,10 @@ type CustomEventsSourceDetail<Source> = Source extends readonly unknown[]
     ? Value
     : never
 
-/** The matched event of a state wildcard view: any declared event or an implicit occurrence. */
+/** The matched event of a state wildcard view: the union of every declared
+ * event, discriminated by `type` so callbacks can narrow the detail. */
 type CustomEventsWildcardEvent<Events extends EventDetails> =
-  | CustomEventsEventMap<Events>[CustomEventsEventType<Events>]
-  | (CustomEvent<unknown> & { readonly type: string })
+  CustomEventsEventMap<Events>[CustomEventsEventType<Events>]
 
 /** Default `on`-omitted element on a remembered descriptor: subscribes to every event. */
 type CustomEventsRememberedDefaultElementProps<

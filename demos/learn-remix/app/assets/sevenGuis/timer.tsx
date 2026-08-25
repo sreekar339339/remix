@@ -6,9 +6,9 @@ class SevenGuisTimerEvents extends Events {
   elapsed = 0
   duration = 10
 
-  constructor(api: EventsApi<SevenGuisTimerEvents>) {
+  constructor({on}: EventsApi<SevenGuisTimerEvents>) {
     super()
-    api.on.duration(function ({ detail }) {
+    on.duration(function ({ detail }) {
       this.elapsed = Math.min(this.elapsed, detail)
     })
   }

@@ -4,7 +4,6 @@ import { buttonCss } from './styles.ts'
 
 class SevenGuisCounterEvents extends Events {
   count = 0
-
   increment(by: number) {
     this.count += by
   }
