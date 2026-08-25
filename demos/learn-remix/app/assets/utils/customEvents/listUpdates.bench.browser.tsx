@@ -2,7 +2,7 @@ import * as assert from 'remix/assert'
 import { it } from 'remix/test'
 import type { Handle } from 'remix/ui'
 import { render } from 'remix/ui/test'
-import { evented } from './index.tsx'
+import { evented as e } from './index.tsx'
 
 const itemCount = 1_000
 const ops = 100

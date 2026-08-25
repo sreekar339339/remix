@@ -1,5 +1,5 @@
 import { clientEntry, on } from 'remix/ui'
-import { Events, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented as e } from '../utils/customEvents/index.tsx'
 import { buttonCss } from './styles.ts'
 
 class SevenGuisCounterEvents extends Events {
@@ -14,7 +14,7 @@ export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisC
   let incrementOffset = 1
   return () => (
     <>
-      <evented.button
+      <e.button
         on={events.on.count}
         data-count={(count) => String(count)}
         mix={[
@@ -24,8 +24,8 @@ export const SevenGuisCounter = clientEntry(import.meta.url, function SevenGuisC
           }),
         ]}
       >
-        {(count) => <span>{count}</span>}
-      </evented.button>
+        {(count) => count}
+      </e.button>
       <label>
         Increment by{' '}
         <input

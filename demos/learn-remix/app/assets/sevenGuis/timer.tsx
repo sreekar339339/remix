@@ -1,5 +1,5 @@
 import { clientEntry, on, ref } from 'remix/ui'
-import { Events, evented, type EventsApi } from '../utils/customEvents/index.tsx'
+import { Events, evented as e, type EventsApi } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 class SevenGuisTimerEvents extends Events {
@@ -41,14 +41,14 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
     >
       <h2>Timer</h2>
       <div>
-        <evented.progress
+        <e.progress
           on={events.on['*']}
           value={(current) => Math.min(1, current.elapsed / current.duration)}
           max={1}
         />
-        <evented.output on={events.on.elapsed}>
+        <e.output on={events.on.elapsed}>
           {(elapsed) => `${elapsed.toFixed(1)}s elapsed`}
-        </evented.output>
+        </e.output>
       </div>
       <label mix={rowCss}>
         Duration
@@ -65,9 +65,9 @@ export const SevenGuisTimer = clientEntry(import.meta.url, function SevenGuisTim
             }),
           ]}
         />
-        <evented.span on={events.on.duration}>
+        <e.span on={events.on.duration}>
           {(duration) => `${duration.toFixed(1)}s`}
-        </evented.span>
+        </e.span>
       </label>
       <button
         type="button"

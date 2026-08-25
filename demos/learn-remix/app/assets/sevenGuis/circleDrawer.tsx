@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { Events, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented as e } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 type Circle = {
@@ -118,7 +118,7 @@ export const SevenGuisCircleDrawer = clientEntry(
       <section mix={taskCss}>
         <h2>Circle Drawer</h2>
         <div mix={rowCss}>
-          <evented.button
+          <e.button
             on={events.on.history}
             type="button"
             disabled={(history) => history.index === 0}
@@ -130,8 +130,8 @@ export const SevenGuisCircleDrawer = clientEntry(
             ]}
           >
             Undo
-          </evented.button>
-          <evented.button
+          </e.button>
+          <e.button
             on={events.on.history}
             type="button"
             disabled={(history) => history.index === history.snapshots.length - 1}
@@ -143,9 +143,9 @@ export const SevenGuisCircleDrawer = clientEntry(
             ]}
           >
             Redo
-          </evented.button>
+          </e.button>
         </div>
-        <evented.svg
+        <e.svg
           on={events.on.circles}
           viewBox="0 0 420 220"
           aria-label="Circle canvas"
@@ -166,7 +166,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           {(circles) => (
             <>
               {Array.from(circles.entries(), ([id, circle]) => (
-                <evented.circle
+                <e.circle
                   key={id}
                   on={[events.on.circles.get(id).diameter, events.on.editingCircleById.as(id)]}
                   cx={circle.x}
@@ -190,8 +190,8 @@ export const SevenGuisCircleDrawer = clientEntry(
               ))}
             </>
           )}
-        </evented.svg>
-        <evented.form
+        </e.svg>
+        <e.form
           on={events.on.editingCircleById}
           hidden={(circleId) => circleId === null}
           mix={[
@@ -204,7 +204,7 @@ export const SevenGuisCircleDrawer = clientEntry(
         >
           <label>
             Diameter{' '}
-            <evented.input
+            <e.input
               on={[events.on.editingCircleById, events.on.circles]}
               type="range"
               min={10}
@@ -223,7 +223,7 @@ export const SevenGuisCircleDrawer = clientEntry(
           <button type="submit" mix={buttonCss}>
             Close
           </button>
-        </evented.form>
+        </e.form>
       </section>
     )
   },

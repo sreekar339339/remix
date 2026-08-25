@@ -1,7 +1,7 @@
 import { it } from 'remix/test'
 import * as assert from 'remix/assert'
 import { render } from 'remix/ui/test'
-import { Events, evented } from './utils/customEvents/index.tsx'
+import { Events, evented as e } from './utils/customEvents/index.tsx'
 
 function initialColumns() {
   return new Map<string, string>([['a', 'X']])
@@ -15,23 +15,23 @@ it('debug kanban variants', async (t) => {
 
   function VariantTuple() {
     return () => (
-      <evented.section on={[events.on.columns]}>
+      <e.section on={[events.on.columns]}>
         {(columns) => <>TUPLE:{columns?.entries().next().value?.[0] ?? 'none'}</>}
-      </evented.section>
+      </e.section>
     )
   }
   function VariantWildcard() {
     return () => (
-      <evented.section on={events.on['*']}>
+      <e.section on={events.on['*']}>
         {(current) => <>WILD:{current.columns?.entries().next().value?.[0] ?? 'none'}</>}
-      </evented.section>
+      </e.section>
     )
   }
   function VariantSingle() {
     return () => (
-      <evented.section on={events.on.columns}>
+      <e.section on={events.on.columns}>
         {(columns) => <>SINGLE:{columns?.entries().next().value?.[0] ?? 'none'}</>}
-      </evented.section>
+      </e.section>
     )
   }
 

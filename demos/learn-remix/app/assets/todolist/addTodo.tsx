@@ -1,6 +1,6 @@
 import { css, on, ref, type Dispatched, type Handle, type Props } from 'remix/ui'
 import { routes } from '../../routes.ts'
-import { evented } from '../utils/customEvents/index.tsx'
+import { evented as e } from '../utils/customEvents/index.tsx'
 import { events } from './todoList.tsx'
 
 export function AddTodo(handle: Handle<Props<'form'>>) {
@@ -47,7 +47,7 @@ export function AddTodo(handle: Handle<Props<'form'>>) {
     >
       <label>
         Enter a todo{' '}
-        <evented.input
+        <e.input
           on={events.on['*']}
           disabled={(_, event) => event?.type === 'actionSubmitted'}
           class={(_, event) => (event?.type === 'actionSubmitted' ? 'pending' : '')}

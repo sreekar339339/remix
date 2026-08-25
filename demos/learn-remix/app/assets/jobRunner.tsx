@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { Events, evented, type EventsApi } from './utils/customEvents/index.tsx'
+import { Events, evented as e, type EventsApi } from './utils/customEvents/index.tsx'
 
 export const jobRunnerSteps = ['build', 'test', 'ship'] as const
 
@@ -124,7 +124,7 @@ export const AsyncJobRunner = clientEntry(import.meta.url, function AsyncJobRunn
         `run` is an async handler that dispatches other events mid-flight; each `await` flushes the
         session so views update progressively, and nested events are deferred until the flush.
       </p>
-      <evented.div
+      <e.div
         on={[events.on.phase, events.on.progress, events.on.currentStep, events.on.log]}
         mix={css({ display: 'grid', gap: 8 })}
       >
@@ -135,9 +135,9 @@ export const AsyncJobRunner = clientEntry(import.meta.url, function AsyncJobRunn
             <p>current step: {currentStep ?? '—'}</p>
             <div mix={css({ display: 'flex', gap: 12 })}>
               {jobRunnerSteps.map((step) => (
-                <evented.output key={step} on={events.on.counts.get(step)} data-count={step}>
+                <e.output key={step} on={events.on.counts.get(step)} data-count={step}>
                   {(count) => `${step}: ${count ?? 0}`}
-                </evented.output>
+                </e.output>
               ))}
             </div>
             <ul data-log mix={css({ paddingInlineStart: 20, margin: 0 })}>
@@ -147,7 +147,7 @@ export const AsyncJobRunner = clientEntry(import.meta.url, function AsyncJobRunn
             </ul>
           </>
         )}
-      </evented.div>
+      </e.div>
       <div mix={css({ display: 'flex', gap: 8 })}>
         <span
           data-last-completed

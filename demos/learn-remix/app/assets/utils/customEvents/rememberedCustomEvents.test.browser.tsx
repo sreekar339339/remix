@@ -1,7 +1,7 @@
 import * as assert from 'remix/assert'
 import { describe, it } from 'remix/test'
 import { render } from 'remix/ui/test'
-import { Events, evented, type EventsApi } from './index.tsx'
+import { Events, evented as e, type EventsApi } from './index.tsx'
 import { settleEffects } from './customEvents.test-utils.tsx'
 
 describe('remembered customEvents', () => {
@@ -18,12 +18,12 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="root">
+        <e.output on={events.on['*']} aria-label="root">
           {(detail, event) => {
             seen.push([detail, event?.type])
             return `${detail.label}:${detail.count}`
           }}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -71,14 +71,14 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="root">
+        <e.output on={events.on['*']} aria-label="root">
           {(detail, event) => {
             seen.push([detail, event?.type])
             if (event?.type === 'refreshRequested') return `refresh:${detail.count}`
             if (event?.type === 'countDrafted') return `draft:${event.detail}`
             return `count:${detail.count}`
           }}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -119,23 +119,23 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output on={events.on['*']} aria-label="root">
+          <e.output on={events.on['*']} aria-label="root">
             {(detail) => {
               rootCalls++
               return `${detail.items.size} items`
             }}
-          </evented.output>
-          <evented.div on={events.on.items}>
+          </e.output>
+          <e.div on={events.on.items}>
             {(items) => (
               <>
                 {[...items.entries()].map(([id, item]) => (
-                  <evented.div key={id} className="item" on={events.on.items.get(id)}>
+                  <e.div key={id} className="item" on={events.on.items.get(id)}>
                     {(current) => current?.label ?? item.label}
-                  </evented.div>
+                  </e.div>
                 ))}
               </>
             )}
-          </evented.div>
+          </e.div>
         </section>
       )
     }
@@ -170,7 +170,7 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="tick">
+        <e.output on={events.on['*']} aria-label="tick">
           {(detail, latest) => {
             seen.push([detail.elapsed, latest?.type])
             // The fold event's own detail rides the fold's entry; the
@@ -178,7 +178,7 @@ describe('remembered customEvents', () => {
             if (latest?.type === 'tick') return `${latest.detail as number}`
             return `${detail.elapsed}`
           }}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -205,12 +205,12 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output on={events.on.kind} aria-label="kind">
+        <e.output on={events.on.kind} aria-label="kind">
           {(kind) => {
             seen.push(kind)
             return `${kind}`
           }}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -255,12 +255,12 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="root">
+        <e.output on={events.on['*']} aria-label="root">
           {(detail, event) => {
             seen.push([detail, event?.type])
             return `${detail.label}:${detail.count}`
           }}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -310,9 +310,9 @@ describe('remembered customEvents', () => {
 
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="root">
+        <e.output on={events.on['*']} aria-label="root">
           {(detail) => `${detail.celsius}/${detail.fahrenheit}`}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -347,15 +347,15 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output on={events.on.drafted} aria-label="draft">
+          <e.output on={events.on.drafted} aria-label="draft">
             {(draft) => {
               drafts.push(draft)
               return `${draft}`
             }}
-          </evented.output>
-          <evented.output on={events.on['*']} aria-label="root">
+          </e.output>
+          <e.output on={events.on['*']} aria-label="root">
             {(detail) => `${detail.count}`}
-          </evented.output>
+          </e.output>
         </section>
       )
     }
@@ -391,15 +391,15 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output on={events.on.bookingConfirmed} aria-label="signal">
+          <e.output on={events.on.bookingConfirmed} aria-label="signal">
             {(detail) => {
               seen.push(detail)
               return detail === null ? 'idle' : 'matched'
             }}
-          </evented.output>
-          <evented.output on={events.on['*']} aria-label="root">
+          </e.output>
+          <e.output on={events.on['*']} aria-label="root">
             {(detail) => `${detail.count}`}
-          </evented.output>
+          </e.output>
         </section>
       )
     }
@@ -428,12 +428,12 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output on={events.on.drafted} aria-label="draft">
+          <e.output on={events.on.drafted} aria-label="draft">
             {(draft) => draft ?? ''}
-          </evented.output>
-          <evented.div on={events.on['*']} aria-label="wild">
+          </e.output>
+          <e.div on={events.on['*']} aria-label="wild">
             {(_, event) => event?.type ?? 'none'}
-          </evented.div>
+          </e.div>
         </section>
       )
     }
@@ -467,12 +467,12 @@ describe('remembered customEvents', () => {
     let current: unknown
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="root">
+        <e.output on={events.on['*']} aria-label="root">
           {(detail, event) => {
             current = event?.currentTarget
             return `${detail.count}`
           }}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -487,12 +487,12 @@ describe('remembered customEvents', () => {
 
     if (false) {
       // The matched event's currentTarget is the element type, not EventTarget.
-      ;<evented.button on={events.on.count}>
+      ;<e.button on={events.on.count}>
         {(_, event) => {
           event?.currentTarget?.focus()
           return null
         }}
-      </evented.button>
+      </e.button>
     }
   })
 
@@ -504,13 +504,13 @@ describe('remembered customEvents', () => {
     let current: unknown
     function View() {
       return () => (
-        <evented.button
+        <e.button
           on={events.on.count}
           data-count={(count) => `count-${count}`}
           aria-label="button"
         >
           {(_, event) => event?.currentTarget?.dataset.count ?? 'none'}
-        </evented.button>
+        </e.button>
       )
     }
 
@@ -575,9 +575,9 @@ describe('remembered customEvents', () => {
     let events = __LoadEvents.define()
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="phase">
+        <e.output on={events.on['*']} aria-label="phase">
           {(detail) => `${detail.phase}:${detail.value}`}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -611,9 +611,9 @@ describe('remembered customEvents', () => {
     let events = __BumpEvents.define()
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="root">
+        <e.output on={events.on['*']} aria-label="root">
           {(detail) => `${detail.count}:${detail.label}`}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -647,9 +647,9 @@ describe('remembered customEvents', () => {
     let events = __WorkEvents.define()
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="root">
+        <e.output on={events.on['*']} aria-label="root">
           {(detail) => `${detail.count}:${detail.log}`}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -694,12 +694,12 @@ describe('remembered customEvents', () => {
     function View() {
       return () => (
         <section>
-          <evented.output on={events.on['*']} aria-label="root">
+          <e.output on={events.on['*']} aria-label="root">
             {(detail) => `${detail.label}:${detail.count}`}
-          </evented.output>
-          <evented.output on={events.on.drafted} aria-label="draft">
+          </e.output>
+          <e.output on={events.on.drafted} aria-label="draft">
             {(draft) => `${draft}`}
-          </evented.output>
+          </e.output>
         </section>
       )
     }
@@ -764,9 +764,9 @@ describe('remembered customEvents', () => {
     let events = __SliceEvents.define()
     function View() {
       return () => (
-        <evented.output on={events.on['*']} aria-label="root">
+        <e.output on={events.on['*']} aria-label="root">
           {(detail) => `${detail.label}:${detail.count}`}
-        </evented.output>
+        </e.output>
       )
     }
 
@@ -828,13 +828,13 @@ describe('remembered customEvents', () => {
     function Board() {
       return () => (
         <section>
-          <evented.output on={events.on.boards}>{() => String(++calls.board)}</evented.output>
-          <evented.output on={events.on.boards.get(1).cards.get(10).label}>
+          <e.output on={events.on.boards}>{() => String(++calls.board)}</e.output>
+          <e.output on={events.on.boards.get(1).cards.get(10).label}>
             {() => String(++calls.ten)}
-          </evented.output>
-          <evented.output on={events.on.boards.get(1).cards.get(20).label}>
+          </e.output>
+          <e.output on={events.on.boards.get(1).cards.get(20).label}>
             {() => String(++calls.twenty)}
-          </evented.output>
+          </e.output>
         </section>
       )
     }

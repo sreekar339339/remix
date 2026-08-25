@@ -1,5 +1,5 @@
-import { clientEntry, css, Fragment, on } from 'remix/ui'
-import { Events, evented } from '../utils/customEvents/index.tsx'
+import { clientEntry, css, on } from 'remix/ui'
+import { Events, evented as e } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 type Person = {
@@ -84,7 +84,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
           }),
         ]}
       >
-        <evented.select
+        <e.select
           on={[events.on.people, events.on.prefix, events.on.selectedId]}
           size={7}
           aria-label="People"
@@ -103,8 +103,8 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
               </option>
             ))
           }
-        </evented.select>
-        <evented.div
+        </e.select>
+        <e.div
           on={[events.on.draft, events.on.selectedId]}
           mix={css({ display: 'grid', gap: 8 })}
         >
@@ -180,7 +180,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
               </div>
             </>
           )}
-        </evented.div>
+        </e.div>
       </div>
     </section>
   )

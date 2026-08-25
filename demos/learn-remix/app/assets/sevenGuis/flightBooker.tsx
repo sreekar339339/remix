@@ -1,5 +1,5 @@
 import { clientEntry, on } from 'remix/ui'
-import { Events, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented as e } from '../utils/customEvents/index.tsx'
 import { buttonCss, inputCss, rowCss, taskCss } from './styles.ts'
 
 type FlightKind = 'one-way flight' | 'return flight'
@@ -48,7 +48,7 @@ export const SevenGuisFlightBooker = clientEntry(
   function SevenGuisFlightBooker(handle) {
     let events = SevenGuisFlightBookerEvents.define()
     return () => (
-      <evented.section on={events.on['*']}>
+      <e.section on={events.on['*']}>
         {(flight) => (
           <>
             <h2>Flight Booker</h2>
@@ -108,16 +108,16 @@ export const SevenGuisFlightBooker = clientEntry(
             >
               Book
             </button>
-            <evented.output on={events.on.bookingConfirmed} hidden={(flight) => !flight}>
+            <e.output on={events.on.bookingConfirmed} hidden={(flight) => !flight}>
               {(flight) =>
                 flight?.kind === 'one-way flight'
                   ? `You have booked a one-way flight on ${flight?.startDate}.`
                   : `You have booked a return flight from ${flight?.startDate} to ${flight?.returnDate}.`
               }
-            </evented.output>
+            </e.output>
           </>
         )}
-      </evented.section>
+      </e.section>
     )
   },
 )

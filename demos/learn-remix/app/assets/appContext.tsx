@@ -1,5 +1,5 @@
 import { addEventListeners, type Handle, type RemixNode } from 'remix/ui'
-import { Events, evented, type CustomEventsDefined } from './utils/customEvents/index.tsx'
+import { Events, evented as e, type CustomEventsDefined } from './utils/customEvents/index.tsx'
 
 export class AppContextEvents extends Events {
   user: { name: string; age: number } | null = null
@@ -49,7 +49,7 @@ export function EventUserDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div on={events.on.user.name}>{(user) => user ?? 'Not logged in'}</evented.div>
+      <e.div on={events.on.user.name}>{(user) => user ?? 'Not logged in'}</e.div>
     </div>
   )
 }
@@ -59,9 +59,9 @@ export function SettingsDisplay(handle: Handle) {
 
   return () => (
     <div>
-      <evented.div on={events.on.settings}>
+      <e.div on={events.on.settings}>
         {(settings) => `Layout: ${settings.layout}, Theme: ${settings.theme}`}
-      </evented.div>
+      </e.div>
     </div>
   )
 }

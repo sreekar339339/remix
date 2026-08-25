@@ -1,6 +1,6 @@
 import { clientEntry, css, on, ref } from 'remix/ui'
 import type { Handle, RemixNode } from 'remix/ui'
-import { Events, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented as e } from '../utils/customEvents/index.tsx'
 
 type FilterItem = { id: number; name: string; rank: number }
 type SortKey = 'id' | 'name' | 'nameDesc' | 'rank'
@@ -207,13 +207,14 @@ function emptyTiming(): Timing {
 
 function timingLabel(timing: Timing | null | undefined): string {
   if (!timing) return ''
-  let evented = timing.eventedTicks > 0 ? timing.eventedMs / timing.eventedTicks : null
+  let eventedAvg = timing.eventedTicks > 0 ? timing.eventedMs / timing.eventedTicks : null
   let plain = timing.plainTicks > 0 ? timing.plainMs / timing.plainTicks : null
   let parts: string[] = []
-  if (evented !== null) parts.push(`evented ${evented.toFixed(2)} ms/tick (${timing.eventedTicks})`)
+  if (eventedAvg !== null)
+    parts.push(`evented ${eventedAvg.toFixed(2)} ms/tick (${timing.eventedTicks})`)
   if (plain !== null) parts.push(`plain ${plain.toFixed(2)} ms/tick (${timing.plainTicks})`)
-  if (evented !== null && plain !== null && plain > 0) {
-    parts.push(`time saved ${Math.max(0, (1 - evented / plain) * 100).toFixed(0)}%`)
+  if (eventedAvg !== null && plain !== null && plain > 0) {
+    parts.push(`time saved ${Math.max(0, (1 - eventedAvg / plain) * 100).toFixed(0)}%`)
   }
   return parts.join(' · ')
 }
@@ -514,30 +515,30 @@ export const ListUpdatesFilterBoard = clientEntry(
           >
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
-          <evented.output on={events.on.visible} mix={meterCss}>
+          <e.output on={events.on.visible} mix={meterCss}>
             {(rows) => (rows ? `${rows.size} shown` : '')}
-          </evented.output>
-          <evented.output on={events.on.meter} mix={meterCss}>
+          </e.output>
+          <e.output on={events.on.meter} mix={meterCss}>
             {(mutations) => `DOM mutations/s: ${mutations ?? 0}`}
-          </evented.output>
-          <evented.output on={events.on.timing} mix={meterCss}>
+          </e.output>
+          <e.output on={events.on.timing} mix={meterCss}>
             {(timing) => timingLabel(timing)}
-          </evented.output>
+          </e.output>
         </div>
         <div className="filter-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
           {mode === 'evented' ? (
-            <evented.div key="evented" on={events.on.visible}>
+            <e.div key="evented" on={events.on.visible}>
               {(visible) => <>{[...visible.entries()].map(([id, item]) => filterRow(item, id))}</>}
-            </evented.div>
+            </e.div>
           ) : (
-            <evented.div key="plain" on={[events.on.visible, events.on.refresh]}>
+            <e.div key="plain" on={[events.on.visible, events.on.refresh]}>
               {([visible]) =>
                 visible
                   .values()
                   .map((item) => filterRow(item))
                   .toArray()
               }
-            </evented.div>
+            </e.div>
           )}
         </div>
       </section>
@@ -693,30 +694,30 @@ export const ListUpdatesFeedBoard = clientEntry(
           >
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
-          <evented.output on={events.on.items} mix={meterCss}>
+          <e.output on={events.on.items} mix={meterCss}>
             {(items) => (items ? `${items.size}/${feedCap}` : '')}
-          </evented.output>
-          <evented.output on={events.on.meter} mix={meterCss}>
+          </e.output>
+          <e.output on={events.on.meter} mix={meterCss}>
             {(mutations) => `DOM mutations/s: ${mutations ?? 0}`}
-          </evented.output>
-          <evented.output on={events.on.timing} mix={meterCss}>
+          </e.output>
+          <e.output on={events.on.timing} mix={meterCss}>
             {(timing) => timingLabel(timing)}
-          </evented.output>
+          </e.output>
         </div>
         <div className="feed-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
           {mode === 'evented' ? (
-            <evented.div key="evented" on={events.on.items}>
+            <e.div key="evented" on={events.on.items}>
               {(items) => <>{[...items.entries()].map(([id, item]) => feedRow(item, id))}</>}
-            </evented.div>
+            </e.div>
           ) : (
-            <evented.div key="plain" on={[events.on.items, events.on.refresh]}>
+            <e.div key="plain" on={[events.on.items, events.on.refresh]}>
               {([items]) =>
                 items
                   .values()
                   .map((item) => feedRow(item))
                   .toArray()
               }
-            </evented.div>
+            </e.div>
           )}
         </div>
       </section>
@@ -871,34 +872,34 @@ export const ListUpdatesHeavyBoard = clientEntry(
           >
             {benchmarker.active ? 'Benchmarking…' : `Benchmark ${benchmarkTicksPerMode} ticks/mode`}
           </button>
-          <evented.output on={events.on.meter} mix={meterCss}>
+          <e.output on={events.on.meter} mix={meterCss}>
             {(mutations) => `DOM mutations/s: ${mutations ?? 0}`}
-          </evented.output>
-          <evented.output on={events.on.timing} mix={meterCss}>
+          </e.output>
+          <e.output on={events.on.timing} mix={meterCss}>
             {(timing) => timingLabel(timing)}
-          </evented.output>
+          </e.output>
         </div>
         <div className="heavy-rows" mix={[rowsCss, ref((node) => meter.observe(node))]}>
           {mode === 'evented' ? (
-            <evented.div key="evented" on={events.on.items}>
+            <e.div key="evented" on={events.on.items}>
               {(items) =>
                 items
                   .values()
                   .map((item) => (
-                    <evented.article
+                    <e.article
                       key={item.id}
                       className="row"
                       on={events.on.items.get(item.id)}
                       mix={heavyRowCss}
                     >
                       {(row) => heavyRowContent(row ?? item)}
-                    </evented.article>
+                    </e.article>
                   ))
                   .toArray()
               }
-            </evented.div>
+            </e.div>
           ) : (
-            <evented.div key="plain" on={[events.on.items, events.on.refresh]}>
+            <e.div key="plain" on={[events.on.items, events.on.refresh]}>
               {([items]) =>
                 items
                   .values()
@@ -909,7 +910,7 @@ export const ListUpdatesHeavyBoard = clientEntry(
                   ))
                   .toArray()
               }
-            </evented.div>
+            </e.div>
           )}
         </div>
       </section>

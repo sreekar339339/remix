@@ -1,6 +1,6 @@
 import * as assert from 'remix/assert'
 import { it } from 'remix/test'
-import { Events, evented } from './index.tsx'
+import { Events, evented as e } from './index.tsx'
 import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
 
 const subscriptionCount = 5_000

@@ -1,5 +1,5 @@
 import { clientEntry, css, on, ref } from 'remix/ui'
-import { Events, evented, type EventsApi } from './utils/customEvents/index.tsx'
+import { Events, evented as e, type EventsApi } from './utils/customEvents/index.tsx'
 
 type Player = 'X' | 'O'
 type Result = Player | 'Draw'
@@ -127,7 +127,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
         ]}
       >
         {Array.from({ length: 9 }, (_, index) => (
-          <evented.button
+          <e.button
             on={[events.on.position.get(index), events.on.result]}
             key={index}
             data-idx={String(index)}
@@ -152,7 +152,7 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
             ]}
           >
             {([pos]) => pos}
-          </evented.button>
+          </e.button>
         ))}
       </div>
       <button
@@ -180,13 +180,13 @@ export const TicTacToeCustomEvents = clientEntry(import.meta.url, function TicTa
           }),
         ]}
       >
-        <evented.span on={events.on.result}>
+        <e.span on={events.on.result}>
           {(result) => {
             if (!result) return 'Game in progress'
             if (result === 'Draw') return 'Game is drawn.'
             return `${result} has won!`
           }}
-        </evented.span>
+        </e.span>
       </p>
     </div>
   )

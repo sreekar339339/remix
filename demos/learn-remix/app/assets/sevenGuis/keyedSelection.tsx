@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { Events, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented as e } from '../utils/customEvents/index.tsx'
 import { buttonCss, rowCss, taskCss } from './styles.ts'
 
 const items = [
@@ -25,7 +25,7 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
       </p>
       <div mix={rowCss}>
         {items.map((item) => (
-          <evented.button
+          <e.button
             on={events.on.selectedId.as(item.id)}
             key={item.id}
             aria-label={item.label}
@@ -50,14 +50,14 @@ export const KeyedSelection = clientEntry(import.meta.url, function KeyedSelecti
             ]}
           >
             {item.label}
-          </evented.button>
+          </e.button>
         ))}
       </div>
       <p>
         Selected:{' '}
-        <evented.output on={events.on.selectedId}>
+        <e.output on={events.on.selectedId}>
           {(selectedId) => selectedId ?? ''}
-        </evented.output>
+        </e.output>
       </p>
     </section>
   )

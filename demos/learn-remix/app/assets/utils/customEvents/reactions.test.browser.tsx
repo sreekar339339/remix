@@ -1,7 +1,7 @@
 import * as assert from 'remix/assert'
 import { describe, it } from 'remix/test'
 import { render } from 'remix/ui/test'
-import { Events, evented, type EventsApi } from './index.tsx'
+import { Events, evented as e, type EventsApi } from './index.tsx'
 
 async function settleEffects() {
   await Promise.resolve()
@@ -31,9 +31,9 @@ describe('reactions', () => {
     function View() {
       return () => (
         <section>
-          <evented.output on={events.on.fahrenheit} aria-label="out">
+          <e.output on={events.on.fahrenheit} aria-label="out">
             {(value) => value ?? ''}
-          </evented.output>
+          </e.output>
         </section>
       )
     }
@@ -109,9 +109,9 @@ describe('reactions', () => {
     function View() {
       return () => (
         <section>
-          <evented.output on={events.on.boards.get(1).cards.get(10).label} aria-label="card">
+          <e.output on={events.on.boards.get(1).cards.get(10).label} aria-label="card">
             {(label) => label ?? ''}
-          </evented.output>
+          </e.output>
         </section>
       )
     }

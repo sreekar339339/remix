@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { Events, evented } from './utils/customEvents/index.tsx'
+import { Events, evented as e } from './utils/customEvents/index.tsx'
 
 type Card = {
   title: string
@@ -109,7 +109,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
   }
 
   return () => (
-    <evented.section
+    <e.section
       on={events.on.columns}
       mix={css({
         width: 'min(900px, 100%)',
@@ -140,7 +140,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                 <section key={columnId} mix={columnCss}>
                   <header>
                     <h2>{column.title}</h2>
-                    <evented.output
+                    <e.output
                       on={events.on.columns.get(columnId)}
                       aria-label={`${column.title} view`}
                     >
@@ -151,12 +151,12 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                           .reduce((count, card) => count + Number(card.urgent), 0)
                         return `${urgent} urgent · rendered ${nextRenderCount(columnId)}`
                       }}
-                    </evented.output>
+                    </e.output>
                   </header>
                   {column.cards
                     .entries()
                     .map(([cardId, initialCard]) => (
-                      <evented.article
+                      <e.article
                         on={events.on.columns.get(columnId).cards.get(cardId)}
                         key={cardId}
                         aria-label={initialCard.title}
@@ -188,7 +188,7 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
                             </>
                           )
                         }}
-                      </evented.article>
+                      </e.article>
                     ))
                     .toArray()}
                 </section>
@@ -197,6 +197,6 @@ export const KanbanBoard = clientEntry(import.meta.url, function KanbanBoard() {
           </div>
         </>
       )}
-    </evented.section>
+    </e.section>
   )
 })

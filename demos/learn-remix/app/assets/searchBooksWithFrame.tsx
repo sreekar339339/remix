@@ -1,6 +1,6 @@
 import { clientEntry, css, Frame, on, ref, type Handle } from 'remix/ui'
 import { routes } from '../routes.ts'
-import { Events, evented, type EventsApi } from './utils/customEvents/index.tsx'
+import { Events, evented as e, type EventsApi } from './utils/customEvents/index.tsx'
 
 class SearchBoxEvents extends Events {
   query: string | undefined
@@ -56,7 +56,7 @@ export const SearchBooksWithFrame = clientEntry(
             />
           </label>
         </form>
-        <evented.div on={events.on.query}>
+        <e.div on={events.on.query}>
           {(submitted) =>
             submitted === undefined ? (
               <p>Enter the title of any book.</p>
@@ -68,7 +68,7 @@ export const SearchBooksWithFrame = clientEntry(
               />
             )
           }
-        </evented.div>
+        </e.div>
       </div>
     )
   },

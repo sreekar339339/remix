@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { Events, evented } from '../utils/customEvents/index.tsx'
+import { Events, evented as e } from '../utils/customEvents/index.tsx'
 import { taskCss } from './styles.ts'
 
 const columns = ['A', 'B', 'C', 'D', 'E', 'F'] as const
@@ -128,7 +128,7 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                 <th>{row}</th>
                 {columns.map((column, __, _, id = cellId(column, row)) => (
                   <td key={id}>
-                    <evented.input
+                    <e.input
                       on={[events.on.values[id], events.on.cellDrafted]}
                       aria-label={id}
                       data-render-count={() => {

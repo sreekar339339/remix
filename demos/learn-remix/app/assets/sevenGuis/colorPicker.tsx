@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { Events, evented, type EventsApi } from '../utils/customEvents/index.tsx'
+import { Events, evented as e, type EventsApi } from '../utils/customEvents/index.tsx'
 import { inputCss, rowCss, taskCss } from './styles.ts'
 
 type Color = {
@@ -191,7 +191,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
       <div mix={[rowCss, css({ alignItems: 'end', flexWrap: 'wrap' })]}>
         <label>
           Hex{' '}
-          <evented.input
+          <e.input
             on={events.on.hex}
             aria-label="Hex"
             value={(hex) => hex}
@@ -215,7 +215,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
             ).map(([channel, label]) => (
               <label>
                 {label}{' '}
-                <evented.input
+                <e.input
                   on={events.on[channel]}
                   aria-label={label}
                   value={(value) => value}
@@ -242,7 +242,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
             ).map(([channel, label]) => (
               <label>
                 {label}{' '}
-                <evented.input
+                <e.input
                   on={events.on[channel]}
                   aria-label={label}
                   value={(value) => value}
@@ -257,7 +257,7 @@ export const ColorPicker = clientEntry(import.meta.url, function ColorPicker() {
             ))}
           </div>
         </fieldset>
-        <evented.div
+        <e.div
           on={events.on.hex}
           aria-label="Swatch"
           style={(hex) => ({ background: parseHex(hex) ? hex : '#e4e4e7' })}

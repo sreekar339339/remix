@@ -2,7 +2,7 @@ import * as assert from 'remix/assert'
 import { describe, it } from 'remix/test'
 import { on, ref } from 'remix/ui'
 import { render } from 'remix/ui/test'
-import { Events, evented } from './index.tsx'
+import { Events, evented as e } from './index.tsx'
 import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
 import { createEvents, settleEffects } from './customEvents.test-utils.tsx'
 
@@ -19,18 +19,18 @@ describe('customEvents', () => {
     function CollidingEventNames() {
       return () => (
         <section mix={events.asHost()}>
-          <evented.output on={events.on.name} aria-label="name">
+          <e.output on={events.on.name} aria-label="name">
             {(value, event) => event?.type}
-          </evented.output>
-          <evented.output on={events.on.length} aria-label="length">
+          </e.output>
+          <e.output on={events.on.length} aria-label="length">
             {(value, event) => event?.type}
-          </evented.output>
-          <evented.output on={events.on.bind} aria-label="bind">
+          </e.output>
+          <e.output on={events.on.bind} aria-label="bind">
             {(value, event) => event?.type}
-          </evented.output>
-          <evented.output on={events.on.toString} aria-label="toString">
+          </e.output>
+          <e.output on={events.on.toString} aria-label="toString">
             {(value, event) => event?.type}
-          </evented.output>
+          </e.output>
         </section>
       )
     }
@@ -62,7 +62,7 @@ describe('customEvents', () => {
           >
             Submit
           </button>
-          <evented.form
+          <e.form
             on={events.on['*']}
             aria-label="form"
             class={(detail, event) => (event?.type === 'submitted' ? 'pending' : '')}
@@ -74,7 +74,7 @@ describe('customEvents', () => {
             {(detail, event) => (
               <output>{event?.type === 'submitted' ? (event.detail as { id: string }).id : 'idle'}</output>
             )}
-          </evented.form>
+          </e.form>
         </section>
       )
     }
@@ -102,7 +102,7 @@ describe('customEvents', () => {
     function Confirmation() {
       return () => (
         <section mix={events.asHost()} aria-label="confirmation-host">
-          <evented.output
+          <e.output
             on={events.on['*']}
             hidden={(detail, event) => event?.type !== 'submitted'}
             aria-label="confirmation"
@@ -110,8 +110,8 @@ describe('customEvents', () => {
             {(detail, event) =>
               event?.type === 'submitted' ? (event.detail as { id: string }).id ?? null : null
             }
-          </evented.output>
-          <evented.output
+          </e.output>
+          <e.output
             on={events.on['*']}
             hidden={(detail, event) =>
               event?.type === 'submitted' && (event.detail as { id: string }).id === 'hidden'
@@ -121,7 +121,7 @@ describe('customEvents', () => {
             {(detail, event) =>
               event?.type === 'submitted' ? (event.detail as { id: string }).id : 'initial'
             }
-          </evented.output>
+          </e.output>
         </section>
       )
     }
@@ -150,7 +150,7 @@ describe('customEvents', () => {
 
     function Form() {
       return () => (
-        <evented.form
+        <e.form
           on={events.on['*']}
           aria-label="source"
           data-action={(value, event) => event?.type}
@@ -161,12 +161,12 @@ describe('customEvents', () => {
             }),
           ]}
         >
-          <evented.input
+          <e.input
             on={events.on['*']}
             aria-label="input"
             disabled={(value, event) => event?.type === 'submitted'}
           />
-        </evented.form>
+        </e.form>
       )
     }
 
@@ -199,7 +199,7 @@ describe('customEvents', () => {
             })}
           />
           {['first', 'second'].map((id) => (
-            <evented.output
+            <e.output
               on={events.on['*']}
               aria-label={id}
               mix={events.on['*'](({ currentTarget, type }) => {
@@ -211,13 +211,13 @@ describe('customEvents', () => {
                   ? (event.detail as { id: string }).id ?? ''
                   : 'idle'
               }
-            </evented.output>
+            </e.output>
           ))}
-          <evented.output on={events.on['*']} aria-label="all">
+          <e.output on={events.on['*']} aria-label="all">
             {(value, event) =>
               event ? (event.type === 'paid' ? 'idle' : event.type) : ''
             }
-          </evented.output>
+          </e.output>
         </section>
       )
     }
@@ -382,7 +382,7 @@ describe('customEvents', () => {
               dispatchTarget = button
             })}
           />
-          <evented.output
+          <e.output
             on={events.on['*']}
             aria-label="view"
             mix={events.on['*'](async ({ type, currentTarget }) => {
@@ -391,7 +391,7 @@ describe('customEvents', () => {
             })}
           >
             {(value, event) => event && `${event.type}:${++viewUpdates}`}
-          </evented.output>
+          </e.output>
         </section>
       )
     }

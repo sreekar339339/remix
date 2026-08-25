@@ -71,7 +71,7 @@ describe('7GUIs custom-event choreography', () => {
     t.after(() => result.cleanup())
 
     let button = result.$('button') as HTMLButtonElement
-    let display = () => button.querySelector('span')?.textContent ?? ''
+    let display = () => button?.textContent ?? ''
 
     assert.equal(display(), '0')
     for (let index = 0; index < 3; index++) {

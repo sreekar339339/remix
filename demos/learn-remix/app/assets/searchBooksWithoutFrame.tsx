@@ -1,6 +1,6 @@
 import { clientEntry, css, on, ref, type Handle } from 'remix/ui'
 import { routes } from '../routes.ts'
-import { Events, evented, type CustomEventsDefined, type EventsApi } from './utils/customEvents/index.tsx'
+import { Events, evented as e, type CustomEventsDefined, type EventsApi } from './utils/customEvents/index.tsx'
 
 type Book = {
   title: string
@@ -80,7 +80,7 @@ export const SearchBooksWithoutFrame = clientEntry(
       <div mix={events.asHost()}>
         <label>
           Search{' '}
-          <evented.input
+          <e.input
             on={events.on.view}
             type="text"
             defaultValue={initialQuery}
@@ -108,7 +108,7 @@ export const SearchBooksWithoutFrame = clientEntry(
             ]}
           />
         </label>
-        <evented.div on={events.on.view}>
+        <e.div on={events.on.view}>
           {(view) => {
             switch (view.type) {
               case 'queryEmpty':
@@ -139,7 +139,7 @@ export const SearchBooksWithoutFrame = clientEntry(
                 )
             }
           }}
-        </evented.div>
+        </e.div>
       </div>
     )
   },

@@ -1,5 +1,5 @@
 import { clientEntry, css, on } from 'remix/ui'
-import { Events, evented, type EventsApi } from '../utils/customEvents/index.tsx'
+import { Events, evented as e, type EventsApi } from '../utils/customEvents/index.tsx'
 import { inputCss, rowCss, taskCss } from './styles.ts'
 
 type Location = {
@@ -79,7 +79,7 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
       <div mix={[rowCss, css({ alignItems: 'end', flexWrap: 'wrap' })]}>
         <label>
           Country{' '}
-          <evented.select
+          <e.select
             on={events.on.country}
             aria-label="Country"
             value={(country) => country}
@@ -98,11 +98,11 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
                 ))}
               </>
             )}
-          </evented.select>
+          </e.select>
         </label>
         <label>
           State{' '}
-          <evented.select
+          <e.select
             on={[events.on.states, events.on.state]}
             aria-label="State"
             value={([, state]) => state ?? ''}
@@ -122,11 +122,11 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
                 ))}
               </>
             )}
-          </evented.select>
+          </e.select>
         </label>
         <label>
           City{' '}
-          <evented.select
+          <e.select
             on={[events.on.cities, events.on.city]}
             aria-label="City"
             value={([, city]) => city ?? ''}
@@ -146,17 +146,17 @@ export const LocationCascade = clientEntry(import.meta.url, function LocationCas
                 ))}
               </>
             )}
-          </evented.select>
+          </e.select>
         </label>
       </div>
-      <evented.output
+      <e.output
         on={[events.on.country, events.on.state, events.on.city]}
         aria-label="Selection"
       >
         {([country, detail, city]) =>
           `${labelOf(COUNTRIES, country)} / ${labelOf(STATES[country] ?? [], detail)} / ${labelOf(CITIES[detail ?? ''] ?? [], city)}`
         }
-      </evented.output>
+      </e.output>
     </section>
   )
 })

@@ -1,5 +1,5 @@
 import { clientEntry, on } from 'remix/ui'
-import { Events, evented, type EventsApi } from '../utils/customEvents/index.tsx'
+import { Events, evented as e, type EventsApi } from '../utils/customEvents/index.tsx'
 import { inputCss, rowCss, taskCss } from './styles.ts'
 
 function parseTemperature(value: string) {
@@ -43,7 +43,7 @@ export const SevenGuisTemperatureConverter = clientEntry(
       <section mix={taskCss}>
         <h2>Temperature Converter</h2>
         <div mix={rowCss}>
-          <evented.input
+          <e.input
             on={events.on.celsius}
             aria-label="Celsius"
             value={(temperature) => temperature}
@@ -55,7 +55,7 @@ export const SevenGuisTemperatureConverter = clientEntry(
             ]}
           />
           <span>Celsius =</span>
-          <evented.input
+          <e.input
             on={events.on.fahrenheit}
             aria-label="Fahrenheit"
             value={(temperature) => temperature}
