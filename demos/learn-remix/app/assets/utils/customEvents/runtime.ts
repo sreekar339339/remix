@@ -36,8 +36,8 @@ export type CustomEventsRuntimeEntry = {
  */
 class ProductEvent extends CustomEvent<unknown> {
   readonly entries: CustomEventsRuntimeEntry[]
-  /** Transaction carriers do not natively deliver their entry types. */
-  readonly transaction: boolean
+  /** Batch carriers do not natively deliver their entry types. */
+  readonly batch: boolean
   completion?: Promise<void>
 
   constructor(type: string, init: EventInit, detail: unknown, entries: CustomEventsRuntimeEntry[]) {
@@ -49,7 +49,7 @@ class ProductEvent extends CustomEvent<unknown> {
       value: detail,
     })
     this.entries = entries
-    this.transaction = entries.length !== 1 || entries[0]?.type !== type
+    this.batch = entries.length !== 1 || entries[0]?.type !== type
   }
 }
 
@@ -512,7 +512,7 @@ function process(runtime: CustomEventsRuntimeState, event: Event) {
   // those events double as the subscription snapshots, so each entry builds
   // a single event serving both consumers.
   let entryEvents: CustomEvent[] | undefined =
-    event.transaction && originTarget === runtime.defaultHost && runtime.nativeListeners > 0
+    event.batch && originTarget === runtime.defaultHost && runtime.nativeListeners > 0
       ? event.entries.map((entry) => createEventSnapshot(entry, originTarget, event))
       : undefined
   if (entryEvents) {

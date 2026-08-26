@@ -60,13 +60,13 @@ export const evented = customEventsEvented as unknown as CustomEventsEventedView
   never
 >
 
-type RememberedFoldFn<Held extends EventDetails> = (
+type BatchFn<Held extends EventDetails> = (
   detail: unknown,
   composite: Draft<Held>,
 ) => void | Promise<unknown>
 
 /**
- * Dispatch deferrals shared by fold sessions: a dispatch during an
+ * Dispatch deferrals shared by batch sessions: a dispatch during an
  * uncommitted session waits until the session's next flush, so it reads and
  * writes the committed composite. Drain runs deferred dispatches until the
  * queue is empty, covering dispatches deferred by nested recipes.
@@ -102,8 +102,8 @@ function createDeferredQueue() {
 
 type DeferredQueue = ReturnType<typeof createDeferredQueue>
 
-/** The live fold session, tracked for the descriptor's dispatch deferral. */
-type FoldSessionRef = {
+/** The live batch session, tracked for the descriptor's dispatch deferral. */
+type BatchSessionRef = {
   current: {
     dirty: boolean
     /** True when a nested session committed over this one mid-flight. */
@@ -116,7 +116,7 @@ type FoldSessionRef = {
 
 /** Cycle-detection threshold, not a loop bound — converging cascades are
  * unbounded; only genuinely non-converging reaction cycles trip this. */
-const MAX_REACTION_FIRES = 100
+const MAX_BATCH_FIRES = 100
 
 /** Reactions indexed by their slice for O(1) lookup per dispatched entry. */
 type ReactionIndex = { byKey: Map<string, Reaction[]>; wildcards: Reaction[] }
@@ -146,13 +146,13 @@ type CrossFire = { reaction: Reaction; entry: CustomEventsRuntimeEntry }
  * reach views at the next microtask boundary, and the returned settle
  * resolves after the recipe and all its flushes complete.
  */
-function runFoldRecipe(
-  foldFn: RememberedFoldFn<EventDetails>,
+function runBatch(
+  batchFn: BatchFn<EventDetails>,
   type: string,
   detail: unknown,
   live: EventDetails,
-  foldNames: ReadonlyMap<string, RememberedFoldFn<EventDetails>>,
-  sessionRef: FoldSessionRef,
+  batchNames: ReadonlyMap<string, BatchFn<EventDetails>>,
+  sessionRef: BatchSessionRef,
   deferred: DeferredQueue,
   dispatchEntries: (entries: CustomEventsRuntimeEntry[]) => Promise<unknown>,
   cross?: {
@@ -169,7 +169,7 @@ function runFoldRecipe(
 ): { entries: CustomEventsRuntimeEntry[]; settle?: Promise<void> } {
   let reactionRuns = cross?.runs ?? []
   let previousSession = sessionRef.current
-  let session: NonNullable<FoldSessionRef['current']> = { dirty: false }
+  let session: NonNullable<BatchSessionRef['current']> = { dirty: false }
   // A nested session reads the committed composite: flush any uncommitted
   // parent mutations first, so this session's draft opens on top of them
   // instead of superseding (discarding) them at the parent's next round.
@@ -251,9 +251,9 @@ function runFoldRecipe(
         let { reaction, entry } = queue.shift()!
         let count = (fires.get(reaction) ?? 0) + 1
         fires.set(reaction, count)
-        if (count > MAX_REACTION_FIRES)
+        if (count > MAX_BATCH_FIRES)
           throw new Error(
-            `customEvents reaction cascade exceeded ${MAX_REACTION_FIRES} firings — possible cycle involving "${reaction.type}"`,
+            `customEvents reaction cascade exceeded ${MAX_BATCH_FIRES} firings — possible cycle involving "${reaction.type}"`,
           )
         let currentAtPath = readPath(Reflect.get(currentDraft, entry.type), reaction.path)
         let returned = cross.fire(
@@ -283,7 +283,7 @@ function runFoldRecipe(
   let sessionProxy = new Proxy({} as object, {
     get(_target, property) {
       scheduleFlush()
-      if (foldNames.has(property as string)) return Reflect.get(live, property)
+      if (batchNames.has(property as string)) return Reflect.get(live, property)
       return Reflect.get(currentDraft, property)
     },
     set(_target, property, value) {
@@ -322,7 +322,7 @@ function runFoldRecipe(
     return completions
   }
 
-  let result = foldFn(detail, sessionProxy as Draft<EventDetails>)
+  let result = batchFn(detail, sessionProxy as Draft<EventDetails>)
   if (result instanceof Promise || reactionRuns.length > 0) {
     // An async recipe — or reactions whose continuations outlive the sync
     // body (an await-resumed `this.view = ...` write) — keeps the session
@@ -424,19 +424,19 @@ function createReactionNamespace(descriptorOn: object, reactions: Reaction[]): o
 }
 
 /**
- * The shared fold dispatcher: fold recipes run through an Immer session,
+ * The shared batch dispatcher: batch listeners run through an Immer session,
  * and a field write with registered reactions runs as one session with the
  * implied slice write and the reactions' derivations in a single carrier.
  */
-function createFoldEntry(args: {
-  foldFns: Map<string, RememberedFoldFn<EventDetails>>
+function createBatchEntry(args: {
+  batchFns: Map<string, BatchFn<EventDetails>>
   live: () => EventDetails
-  sessionRef: FoldSessionRef
+  sessionRef: BatchSessionRef
   deferred: DeferredQueue
   reactions: Reaction[]
   context: RememberedEventContext
 }): RememberedEventContext['fold'] {
-  let { foldFns, live, sessionRef, deferred, reactions, context } = args
+  let { batchFns, live, sessionRef, deferred, reactions, context } = args
 
   // Reactions are registered during construction, after this runs — build
   // the slice index lazily on first dispatch. Reentry signals live for the
@@ -522,7 +522,7 @@ function createFoldEntry(args: {
     // own writes don't re-trigger them.
     let fired = new Set<Reaction>()
     let runs: Array<Promise<unknown>> = []
-    let session = runFoldRecipe(
+    let session = runBatch(
       (value, draft) => {
         let previous = live()[type]
         if (!Object.is(previous, value)) draft[type] = value
@@ -547,7 +547,7 @@ function createFoldEntry(args: {
       type,
       detail,
       live(),
-      foldFns,
+      batchFns,
       sessionRef,
       deferred,
       (entries) => context.dispatchEntries!(entries),
@@ -570,15 +570,15 @@ function createFoldEntry(args: {
   }
 
   return (type: string, detail: unknown, owner?: AbortSignal) => {
-    let foldFn = foldFns.get(type)
-    if (foldFn) {
+    let batchFn = batchFns.get(type)
+    if (batchFn) {
       let runs: Array<Promise<unknown>> = []
-      let session = runFoldRecipe(
-        foldFn,
+      let session = runBatch(
+        batchFn,
         type,
         detail,
         live(),
-        foldFns,
+        batchFns,
         sessionRef,
         deferred,
         (entries) => context.dispatchEntries!(entries),
@@ -626,7 +626,7 @@ function createFoldEntry(args: {
  * Defines a composite: `class GameEvents extends Events {}` plus
  * `GameEvents.define()`. The class carries only the static — its instance
  * side stays empty, so the composite keeps the subclass's own fields as
- * slices, its methods as fold recipes, and the constructor's `api`
+ * slices, its methods as batch listeners, and the constructor's `api`
  * registers session reactions (`api.on.<slice>(callback)`). The returned
  * object is the pure event surface; the model is read through views or
  * `events.details`.
@@ -649,24 +649,24 @@ function defineEvents<X extends object, Args extends unknown[]>(
 
   // Collect the fold methods from the class prototype. The class is plain:
   // nothing is reserved, so every function is a fold recipe.
-  let foldFns = new Map<string, RememberedFoldFn<EventDetails>>()
+  let batchFns = new Map<string, BatchFn<EventDetails>>()
   let prototype = Class.prototype as { [key: string]: unknown }
   for (let name of Object.getOwnPropertyNames(prototype)) {
     if (name === 'constructor') continue
     let value = prototype[name]
     if (typeof value === 'function') {
       let method = value as (this: unknown, ...args: unknown[]) => unknown
-      foldFns.set(
+      batchFns.set(
         name,
-        ((detail, draft) => method.call(draft, detail)) as RememberedFoldFn<EventDetails>,
+        ((detail, draft) => method.call(draft, detail)) as BatchFn<EventDetails>,
       )
     }
   }
 
-  let sessionRef: FoldSessionRef = { current: undefined }
+  let sessionRef: BatchSessionRef = { current: undefined }
   let deferred = createDeferredQueue()
   let pendingSession = () => sessionRef.current?.dirty === true
-  let occurrenceKeys = () => new Set<string>(foldFns.keys())
+  let occurrenceKeys = () => new Set<string>(batchFns.keys())
   let reactions: Reaction[] = []
   let context: RememberedEventContext = {
     getState: live,
@@ -675,7 +675,7 @@ function defineEvents<X extends object, Args extends unknown[]>(
     deferDispatch: deferred.defer,
     occurrenceKeys,
   }
-  context.fold = createFoldEntry({ foldFns, live, sessionRef, deferred, reactions, context })
+  context.fold = createBatchEntry({ batchFns, live, sessionRef, deferred, reactions, context })
   let descriptor = createCustomEventsDescriptor<EventDetails, EventDetails>(context)
   let api = {
     on: createReactionNamespace(descriptor.on as unknown as object, reactions),
@@ -683,11 +683,11 @@ function defineEvents<X extends object, Args extends unknown[]>(
   } as unknown as EventsApi<X>
 
   instance = new Class(api, ...args)
-  // Marks the instance draftable so fold recipes receive an Immer session
+  // Marks the instance draftable so batch listeners receive an Immer session
   // proxy. Non-enumerable so the composite spread stays model-only.
   Object.defineProperty(instance, immerable, { value: true })
-  // Fold shadows: invoking a fold field dispatches the event under its name.
-  for (let name of foldFns.keys()) {
+  // Batch shadows: invoking a fold field dispatches the event under its name.
+  for (let name of batchFns.keys()) {
     Object.defineProperty(instance, name, {
       value: (detail: unknown) => {
         void (descriptor.dispatchEvent as (input: never) => unknown)({ [name]: detail } as never)

@@ -21,7 +21,7 @@ import type {
   EventSourceMetadata,
 } from './types.ts'
 
-const CUSTOM_EVENTS_TRANSACTION = '$transaction'
+const CUSTOM_BATCH = '$batch'
 const DEFAULT_CUSTOM_EVENTS_INIT: EventInit = {
   bubbles: true,
   cancelable: false,
@@ -41,7 +41,7 @@ export type RememberedEventContext = {
     | CustomEventsRuntimeEntry[]
     | { entries: CustomEventsRuntimeEntry[]; settle: Promise<void> }
     | undefined
-  /** Dispatches folded entries as a transaction; used by async fold sessions. */
+  /** Dispatches folded entries as a batch; used by async fold sessions. */
   dispatchEntries?(entries: CustomEventsRuntimeEntry[]): Promise<unknown>
   /** True while a fold session holds uncommitted draft mutations. */
   pendingSession(): boolean
@@ -129,7 +129,7 @@ export function createCustomEventsDescriptor<
     if (target === undefined) {
       throw new TypeError('customEvents dispatchEntries requires a registered host.')
     }
-    return customEventsRuntime.dispatch(getRuntime(), target, createTransaction(entries))
+    return customEventsRuntime.dispatch(getRuntime(), target, createBatch(entries))
   }
 
   function resolveEntry(
@@ -150,11 +150,11 @@ export function createCustomEventsDescriptor<
     return [{ type, detail }]
   }
 
-  function createTransaction(entries: CustomEventsRuntimeEntry[], init?: CustomEventInit) {
+  function createBatch(entries: CustomEventsRuntimeEntry[], init?: CustomEventInit) {
     init?.signal?.throwIfAborted()
     return customEventsRuntime.createProductEvent(
       getRuntime(),
-      CUSTOM_EVENTS_TRANSACTION,
+      CUSTOM_BATCH,
       undefined,
       getEventInit(init),
       entries,
@@ -162,7 +162,7 @@ export function createCustomEventsDescriptor<
   }
 
   // A single resolved entry builds the event under its own name (like the
-  // string form); several entries commit as one transaction carrier.
+  // string form); several entries commit as one batch carrier.
   let buildProduct = (entries: CustomEventsRuntimeEntry[], init?: CustomEventInit) => {
     if (entries.length === 1) {
       let entry = entries[0]!
@@ -174,11 +174,11 @@ export function createCustomEventsDescriptor<
         entries,
       )
     }
-    return createTransaction(entries, init)
+    return createBatch(entries, init)
   }
 
   // The builder member: a bare name builds a detail-less event, an object of
-  // event-named details builds a single-event or transaction carrier, and a
+  // event-named details builds a single-event or batch carrier, and a
   // function of the composite builds the input at dispatch time.
   let create = (...args: Array<unknown>) => {
     let [typeOrEvents, detailOrInit] = args as [string | Record<string, unknown>, unknown?]
@@ -388,7 +388,7 @@ export function createCustomEventsDescriptor<
       }
       if (property === 'addEventListener' || property === 'removeEventListener') {
         // Resolve the base's own methods so native listeners on the default
-        // host are counted for transaction re-dispatch.
+        // host are counted for batch re-dispatch.
         return Reflect.get(base, property, base).bind(base)
       }
       if (
