@@ -42,21 +42,11 @@ export { createElement } from './runtime/create-element.ts'
 export type {
   ElementType,
   ElementProps,
-  EventInput,
-  GenericJSXComponent,
   RemixElement,
   Renderable,
   RemixNode,
   Props,
 } from './runtime/jsx.ts'
-export { EVENT_SOURCE, getEventSourceProtocol } from './runtime/event-source.ts'
-export type {
-  EventSource,
-  EventSourceEvent,
-  EventSourceInput,
-  EventSourceProtocol,
-  EventSourceSubscriber,
-} from './runtime/event-source.ts'
 export type { HostProps, LayoutAnimationConfig } from './runtime/dom.ts'
 export { createMixin } from './runtime/mixins/mixin.ts'
 export type {

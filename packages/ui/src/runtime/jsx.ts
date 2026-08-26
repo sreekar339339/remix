@@ -1,6 +1,5 @@
 import type * as dom from './dom.d.ts'
 import type { Handle, RenderFn } from './component.ts'
-import type { EventSourceEvent } from './event-source.ts'
 import { createRemixElement } from './core/vnode.ts'
 
 /**
@@ -79,31 +78,16 @@ type MixinElementType = ((
 }
 
 /** Opt-in for components whose call signatures directly describe JSX props. */
-export interface GenericJSXComponent {
+interface GenericJSXComponent {
   readonly __rmxGenericJSXComponent: true
 }
 
+// `any[]` is required here so components with narrower, generic prop-call
+// signatures are assignable to the JSX element-type gate.
 type GenericJSXElementType = GenericJSXComponent & ((...args: any[]) => unknown)
 
 /**
- * Value passed as the first argument to reactive prop and children callbacks
- * on event-aware elements: the selected value of the `on` sources,
- * or the matched event's payload. Narrow it in the callback.
- */
-export type EventInput = unknown
-
-type NonReactivePropKeys = 'key' | 'mix' | 'innerHTML' | 'on' | 'initial' | `on${string}`
-
-type EventedElementProps<props> = {
-  [key in keyof props]: key extends NonReactivePropKeys
-    ? props[key]
-    : props[key] | ((input: EventInput, event?: EventSourceEvent) => props[key])
-}
-
-/**
- * Get the props for a specific element type, without reactive event-aware
- * forms. Component prop types should extend this; JSX host elements accept
- * reactive props through {@link JSX.IntrinsicElements}.
+ * Get the props for a specific element type.
  *
  * @example
  * interface MyButtonProps extends Props<"button"> {
@@ -111,7 +95,7 @@ type EventedElementProps<props> = {
  * }
  */
 export type Props<T extends keyof JSX.IntrinsicElements> = NormalizeMixProp<
-  JSX.IntrinsicElementProps[T]
+  JSX.IntrinsicElements[T]
 >
 
 /**
@@ -387,11 +371,7 @@ declare global {
       wbr: dom.WbrHTMLProps<HTMLElement>
     }
 
-    export interface IntrinsicElementProps
+    export interface IntrinsicElements
       extends IntrinsicSVGElements, IntrinsicMathMLElements, IntrinsicHTMLElements {}
-
-    export type IntrinsicElements = {
-      [key in keyof IntrinsicElementProps]: EventedElementProps<IntrinsicElementProps[key]>
-    }
   }
 }

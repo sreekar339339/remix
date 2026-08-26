@@ -1349,58 +1349,6 @@ Keys can be any type (string, number, bigint, object, symbol), but should be sta
 }
 ```
 
-### Event-Aware Elements (on)
-
-Any host element can subscribe to event sources directly with the `on` prop — no wrapper component and no `handle.update()` bookkeeping. The element becomes event-aware: on every matched event it re-resolves its reactive props and children through the normal vdom diff:
-
-```tsx
-<select
-  on={[events.people, events.prefix, events.selectedId]}
-  value={([, , selectedId]) => selectedId ?? ''}
->
-  {([people, prefix]) =>
-    visiblePeople(people, prefix).map((person) => (
-      <option value={person.id}>
-        {person.surname}, {person.name}
-      </option>
-    ))
-  }
-</select>
-```
-
-Rules:
-
-- `on` accepts one source or an array (empty slots allowed); an element accepts one source per event type.
-- Any prop may be a function of the event input (except `children`, `key`, `mix`, `innerHTML`, `on`, `initial`, and `on*` props); `children` may be a function returning `RemixNode`.
-- A callback's first argument is the input: the source's current value for one source, a tuple index-aligned with `on` for several. It is typed `unknown` — narrow it in the callback. The matched event is passed as a second argument.
-- `initial` is an event rendered before an occurrence first matches: its detail fills the slot of the source it matches, as if it had just fired, and callbacks receive it as the event argument. Sources that retain a value ignore it.
-- The element keeps the event's value across parent re-renders; unsubscribing happens automatically when the element is removed.
-- Server rendering resolves the initial input only; subscriptions are client-side.
-- Structural changes (creating, deleting, reordering elements) can flow through a children function: the callback re-resolves from the event input and the vdom diffs the result by `key`, so keyed children mount, unmount, and reorder in place while unkeyed updates patch an existing element.
-
-Event sources are any objects exposing the `EVENT_SOURCE` protocol brand with `{ read?, subscribe(subscriber, signal) }`, so event models plug in without the renderer knowing their internals. Use `getEventSourceProtocol()` and the `EventSource`/`EventSourceProtocol`/`EventSourceSubscriber` types when authoring an event model.
-
-### Keyed Children
-
-A children function on an event-aware element is a live keyed list. The callback re-resolves from the event input on every matched event, and the vdom diffs the result by `key`, so keyed children mount, unmount, and reorder in place while unkeyed updates patch an existing element:
-
-```tsx
-<evented.div on={events.circles}>
-  {(circles) =>
-    [...circles.entries()].map(([id, circle]) => (
-      <evented.circle key={id} cx={circle.x} />
-    ))
-  }
-</evented.div>
-```
-
-Rules:
-
-- Items are keyed: a Map's keys, a Set's values, an array's indexes.
-- The keyed diff preserves the DOM identity of unchanged items; adds insert, removals drop, and reorders move nodes in place.
-- The element keeps the event's value across parent re-renders; unsubscribing happens automatically when the element is removed.
-- Server rendering resolves the initial input only; subscriptions are client-side.
-
 ### Composition Through props.children
 
 Components can compose other components via `children`:

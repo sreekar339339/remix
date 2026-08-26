@@ -3,14 +3,12 @@ declare const rememberedEventSourceMarker: unique symbol
 
 import type { Draft, Immutable } from 'immer'
 import {
-  type EVENT_SOURCE,
-  type EventSourceProtocol,
-  type GenericJSXComponent,
   type MixinDescriptor,
   type Props,
   type RemixNode,
   type TypedEventTarget,
 } from 'remix/ui'
+import type { CUSTOM_EVENTS_SOURCE } from './evented.tsx'
 
 export type EventDetails = Record<string, unknown>
 
@@ -55,11 +53,15 @@ type EventSourceListener<Value, Type extends string, Host extends Element> = (
 export type EventSourceMetadata<Value = unknown, Type extends string = string> = {
   type: Type
   path: readonly unknown[]
-  read?: () => Value
+  read?: (trigger?: CustomEvent<unknown>) => Value
+  subscribe(
+    subscriber: { element: Element | undefined; notify(event: CustomEvent<unknown>): unknown },
+    signal: AbortSignal,
+  ): void
 }
 
 export type EventSource<Value, Type extends string, Detail = Value> = {
-  readonly [EVENT_SOURCE]: EventSourceProtocol
+  readonly [CUSTOM_EVENTS_SOURCE]: EventSourceMetadata<Value, Type>
   readonly [onMetadata]: EventSourceMetadata<Value, Type>
   /** Element-owned effect for this source: active only while mounted. */
   <Host extends Element = Element>(
@@ -188,7 +190,7 @@ export type CustomEventsWildcardSource<
   Events extends EventDetails,
   State extends EventDetails | never = never,
 > = {
-  readonly [EVENT_SOURCE]: EventSourceProtocol & { readonly type: '*' }
+  readonly [CUSTOM_EVENTS_SOURCE]: EventSourceMetadata<Immutable<State>, '*'>
   readonly [onMetadata]: EventSourceMetadata<Immutable<State>, string>
 }
 
@@ -231,8 +233,7 @@ type CustomEventsRememberedElementProps<
 
 /**
  * Event-aware intrinsic element that re-renders from matched events. The type
- * is a type-only alias over the intrinsic tag: `evented.button` is the string
- * `'button'` at runtime, so JSX creates a host element directly, while these
+ * is a cached component that renders the matching intrinsic tag while these
  * overloads preserve source-specific callback inference.
  *
  * The wildcard overloads infer the event map from the `on` descriptor
@@ -241,12 +242,15 @@ type CustomEventsRememberedElementProps<
  * resolve to value semantics when they come from a remembered descriptor and
  * event semantics otherwise.
  */
+type GenericEventedComponent = {
+  readonly __rmxGenericJSXComponent: true
+}
+
 export type CustomEventsEventedView<
   Events extends EventDetails,
   State extends EventDetails | never,
   Tag extends keyof JSX.IntrinsicElements,
-> = Tag &
-  GenericJSXComponent & {
+> = GenericEventedComponent & {
     <const Source extends CustomEventsOnFunction<EventDetails, EventDetails>>(
       props: Source extends CustomEventsOnFunction<infer ViewEvents, infer ViewState>
         ? {
@@ -453,7 +457,7 @@ export type EventMapFrom<
 }
 
 /** A source in the class reaction namespace: calling it with a callback
- * registers a session reaction; nested accessors mirror the event-source
+ * registers a session reaction; nested accessors mirror the selector
  * namespace, so deep paths react to the value at that address. The `This`
  * parameter is the runner-bound `this` of the callback: the session composite
  * draft at the root, narrowed to the item at each nested path. Property

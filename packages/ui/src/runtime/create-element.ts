@@ -20,7 +20,7 @@ export function createElement(
     if (children.length > 0) {
       console.error(new Error('mixin elements must not receive children'))
     }
-  } else if (children.length > 0) {
+  } else {
     assertRemixNodes(children)
     nextProps.children = normalizeChildren(children)
   }

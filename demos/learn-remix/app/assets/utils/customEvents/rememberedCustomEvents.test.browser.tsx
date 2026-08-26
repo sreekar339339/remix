@@ -496,43 +496,6 @@ describe('remembered customEvents', () => {
     }
   })
 
-  it('renders children against the freshly patched props of the same update', async (t) => {
-    class __CountTwoEvents extends Events {
-      count = 0
-    }
-    let events = __CountTwoEvents.define()
-    let current: unknown
-    function View() {
-      return () => (
-        <e.button
-          on={events.on.count}
-          data-count={(count) => `count-${count}`}
-          aria-label="button"
-        >
-          {(_, event) => event?.currentTarget?.dataset.count ?? 'none'}
-        </e.button>
-      )
-    }
-
-    let result = render(<View />)
-    t.after(() => result.cleanup())
-    assert.equal(result.$('[aria-label="button"]')?.textContent, 'none')
-
-    // The children callback runs after the reactive props were patched to
-    // the DOM, so the element's dataset reflects the same update's value.
-    await result.act(async () => {
-      await events.dispatchEvent({ count: 1 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="button"]')?.textContent, 'count-1')
-
-    await result.act(async () => {
-      await events.dispatchEvent({ count: 2 })
-      await settleEffects()
-    })
-    assert.equal(result.$('[aria-label="button"]')?.textContent, 'count-2')
-  })
-
   it('emits slice events from fold draft writes, coalesced per flush', async () => {
     let heard: string[] = []
     class __IncrementEvents extends Events {

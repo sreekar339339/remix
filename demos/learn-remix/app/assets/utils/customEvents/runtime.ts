@@ -1,5 +1,3 @@
-import type { EventSourceSubscriber } from 'remix/ui'
-
 export const ALL_EVENTS = '*'
 const ALL_SELECTORS = [ALL_EVENTS]
 
@@ -602,7 +600,10 @@ export const customEventsRuntime = {
 export function subscribeSource(
   runtime: CustomEventsRuntimeState,
   phase: SubscriptionPhase,
-  subscriber: EventSourceSubscriber,
+  subscriber: {
+    element: Element | undefined
+    notify(event: CustomEvent<unknown>): unknown
+  },
   signal: AbortSignal,
   source: { type: string; path: readonly unknown[] } | undefined,
 ) {

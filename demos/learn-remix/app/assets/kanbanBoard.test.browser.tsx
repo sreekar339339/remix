@@ -53,11 +53,12 @@ it('re-renders whole-key views and routes per-item elements on a deep card updat
   metrics = $('[aria-label="Define success metrics"]') as HTMLElement
   routing = $('[aria-label="Prototype deep patch routing"]') as HTMLElement
 
-  // The deep patch re-renders whole-key views; the owning column re-renders
-  // through its routed source and the parent diff.
-  assert.equal(backlog.textContent, '1 urgent · rendered 3')
+  // The deep patch re-renders whole-key views; with component-owned `evented`
+  // elements the routed update coalesces with the parent diff, so the owning
+  // column/card renders once (not twice) for the same entry.
+  assert.equal(backlog.textContent, '1 urgent · rendered 2')
   assert.equal(building.textContent, '1 urgent · rendered 2')
-  assert.match(design.textContent ?? '', /Urgent · rendered 3×/)
+  assert.match(design.textContent ?? '', /Urgent · rendered 2×/)
   assert.match(metrics.textContent ?? '', /Normal · rendered 2×/)
   assert.match(routing.textContent ?? '', /Urgent · rendered 2×/)
 })

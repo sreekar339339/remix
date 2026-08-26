@@ -1,17 +1,18 @@
 import * as assert from 'remix/assert'
 import { describe, it } from 'remix/test'
-import { on, ref } from 'remix/ui'
+import { on, ref, type Handle } from 'remix/ui'
+import { renderToString } from 'remix/ui/server'
 import { render } from 'remix/ui/test'
 import { Events, evented as e } from './index.tsx'
 import { customEventsRuntime } from './runtime.ts'
 import { createEvents, settleEffects } from './customEvents.test-utils.tsx'
 
 describe('customEvents', () => {
-  it('resolves evented.<tag> to the intrinsic tag string with typed callback inputs', async (t) => {
+  it('caches evented components with typed callback inputs', async (t) => {
     let events = createEvents()
-    assert.equal(e.output, 'output')
-    assert.equal(e.button, 'button')
-    assert.equal(typeof e.div, 'string')
+    assert.equal(e.output, e.output)
+    assert.equal(e.button, e.button)
+    assert.equal(typeof e.div, 'function')
 
     function AliasView() {
       return () => (
@@ -43,6 +44,68 @@ describe('customEvents', () => {
     assert.equal(typed.dataset.id, 'order-1')
     assert.equal(typed.textContent, 'order-1')
     assert.equal(wildcard.textContent, 'submitted')
+  })
+
+  it('replaces a mounted view\'s selector subscriptions when its on prop changes', async (t) => {
+    class __SwitchEvents extends Events {
+      first = 'first'
+      second = 'second'
+      setFirst(value: string) {
+        this.first = value
+      }
+      setSecond(value: string) {
+        this.second = value
+      }
+    }
+    let events = __SwitchEvents.define()
+
+    function Switcher(handle: Handle) {
+      let useFirst = true
+      return () => (
+        <section mix={events.asHost()}>
+          <button
+            aria-label="switch"
+            mix={on('click', () => {
+              useFirst = false
+              handle.update()
+            })}
+          />
+          <e.output on={useFirst ? events.on.first : events.on.second} aria-label="value">
+            {(value) => value}
+          </e.output>
+        </section>
+      )
+    }
+
+    let result = render(<Switcher />)
+    t.after(() => result.cleanup())
+    let value = () => result.$('[aria-label="value"]')?.textContent
+    assert.equal(value(), 'first')
+
+    await result.act(() => (result.$('[aria-label="switch"]') as HTMLButtonElement).click())
+    assert.equal(value(), 'second')
+
+    await result.act(async () => {
+      await events.dispatchEvent({ setFirst: 'stale' })
+      await events.dispatchEvent({ setSecond: 'current' })
+    })
+    assert.equal(value(), 'current')
+  })
+
+  it('renders remembered selector values on the server', async () => {
+    class __ServerEvents extends Events {
+      label = 'server value'
+    }
+    let events = __ServerEvents.define()
+
+    let html = await renderToString(
+      <e.output on={events.on.label} data-label={(label) => label}>
+        {(label) => label}
+      </e.output>,
+    )
+
+    assert.match(html, /<output data-label="server value">server value<\/output>/)
+    assert.ok(!/\s(?:on|initial)=/.test(html))
   })
 
   it('routes Map and Set folds to item and whole-key subscribers', async (t) => {

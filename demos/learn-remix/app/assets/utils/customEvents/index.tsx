@@ -9,8 +9,12 @@ import {
   type Patch,
   setAutoFreeze,
 } from 'immer'
-import { EVENT_SOURCE } from 'remix/ui'
-import { createCustomEventsDescriptor, customEventsEvented } from './descriptor.tsx'
+import { createCustomEventsDescriptor } from './descriptor.tsx'
+import {
+  CUSTOM_EVENTS_SOURCE,
+  customEventsEvented,
+  getEventedSource,
+} from './evented.tsx'
 import type { RememberedEventContext } from './descriptor.tsx'
 import {
   ALL_EVENTS,
@@ -18,7 +22,6 @@ import {
   readPath,
   type CustomEventsRuntimeEntry,
 } from './runtime.ts'
-import type { EventSourceEvent, EventSourceProtocol } from 'remix/ui'
 import type {
   CustomEventsDefined,
   CustomEventsEventedViews,
@@ -38,6 +41,8 @@ export type {
   HandlersOf,
 } from './types.ts'
 
+type EventSourceEvent = { type: string; detail?: unknown }
+
 enablePatches()
 enableMapSet()
 // The produced composite stays mutable so the live model can mirror it
@@ -47,8 +52,8 @@ setAutoFreeze(false)
 
 /**
  * Event-aware intrinsic elements for any Events instance: `evented.<tag>`
- * resolves to the tag string itself at runtime, while the source props infer
- * the event map from the descriptor passed as `on`.
+ * resolves to a cached component that renders the matching tag, while source
+ * props infer the event map from the descriptor passed as `on`.
  */
 export const evented = customEventsEvented as unknown as CustomEventsEventedViews<
   EventDetails,
@@ -378,9 +383,7 @@ function createReactionNamespace(descriptorOn: object, reactions: Reaction[]): o
   let wrapSource = (source: object): object =>
     new Proxy(source, {
       apply(_target, _thisArg, args) {
-        let protocol = Reflect.get(_target, EVENT_SOURCE) as
-          | (EventSourceProtocol & { path?: readonly unknown[] })
-          | undefined
+        let protocol = getEventedSource(_target)
         if (protocol) {
           reactions.push({
             type: protocol.type,
@@ -398,7 +401,7 @@ function createReactionNamespace(descriptorOn: object, reactions: Reaction[]): o
       get(target, property, receiver) {
         let value = Reflect.get(target, property, receiver)
         if (
-          property !== EVENT_SOURCE &&
+          property !== CUSTOM_EVENTS_SOURCE &&
           value !== null &&
           (typeof value === 'object' || typeof value === 'function')
         ) {

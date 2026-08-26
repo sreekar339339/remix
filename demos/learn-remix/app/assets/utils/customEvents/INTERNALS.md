@@ -5,10 +5,11 @@ For library authors. Learner API is in `./README.md`.
 ## Module layout
 
 ```
-types.ts      — public types: DetailsOf/HandlersOf, selectors, Effects, batch
-runtime.ts    — kernel: path trie, batch event, scope matching, delivery
+types.ts       — public types: DetailsOf/HandlersOf, selectors, effects, batches
+runtime.ts     — kernel: path trie, batch event, scope matching, delivery
+evented.tsx    — selector-aware intrinsic components and mounted subscriptions
 descriptor.tsx — createCustomEventsDescriptor: create/dispatchEvent/on/asHost
-index.tsx     — Events.define(), batch lifecycle, effects, Immer patches → entries
+index.tsx      — Events.define(), batch lifecycle, effects, Immer patches → entries
 ```
 
 ## Runtime kernel — `runtime.ts`
@@ -121,7 +122,7 @@ Holds `runtime` (lazy), `base = new EventTarget` (defaultHost), `settlers: Promi
 - `resolveEntry(type, detail, init)` — `init.signal.throwIfAborted()`, `ALL_EVENTS` guard, `state.fold(type,detail,init.signal)`, settle push.
 - `createBatch/createProductEvent/buildProduct` — single entry → carrier type = entry.type; else `$batch` with `bubbles:true` (was `$transaction`).
 - `create(...args)` — `string` → bare, `Record` → single-key fast path vs multi-key loop → `buildProduct`. Validates `CustomEventInit` (`bubbles/composed/signal` only, `cancelable` throws).
-- `wildcardSelector` — `EventSource` with `type:'*', read=>getState`, subscribe as view wildcard.
+- `wildcardSelector` — selector metadata with `type:'*', read=>getState`, subscribe as view wildcard.
 - `performDispatch(...args)` — `instanceof Event` → native boolean; else `create` → `defaultHost` → `dispatch` + `Promise.all(settlers)`.
 - `dispatchEvent` wrapper — `if (pendingBatch()) return deferDispatch(()=>performDispatch(...))` else direct (was `pendingSession`).
 - `hostMixin = ref((target,signal)=>registerHost(runtime,target,signal))`; `asHost():Mixin` vs `asHost(target):descriptor`.

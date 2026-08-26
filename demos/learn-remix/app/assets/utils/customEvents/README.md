@@ -135,7 +135,7 @@ Data-independent — register before values exist.
 
 ## Subscribed elements — `evented.<tag>`
 
-`evented.button` is `'button'` at runtime.
+`evented.button` is a cached component that renders a `<button>` at runtime.
 
 | Variant       | `on`                                            | `children` / prop                | Use            |
 | ------------- | ----------------------------------------------- | -------------------------------- | -------------- |

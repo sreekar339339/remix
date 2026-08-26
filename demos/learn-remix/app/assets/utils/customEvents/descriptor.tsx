@@ -1,12 +1,4 @@
-import {
-  EVENT_SOURCE,
-  createMixin,
-  ref,
-  type EventSource,
-  type EventSourceEvent,
-  type EventSourceProtocol,
-  type EventSourceSubscriber,
-} from 'remix/ui'
+import { createMixin, ref } from 'remix/ui'
 import {
   ALL_EVENTS,
   canonicalAddressSegment,
@@ -18,6 +10,7 @@ import {
   type CustomEventsRuntimeEntry,
   type CustomEventsRuntimeState,
 } from './runtime.ts'
+import { CUSTOM_EVENTS_SOURCE, type EventedSource } from './evented.tsx'
 import type {
   CustomEventsAsHost,
   CustomEventsDescriptor,
@@ -34,16 +27,6 @@ const DEFAULT_CUSTOM_EVENTS_INIT: EventInit = {
   cancelable: false,
 }
 const customEventInitKeys = new Set(['bubbles', 'composed', 'signal'])
-
-// Evented-view namespace: `evented.<tag>` resolves to the tag string itself, so
-// JSX creates a host element directly with no component runtime layer. The
-// proxy is stateless and shared by every descriptor.
-export const customEventsEvented = new Proxy(Object.create(null), {
-  get(_, property) {
-    if (typeof property !== 'string') return undefined
-    return property
-  },
-})
 
 export type RememberedEventContext = {
   getState(): EventDetails
@@ -244,9 +227,10 @@ export function createCustomEventsDescriptor<
 
   // The descriptor doubles as the wildcard event source: subscribing to it
   // matches every descriptor event and reads the whole composite.
-  let wildcardSource: EventSource = {
-    [EVENT_SOURCE]: {
+  let wildcardSource: EventedSource = {
+    [CUSTOM_EVENTS_SOURCE]: {
       type: ALL_EVENTS,
+      path: [],
       read: () => state.getState(),
       subscribe(subscriber, signal) {
         subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
@@ -303,12 +287,13 @@ export function createCustomEventsDescriptor<
   }
   // The wildcard is also a view source: the same protocol the descriptor
   // carries, so `on={events.on['*']}` mounts a whole-composite view.
-  Object.defineProperty(wildcardOn, EVENT_SOURCE, {
+  Object.defineProperty(wildcardOn, CUSTOM_EVENTS_SOURCE, {
     value: {
       type: ALL_EVENTS,
+      path: [],
       read: () => state.getState(),
       subscribe(
-        subscriber: import('remix/ui').EventSourceSubscriber,
+        subscriber: { element: Element | undefined; notify(event: CustomEvent<unknown>): unknown },
         signal: AbortSignal,
       ) {
         subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
@@ -342,14 +327,14 @@ export function createCustomEventsDescriptor<
     path: readonly unknown[] = [],
     read?: () => unknown,
   ): object => {
-    let metadata: EventSourceMetadata & EventSourceProtocol = {
+    let metadata: EventSourceMetadata & EventedSource[typeof CUSTOM_EVENTS_SOURCE] = {
       type,
       path,
       // Every source yields detail-shaped input: data properties read their
       // current value, while occurrences fill their slot from the matched
       // event and read undefined otherwise. The field-existence decision is
       // made at read time so creation never depends on field initialization.
-      read: read ?? ((trigger?: EventSourceEvent) => {
+      read: read ?? ((trigger?: CustomEvent<unknown>) => {
         let current = state.getState()
         if (Object.hasOwn(current, type) && !state.occurrenceKeys().has(type)) {
           return readPath(current[type], path)
@@ -379,7 +364,7 @@ export function createCustomEventsDescriptor<
       customEventsOnMixin(getRuntime(), metadata, listener)
     return new Proxy(onNode, {
       get(_, property) {
-        if (property === EVENT_SOURCE) return metadata
+        if (property === CUSTOM_EVENTS_SOURCE) return metadata
         // The get/has/as accessors are data-independent so deep chains can
         // be navigated before their values exist (reaction registration).
         if (property === 'get') return (key: unknown) => at(key)
@@ -398,8 +383,8 @@ export function createCustomEventsDescriptor<
       if (property === 'details') {
         return state.getState()
       }
-      if (property === EVENT_SOURCE) {
-        return wildcardSource[EVENT_SOURCE]
+      if (property === CUSTOM_EVENTS_SOURCE) {
+        return wildcardSource[CUSTOM_EVENTS_SOURCE]
       }
       if (property === 'addEventListener' || property === 'removeEventListener') {
         // Resolve the base's own methods so native listeners on the default

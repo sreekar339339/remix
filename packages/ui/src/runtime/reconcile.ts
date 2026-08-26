@@ -37,19 +37,10 @@ import { invariant } from './invariant.ts'
 import { patchHostProps } from './core/props.ts'
 import type { StyleManager } from '../style/index.ts'
 import type { ElementFunction } from './element-function.ts'
-import {
-  createEventedHostState,
-  resolveEventedProps,
-  collectReactivePropKeys,
-  resolveEventSourceProtocols,
-  subscribeEventedHostNode,
-  type EventedHostState,
-} from './event-source.ts'
 import type { Key } from './key.ts'
 import { skipComments, logHydrationMismatch } from './client-entries.ts'
 import type { Scheduler } from './scheduler.ts'
-import { resolveEventedChildInputs, toVNode } from './to-vnode.ts'
-import type { RemixNode } from './jsx.ts'
+import { toVNode } from './to-vnode.ts'
 import {
   bindMixinRuntime,
   cancelPendingMixinRemoval,
@@ -597,46 +588,6 @@ function diffHost(
   let childInputs = next._children
   let nextProps = resolved.props
   let nextMixState = resolved.mixState
-
-  let eventedState = curr._evented
-  let subscribeEvented = false
-  if (next.props.on != null) {
-    if (eventedState) {
-      // Adopt the fresh raw props and children but keep the current event
-      // input; the element's value follows the event stream, not the parent
-      // re-render.
-      eventedState.rawProps = resolved.props
-      eventedState.reactiveKeys = collectReactivePropKeys(resolved.props)
-      eventedState.rawChildren = resolved.props.children
-    } else {
-      eventedState = createEventedHostState(
-        resolveEventSourceProtocols(next.props.on),
-        resolved.props,
-        next.props.initial,
-        context,
-      )
-      subscribeEvented = true
-    }
-    nextProps = resolveEventedProps(
-      resolved.props,
-      eventedState.input,
-      eventedState.event,
-      eventedState.reactiveKeys,
-    ) as RuntimeHostProps
-    resolved = { ...resolved, props: nextProps }
-    childInputs =
-      nextProps.innerHTML != null
-        ? []
-        : resolveEventedChildInputs(
-            eventedState.rawChildren,
-            eventedState.input,
-            eventedState.event,
-          )
-  } else if (eventedState) {
-    teardownEventedHostNode(curr)
-    eventedState = undefined
-  }
-
   let shouldDispatchMixinLifecycle =
     (nextMixState?.runners.length ?? 0) > 0 && shouldDispatchInlineMixinLifecycle(curr._dom)
   if (shouldDispatchMixinLifecycle) {
@@ -657,12 +608,6 @@ function diffHost(
   let committed = commitHostNode(next, vParent, getSvgContext(vParent, next), curr._dom, resolved)
   committed._directEventState = curr._directEventState
   committed._controlledState = curr._controlledState
-  attachEventedState(committed, eventedState)
-  if (subscribeEvented && eventedState) {
-    subscribeEventedHostNode(committed._dom, eventedState, () =>
-      scheduleEventedHostUpdate(eventedState),
-    )
-  }
   committed._children = diffChildren(curr._children, childInputs, curr._dom, committed, context)
   patchHostProps(currProps, nextProps, curr._dom)
 
@@ -692,124 +637,6 @@ function setupHostNode(node: CommittedHostNode, scheduler: Scheduler): void {
     ensureControlledReflection(node, scheduler)
     syncControlledReflection(node, props)
   }
-
-  if (node._evented) {
-    subscribeEventedHostNode(node._dom, node._evented, () =>
-      scheduleEventedHostUpdate(node._evented!),
-    )
-  }
-}
-
-type EventedHostPreparation = {
-  resolved: ResolvedHostProps
-  childInputs: VNodeInput[]
-  state?: EventedHostState
-}
-
-// Prepares a mounting host element with an `on` prop: creates the
-// evented state and resolves reactive props and children from the initial
-// event input so the standard mount flow works with plain values.
-function prepareEventedHostNode(
-  node: HostNode,
-  resolved: ResolvedHostProps,
-  context: ReconcileContext,
-): EventedHostPreparation {
-  if (node.props.on == null) {
-    return { resolved, childInputs: node._children }
-  }
-  let state = createEventedHostState(
-    resolveEventSourceProtocols(node.props.on),
-    resolved.props,
-    node.props.initial,
-    context,
-  )
-  return {
-    resolved: {
-      ...resolved,
-      props: resolveEventedProps(
-        resolved.props,
-        state.input,
-        state.event,
-        state.reactiveKeys,
-      ) as RuntimeHostProps,
-    },
-    childInputs:
-      resolved.props.innerHTML != null
-        ? []
-        : resolveEventedChildInputs(state.rawChildren, state.input, state.event),
-    state,
-  }
-}
-
-// Carries evented state onto a freshly committed node. The committed vnode
-// object is replaced on every diff, so the state keeps a live node reference
-// for event-driven updates.
-function attachEventedState(node: CommittedHostNode, state: EventedHostState | undefined): void {
-  if (!state) return
-  node._evented = state
-  state.node = node
-}
-
-// Resolves reactive props and children with the current event input and
-// applies them through the standard host diff. Queued with the scheduler so
-// multiple matched events in one turn commit once.
-function runEventedHostUpdate(state: EventedHostState): void {
-  state.pending = false
-  let waiters = state.waiters
-  state.waiters = []
-  try {
-    if (state.controller.signal.aborted) return
-    let node = state.node!
-    let currProps = getHostProps(node)
-    let nextProps = resolveEventedProps(
-      state.rawProps,
-      state.input,
-      state.event,
-      state.reactiveKeys,
-    ) as RuntimeHostProps
-    node._mixedProps = nextProps
-
-    // Patch props before resolving children so callbacks read the element's
-    // freshly resolved attributes (dataset, value, ...).
-    if (nextProps.innerHTML != null) {
-      if (currProps.innerHTML !== nextProps.innerHTML) {
-        node._dom.innerHTML = nextProps.innerHTML
-      }
-    } else if (currProps.innerHTML != null) {
-      node._dom.innerHTML = ''
-    }
-    patchHostProps(currProps, nextProps, node._dom)
-    if (nextProps.innerHTML == null) {
-      let childInputs = resolveEventedChildInputs(state.rawChildren, state.input, state.event)
-      node._children = diffChildren(node._children, childInputs, node._dom, node, state.context)
-    }
-
-    if (node._controlledState || shouldTrackControlledReflection(nextProps)) {
-      ensureControlledReflection(node, state.context.scheduler)
-      syncControlledReflection(node, nextProps)
-    }
-  } finally {
-    for (let resolve of waiters) resolve()
-  }
-}
-
-function scheduleEventedHostUpdate(state: EventedHostState): Promise<void> {
-  return new Promise((resolve) => {
-    state.waiters.push(resolve)
-    if (state.pending) return
-    state.pending = true
-    state.context.scheduler.enqueueWork([() => runEventedHostUpdate(state)])
-  })
-}
-
-function teardownEventedHostNode(node: CommittedHostNode): void {
-  let state = node._evented
-  if (!state) return
-  node._evented = undefined
-  state.controller.abort(new DOMException('', 'AbortError'))
-  let waiters = state.waiters
-  state.waiters = []
-  for (let resolve of waiters) resolve()
 }
 
 function syncDirectEventListeners(node: CommittedHostNode): void {
@@ -1012,14 +839,9 @@ function insert(
   }
 
   if (node.kind === 'host') {
-    let prepared = prepareEventedHostNode(
-      node,
-      resolveNodeMixProps(node, vParent, frame, scheduler),
-      context,
-    )
-    let resolved = prepared.resolved
+    let resolved = resolveNodeMixProps(node, vParent, frame, scheduler)
     let hostProps = resolved.props
-    let childInputs = prepared.childInputs
+    let childInputs = node._children
 
     if (isHeadHostNode(node)) {
       let targetHead = getDocumentHead(domParent)
@@ -1038,7 +860,6 @@ function insert(
         }
 
         let committed = commitHostNode(node, vParent, svg, targetHead, resolved)
-        attachEventedState(committed, prepared.state)
         // Render explicit <head> children directly into document.head.
         committed._children = diffChildren(
           null,
@@ -1071,7 +892,6 @@ function insert(
         let nextCursor = hydrationNode.nextSibling
         patchHostProps({}, hostProps, hydrationNode)
         let committed = commitHostNode(node, vParent, svg, hydrationNode, resolved)
-        attachEventedState(committed, prepared.state)
 
         // Handle innerHTML prop
         if (hostProps.innerHTML != null) {
@@ -1106,7 +926,6 @@ function insert(
             // Found a match after skipping - adopt it and leave skipped node in place
             patchHostProps({}, hostProps, nextSibling)
             let committed = commitHostNode(node, vParent, svg, nextSibling, resolved)
-            attachEventedState(committed, prepared.state)
 
             if (hostProps.innerHTML != null) {
               nextSibling.innerHTML = hostProps.innerHTML
@@ -1138,7 +957,6 @@ function insert(
     let dom = svg ? document.createElementNS(SVG_NS, node.type) : document.createElement(node.type)
     patchHostProps({}, hostProps, dom)
     let committed = commitHostNode(node, vParent, svg, dom, resolved)
-    attachEventedState(committed, prepared.state)
 
     // Handle innerHTML prop
     if (hostProps.innerHTML != null) {
@@ -1616,7 +1434,6 @@ function cleanupDescendants(node: CommittedVNode, context: ReconcileContext): vo
     }
 
     teardownMixins(node._mixState)
-    teardownEventedHostNode(node)
     abandonDirectEventListeners(node)
     abandonControlledReflection(node)
     return
@@ -1716,7 +1533,6 @@ function performHostNodeRemoval(
   }
 
   teardownMixins(node._mixState)
-  teardownEventedHostNode(node)
   // Never remove the real document.head node when reconciling a <head> vnode,
   // and since it stays alive, detach its listeners for real.
   if (isHeadHostNode(node)) {
@@ -2252,13 +2068,8 @@ function reclaimPersistedMixinNode(
   unmarkNodePersistedByMixins(persistedNode)
 
   let prevProps = getHostProps(persistedNode)
-  let prepared = prepareEventedHostNode(
-    newNode,
-    resolveNodeMixProps(newNode, vParent, frame, scheduler, persistedNode._mixState),
-    context,
-  )
-  let resolved = prepared.resolved
-  let childInputs = prepared.childInputs
+  let childInputs = newNode._children
+  let resolved = resolveNodeMixProps(newNode, vParent, frame, scheduler, persistedNode._mixState)
   let nextProps = resolved.props
   let committed = commitHostNode(
     newNode,
@@ -2267,12 +2078,6 @@ function reclaimPersistedMixinNode(
     persistedNode._dom,
     resolved,
   )
-  attachEventedState(committed, prepared.state)
-  if (prepared.state) {
-    subscribeEventedHostNode(committed._dom, prepared.state, () =>
-      scheduleEventedHostUpdate(prepared.state!),
-    )
-  }
   committed._directEventState = persistedNode._directEventState
   committed._controlledState = persistedNode._controlledState
   if (shouldDispatchInlineMixinLifecycle(persistedNode._dom)) {
