@@ -17,9 +17,9 @@ class SearchEvents extends Events {
   view: SearchView
   query: string | undefined = undefined
   input: HTMLInputElement | undefined
-  constructor({ on }: EventsApi<SearchEvents>, view: SearchView) {
+  constructor({ on }: EventsApi<SearchEvents>, initialQuery: string | undefined) {
     super()
-    this.view = view
+    this.view = initialQuery ? { type: 'querySubmitted', query: initialQuery } : { type: 'queryEmpty' }
     on.query(async function ({ detail }, signal) {
       if (!detail) {
         return (this.view = { type: 'queryEmpty' })
@@ -50,8 +50,6 @@ class SearchEvents extends Events {
           ? { type: 'booksFound', books }
           : { type: 'booksNotFound', reason: 'emptyList' }
       } catch (error) {
-        // A stale search's abort must not surface an error view.
-        if (signal?.aborted) return
         this.view = { type: 'errorOccurred', error: error as Error }
       }
     })
@@ -70,9 +68,7 @@ export const SearchBooksWithoutFrame = clientEntry(
   import.meta.url,
   function SearchBooksWithoutFrame(handle: Handle<{ initialQuery: string }>) {
     let initialQuery = handle.props.initialQuery.trim()
-    let events = SearchEvents.define(
-      initialQuery ? { type: 'querySubmitted', query: initialQuery } : { type: 'queryEmpty' },
-    )
+    let events = SearchEvents.define(initialQuery)
 
     return () => (
       <div>
@@ -85,7 +81,7 @@ export const SearchBooksWithoutFrame = clientEntry(
             class={(view) => (view.type === 'querySubmitted' ? 'pending' : '')}
             mix={[
               inputCss,
-              on('input', ({ currentTarget }, signal) => {
+              on('input', ({ currentTarget }) => {
                 events.dispatchEvent({ query: currentTarget.value.trim() })
               }),
               ref((input) => events.dispatchEvent({ input })),
