@@ -119,7 +119,7 @@ export const SevenGuisCrud = clientEntry(import.meta.url, function SevenGuisCrud
                     inputCss,
                     on('input', ({ currentTarget }) => {
                       events.dispatchEvent({
-                        draft: { ...events.detail.draft, name: currentTarget.value },
+                        draft: { ...events.details.draft, name: currentTarget.value },
                       })
                     }),
                   ]}

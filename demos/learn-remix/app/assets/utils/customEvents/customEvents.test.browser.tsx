@@ -782,7 +782,6 @@ describe('customEvents', () => {
       events.create('paid', { cancelable: true })
       // @ts-expect-error - dispatchEvent is self-only; target.dispatchEvent(events.create(...)) for hosted.
       events.dispatchEvent(new EventTarget(), 'submitted')
-      // @ts-expect-error - customEvents effects do not expose reentry signals.
       events.on.paid((_event, _signal) => {})
       events.on['*']((event) => {
         switch (event.type) {

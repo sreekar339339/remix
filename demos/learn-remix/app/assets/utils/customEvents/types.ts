@@ -49,6 +49,7 @@ type EventSourceListener<Value, Type extends string, Host extends Element> = (
     readonly type: Type
     readonly currentTarget: Host
   },
+  signal?: AbortSignal,
 ) => void | Promise<unknown>
 
 export type EventSourceMetadata<Value = unknown, Type extends string = string> = {
@@ -92,8 +93,8 @@ export type RememberedEventSource<Value, Type extends string, Detail = Value> = 
             }
           : { as(value: Value): RememberedEventSource<boolean, Type, Value | null> })
 
-/** An occurrence of a remembered descriptor: value semantics, like remembered sources. */
-type RememberedOccurrenceSource<Value, Type extends string> = EventSource<Value, Type> & {
+/** A notification of a remembered descriptor: value semantics, like remembered selectors. Transient. */
+type RememberedNotificationSource<Value, Type extends string> = EventSource<Value, Type> & {
   readonly [rememberedEventSourceMarker]: true
 }
 
@@ -103,7 +104,7 @@ export type EventSources<
 > = {
   readonly [Type in keyof Events & string]: Type extends keyof State & string
     ? RememberedEventSource<Immutable<State>[Type], Type>
-    : RememberedOccurrenceSource<Events[Type], Type>
+    : RememberedNotificationSource<Events[Type], Type>
 }
 
 type CustomEventsReactiveProp<Input, Event, Value> = (input: Input, event: Event) => Value
@@ -347,7 +348,10 @@ type CustomEventsListener<
   Events extends EventDetails,
   Type extends CustomEventsEventType<Events>,
   Target extends EventTarget,
-> = (event: CustomEventsListenerEvent<Events, Type, Target>) => void | Promise<unknown>
+> = (
+  event: CustomEventsListenerEvent<Events, Type, Target>,
+  signal?: AbortSignal,
+) => void | Promise<unknown>
 
 /** The wildcard on a descriptor: calling it with a listener scopes an
  * element-owned effect to every descriptor event, and the value doubles as
@@ -408,26 +412,26 @@ type FoldKeys<X> = {
   [Key in MemberKeys<X>]: X[Key] extends (...args: any[]) => any ? Key : never
 }[MemberKeys<X>]
 
-/** The composite of a defined class: its held fields (non-function values). */
-export type CompositeOf<X> = { [Key in HeldKeys<X>]: X[Key] }
+/** The current details of a defined class: its remembered events (non-function members). */
+export type DetailsOf<X> = { [Key in HeldKeys<X>]: X[Key] }
 
-/** The fold events of a defined class: its methods, keyed by name.
- * Zero-parameter recipes are detail-less: their fold detail is `null`. */
-export type FoldsOf<X> = {
+/** The handler events of a defined class: its methods, keyed by name.
+ * Zero-parameter handlers are detail-less: their detail is `null`. */
+export type HandlersOf<X> = {
   [Key in FoldKeys<X>]: X[Key] extends (...args: infer Args) => any
     ? Args extends [infer Detail, ...any[]]
-      ? (detail: Detail, composite: Draft<CompositeOf<X>>) => void | Promise<void>
-      : (detail: null, composite: Draft<CompositeOf<X>>) => void | Promise<void>
+      ? (detail: Detail, composite: Draft<DetailsOf<X>>) => void | Promise<void>
+      : (detail: null, composite: Draft<DetailsOf<X>>) => void | Promise<void>
     : never
 }
 
 /**
- * A fold handler over a composite: its detail is the first parameter, the
- * model arrives as an Immer draft.
+ * A handler over details: its detail is the first parameter, the
+ * remembered details arrive as an Immer draft.
  */
-export type CompositeHandler<Composite extends EventDetails, Detail = unknown> = (
+export type DetailsHandler<Details extends EventDetails, Detail = unknown> = (
   detail: Detail,
-  composite: Draft<Composite>,
+  composite: Draft<Details>,
 ) => void | Promise<void>
 
 /** The detail a handler carries: its first parameter, or `null` when detail-less. */
@@ -437,12 +441,12 @@ type CompositeHandlerDetail<Handler> = Handler extends (...args: infer Args) => 
     : null
   : null
 
-/** The event map of a composite descriptor: immutable slices and handler details. */
-export type CompositeEvents<
-  Composite extends EventDetails,
-  Handlers extends Record<string, CompositeHandler<Composite, any>>,
+/** The event map from remembered details and handlers. */
+export type EventMapFrom<
+  Details extends EventDetails,
+  Handlers extends Record<string, DetailsHandler<Details, any>>,
 > = Omit<
-  { [Key in keyof Composite & string]: Immutable<Composite[Key]> },
+  { [Key in keyof Details & string]: Immutable<Details[Key]> },
   keyof Handlers & string
 > & {
   [Key in keyof Handlers & string]: CompositeHandlerDetail<Handlers[Key]>
@@ -452,12 +456,15 @@ export type CompositeEvents<
  * registers a session reaction; nested accessors mirror the event-source
  * namespace, so deep paths react to the value at that address. The `This`
  * parameter is the runner-bound `this` of the callback: the session composite
- * draft at the root, narrowed to the item at each nested path. */
+ * draft at the root, narrowed to the item at each nested path. Property
+ * writes through `this` are dropped once the run's signal has aborted —
+ * a superseded derivation never commits; reads stay live. */
 export type CustomEventsReactionSource<Value, Type extends string, This> = {
   (
     callback: (
       this: This,
       event: CustomEvent<Value> & { readonly type: Type },
+      signal?: AbortSignal,
     ) => void,
   ): void
 } & (Defined<Value> extends ReadonlyMap<infer Key, infer Item>
@@ -485,17 +492,26 @@ export type CustomEventsReactionSource<Value, Type extends string, This> = {
 /** The class reaction surface: `defineEvents` passes it to the class
  * constructor, and `api.on.<slice>(callback)` registers a session reaction
  * for that slice's writes. Field-level callbacks bind `this` to the session
- * composite draft; deep paths narrow it to the item at the path. */
+ * composite draft; deep paths narrow it to the item at the path. `api.create`
+ * mirrors the descriptor's `create`, so reaction callbacks build typed events
+ * for any target without closing over the defined instance. */
 export type EventsApi<X extends object> = {
   readonly on: {
     readonly '*': (callback: (event: Event) => void) => void
   } & {
-    readonly [Type in keyof CompositeOf<X> & string]: CustomEventsReactionSource<
-      CompositeOf<X>[Type],
+    readonly [Type in keyof DetailsOf<X> & string]: CustomEventsReactionSource<
+      DetailsOf<X>[Type],
       Type,
-      Draft<CompositeOf<X>>
+      Draft<DetailsOf<X>>
     >
   }
+  /**
+   * Builds typed events for any target: a bare name or an object of details,
+   * exactly like `events.create`. Handlers fold eagerly at call time, so call it from
+   * quiesced continuations (after an `await`) rather than between a draft
+   * mutation and its flush.
+   */
+  readonly create: CustomEventsCreate<EventMapFrom<DetailsOf<X>, HandlersOf<X>>>
 }
 
 /** The dispatch surface of a composite descriptor: the event-named input. */
@@ -506,34 +522,32 @@ export type CompositeDispatch<Events extends EventDetails> = {
   ): Promise<void>
 } & CustomEventsDispatchEvent<Events>
 
-/** The typed event map of a defined composite class: its slices and fold
+/** The typed event map of a defined events class: its remembered and handler
  * details as `CustomEvent` listener types, for `TypedEventTarget` hosts. */
 export type EventsMapOf<X extends object> = CustomEventsEventMap<
-  CompositeEvents<CompositeOf<X>, FoldsOf<X>>
+  EventMapFrom<DetailsOf<X>, HandlersOf<X>>
 >
 
-/** The union of a defined class's events: every slice and fold detail as a
+/** The union of a defined class's events: every remembered and handler detail as a
  * typed `CustomEvent` with its `type`. */
 export type EventsOf<X extends object> = EventsMapOf<X>[keyof EventsMapOf<X>]
 
-/** The event surface of a defined composite: the descriptor machinery plus
- * the live model, read through `events.detail`. */
+/** The event surface of a defined events class: the descriptor machinery plus
+ * the live current details, read through `events.details`. */
 export type CustomEventsDefined<X extends object> = CustomEventsCompositeDescriptor<
-  CompositeOf<X>,
-  FoldsOf<X>
-> & { readonly detail: CompositeOf<X> }
+  DetailsOf<X>,
+  HandlersOf<X>
+> & { readonly details: DetailsOf<X> }
 
-/** A composite descriptor: slice events and handlers over the live composite. */
+/** A remembered-events descriptor: remembered details and handlers over the live current details. */
 export type CustomEventsCompositeDescriptor<
-  Composite extends EventDetails,
-  Handlers extends Record<string, CompositeHandler<Composite, any>>,
+  Details extends EventDetails,
+  Handlers extends Record<string, DetailsHandler<Details, any>>,
 > = Omit<
-  CustomEventsDescriptor<CompositeEvents<Composite, Handlers>, Composite>,
+  CustomEventsDescriptor<EventMapFrom<Details, Handlers>, Details>,
   'on'
 > & {
-  dispatchEvent: CompositeDispatch<CompositeEvents<Composite, Handlers>>
-  on: CustomEventsOnNamespace<CompositeEvents<Composite, Handlers>, Composite>
+  dispatchEvent: CompositeDispatch<EventMapFrom<Details, Handlers>>
+  on: CustomEventsOnNamespace<EventMapFrom<Details, Handlers>, Details>
   readonly [rememberedEventSourceMarker]: true
-} & (<Host extends Element = Element>(
-    listener: EventSourceListener<Immutable<Composite>, '*', Host>,
-  ) => MixinDescriptor<Host, any>)
+}

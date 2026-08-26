@@ -98,9 +98,9 @@ export const SevenGuisFlightBooker = clientEntry(
                 on('click', () => {
                   events.dispatchEvent({
                     bookingConfirmed: {
-                      kind: events.detail.kind,
-                      startDate: events.detail.startDate,
-                      returnDate: events.detail.returnDate,
+                      kind: events.details.kind,
+                      startDate: events.details.startDate,
+                      returnDate: events.details.returnDate,
                     },
                   })
                 }),

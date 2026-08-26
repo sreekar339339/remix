@@ -25,16 +25,17 @@ import type {
   EventDetails,
   EventsApi,
 } from './types.ts'
-import type { CompositeOf, FoldsOf } from './types.ts'
+import type { DetailsOf, HandlersOf } from './types.ts'
 export type {
-  CompositeEvents,
-  CompositeOf,
   CustomEventsDefined,
   CustomEventsEventMap,
+  DetailsHandler,
+  DetailsOf,
+  EventMapFrom,
   EventsApi,
   EventsMapOf,
   EventsOf,
-  FoldsOf,
+  HandlersOf,
 } from './types.ts'
 
 enablePatches()
@@ -97,7 +98,16 @@ function createDeferredQueue() {
 type DeferredQueue = ReturnType<typeof createDeferredQueue>
 
 /** The live fold session, tracked for the descriptor's dispatch deferral. */
-type FoldSessionRef = { current: { dirty: boolean } | undefined }
+type FoldSessionRef = {
+  current: {
+    dirty: boolean
+    /** True when a nested session committed over this one mid-flight. */
+    stale?: boolean
+    /** Commits the open draft now, so a nested session folds on top of
+     * this session's mutations instead of superseding (discarding) them. */
+    flushNow?: () => void
+  } | undefined
+}
 
 /** Cycle-detection threshold, not a loop bound — converging cascades are
  * unbounded; only genuinely non-converging reaction cycles trip this. */
@@ -145,12 +155,27 @@ function runFoldRecipe(
     index: ReactionIndex
     /** Reactions already fired for this dispatch inside the recipe. */
     suppress?: Set<Reaction>
+    /** Fires a reaction with reentry-abort signal semantics. */
+    fire: (reaction: Reaction, receiver: unknown, event: EventSourceEvent) => unknown
+    /** Async reaction runs fired during this dispatch; the session stays
+     * open until they settle so their continuations keep committing. */
+    runs: Promise<unknown>[]
   },
 ): { entries: CustomEventsRuntimeEntry[]; settle?: Promise<void> } {
-  let currentDraft = createDraft(live) as Draft<EventDetails>
-  let session = { dirty: false }
+  let reactionRuns = cross?.runs ?? []
   let previousSession = sessionRef.current
+  let session: NonNullable<FoldSessionRef['current']> = { dirty: false }
+  // A nested session reads the committed composite: flush any uncommitted
+  // parent mutations first, so this session's draft opens on top of them
+  // instead of superseding (discarding) them at the parent's next round.
+  previousSession?.flushNow?.()
+  // The parent's open draft is superseded either way — flag it so its next
+  // round rebuilds from live instead of emitting phantom patches.
+  if (previousSession) previousSession.stale = true
   sessionRef.current = session
+  // The draft opens after the parent flush, so it mirrors the committed
+  // composite including the mutations that flush just landed.
+  let currentDraft = createDraft(live) as Draft<EventDetails>
   let active = true
   let flushScheduled = false
   let asyncMode = false
@@ -226,10 +251,12 @@ function runFoldRecipe(
             `customEvents reaction cascade exceeded ${MAX_REACTION_FIRES} firings — possible cycle involving "${reaction.type}"`,
           )
         let currentAtPath = readPath(Reflect.get(currentDraft, entry.type), reaction.path)
-        reaction.callback.call(
+        let returned = cross.fire(
+          reaction,
           reaction.path.length === 0 ? sessionProxy : currentAtPath,
           { type: entry.type, detail: currentAtPath },
         )
+        if (returned instanceof Promise) cross.runs.push(returned)
       }
     }
     // The session committed: run any dispatches deferred during it.
@@ -237,6 +264,7 @@ function runFoldRecipe(
     if (asyncMode) flushed.push(...deferredCompletions)
     return deferredCompletions
   }
+  session.flushNow = () => void flush()
   let scheduleFlush = () => {
     if (flushScheduled || !active) return
     flushScheduled = true
@@ -277,6 +305,12 @@ function runFoldRecipe(
   let drain = (): Array<Promise<void>> => {
     let completions: Array<Promise<void>> = []
     while (true) {
+      if (session.stale) {
+        // A nested session committed over this one; drop the stale draft
+        // (its generations were superseded) and continue from live.
+        currentDraft = createDraft(live) as Draft<EventDetails>
+        session.stale = false
+      }
       completions.push(...flush())
       if (!session.dirty) break
     }
@@ -284,10 +318,24 @@ function runFoldRecipe(
   }
 
   let result = foldFn(detail, sessionProxy as Draft<EventDetails>)
-  if (result instanceof Promise) {
-    asyncMode = true
+  if (result instanceof Promise || reactionRuns.length > 0) {
+    // An async recipe — or reactions whose continuations outlive the sync
+    // body (an await-resumed `this.view = ...` write) — keeps the session
+    // open: mutations between boundaries flush progressively, and the
+    // settle resolves only after every run and its flushes complete.
+    let entries: CustomEventsRuntimeEntry[]
+    if (result instanceof Promise) {
+      asyncMode = true
+      entries = [{ type, detail }]
+    } else {
+      // The sync body commits its generations into one carrier; only the
+      // continuation phase streams per flush.
+      drain()
+      entries = sliceEntries
+      asyncMode = true
+    }
     let settle = (async () => {
-      await result
+      await Promise.all([result, ...reactionRuns].filter(Boolean))
       // Cross-write reactions chain follow-up generations; drain them here
       // so every derived slice commits before the settle resolves.
       drain()
@@ -295,11 +343,7 @@ function runFoldRecipe(
       sessionRef.current = previousSession
       await Promise.all(flushed)
     })()
-    return {
-      // The handler event itself; its state updates route per flush.
-      entries: [{ type, detail }],
-      settle,
-    }
+    return { entries, settle }
   }
   let deferredCompletions = drain()
   active = false
@@ -321,7 +365,7 @@ function runFoldRecipe(
 type Reaction = {
   type: string
   path: readonly unknown[]
-  callback: (event: EventSourceEvent) => unknown
+  callback: (event: EventSourceEvent, signal?: AbortSignal) => unknown
 }
 
 /**
@@ -392,12 +436,79 @@ function createFoldEntry(args: {
   let { foldFns, live, sessionRef, deferred, reactions, context } = args
 
   // Reactions are registered during construction, after this runs — build
-  // the slice index lazily on first dispatch.
+  // the slice index lazily on first dispatch. Reentry signals live for the
+  // composite's lifetime: firing aborts the previous run of the same
+  // reaction.
   let reactionIndex: ReactionIndex | undefined
   let reactionIndexFor = (): ReactionIndex =>
     (reactionIndex ??= buildReactionIndex(reactions))
+  let reactionSignals = new Map<Reaction, AbortController>()
 
-  let runFieldReactions = (type: string, detail: unknown) => {
+  // Writes from an aborted run are dropped at the receiver: a superseded
+  // derivation's output is obsolete, so a stale continuation can never
+  // clobber newer state. Reads stay live — callbacks still inspect state
+  // after aborts — and dispatches (create/dispatchEvent) remain ungated for
+  // intentional facts.
+  function gateWrites(receiver: unknown, signal: AbortSignal): unknown {
+    return new Proxy(receiver as object, {
+      get: (target, property) => Reflect.get(target, property),
+      set: (target, property, value) => {
+        if (signal.aborted) return true
+        return Reflect.set(target, property, value)
+      },
+      deleteProperty: (target, property) => {
+        if (signal.aborted) return true
+        return Reflect.deleteProperty(target, property)
+      },
+      defineProperty: (target, property, descriptor) => {
+        if (signal.aborted) return true
+        return Reflect.defineProperty(target, property, descriptor)
+      },
+    })
+  }
+
+  // A superseded run's rejection is expected noise: an aborted run or its
+  // in-flight work rejecting with an abort error settles quietly instead of
+  // rejecting the whole dispatch. Genuine failures still propagate.
+  function trackRun(result: unknown, signal: AbortSignal): unknown {
+    if (!(result instanceof Promise)) return result
+    return result.catch((error) => {
+      if (signal.aborted || (error as Error)?.name === 'AbortError') return
+      throw error
+    })
+  }
+
+  // An owned fire carries the signal of the run whose own write triggered
+  // it — a run publishing back to its source folds that write inside its
+  // own frame, and the matching refire is a cascade step of the living
+  // run, not a stale one. Owned fires reuse the run's controller (whose
+  // gate is open); every other re-fire aborts the previous signal so stale
+  // work cancels itself.
+  let fireWithSignal = (
+    reaction: Reaction,
+    receiver: unknown,
+    event: EventSourceEvent,
+    owner?: AbortSignal,
+  ) => {
+    let current = reactionSignals.get(reaction)
+    if (owner !== undefined && owner === current?.signal) {
+      let gated = gateWrites(receiver, current.signal)
+      return trackRun(
+        reaction.callback.call(gated, event, current.signal),
+        current.signal,
+      )
+    }
+    current?.abort()
+    let controller = new AbortController()
+    reactionSignals.set(reaction, controller)
+    let gated = gateWrites(receiver, controller.signal)
+    return trackRun(
+      reaction.callback.call(gated, event, controller.signal),
+      controller.signal,
+    )
+  }
+
+  let runFieldReactions = (type: string, detail: unknown, owner?: AbortSignal) => {
     let index = reactionIndexFor()
     let fieldReactions = [
       ...(index.byKey.get(type) ?? []),
@@ -407,6 +518,7 @@ function createFoldEntry(args: {
     // Reactions fired here are suppressed at the flush, so the dispatch's
     // own writes don't re-trigger them.
     let fired = new Set<Reaction>()
+    let runs: Array<Promise<unknown>> = []
     let session = runFoldRecipe(
       (value, draft) => {
         let previous = live()[type]
@@ -420,10 +532,13 @@ function createFoldEntry(args: {
               : !Object.is(previousAtPath, currentAtPath)
           if (!changed) continue
           fired.add(reaction)
-          reaction.callback.call(
+          let returned = fireWithSignal(
+            reaction,
             reaction.path.length === 0 ? draft : currentAtPath,
             { type, detail: currentAtPath },
+            owner,
           )
+          if (returned instanceof Promise) runs.push(returned)
         }
       },
       type,
@@ -433,7 +548,12 @@ function createFoldEntry(args: {
       sessionRef,
       deferred,
       (entries) => context.dispatchEntries!(entries),
-      { index: reactionIndexFor(), suppress: fired },
+      {
+        index: reactionIndexFor(),
+        suppress: fired,
+        fire: (reaction, receiver, event) => fireWithSignal(reaction, receiver, event, owner),
+        runs,
+      },
     )
     let entries = session.entries
     let addresses = entries.flatMap((entry) => entry.addresses ?? [])
@@ -446,9 +566,10 @@ function createFoldEntry(args: {
     return entries
   }
 
-  return (type: string, detail: unknown) => {
+  return (type: string, detail: unknown, owner?: AbortSignal) => {
     let foldFn = foldFns.get(type)
     if (foldFn) {
+      let runs: Array<Promise<unknown>> = []
       let session = runFoldRecipe(
         foldFn,
         type,
@@ -458,7 +579,11 @@ function createFoldEntry(args: {
         sessionRef,
         deferred,
         (entries) => context.dispatchEntries!(entries),
-        { index: reactionIndexFor() },
+        {
+          index: reactionIndexFor(),
+          fire: (reaction, receiver, event) => fireWithSignal(reaction, receiver, event, owner),
+          runs,
+        },
       )
       let entries = session.entries
       // The effect entry rides the same routes as its folded output so the
@@ -483,7 +608,7 @@ function createFoldEntry(args: {
     // A detail dispatch is the implicit fold that replaces itself; a
     // field with registered reactions runs as one session first.
     if (Object.hasOwn(live(), type)) {
-      let reacted = runFieldReactions(type, detail)
+      let reacted = runFieldReactions(type, detail, owner)
       if (reacted) return reacted
       let previous = live()[type]
       if (Object.is(previous, detail)) return []
@@ -501,7 +626,7 @@ function createFoldEntry(args: {
  * slices, its methods as fold recipes, and the constructor's `api`
  * registers session reactions (`api.on.<slice>(callback)`). The returned
  * object is the pure event surface; the model is read through views or
- * `events.detail`.
+ * `events.details`.
  */
 export class Events {
   static define<X extends object, Args extends unknown[]>(
@@ -551,6 +676,7 @@ function defineEvents<X extends object, Args extends unknown[]>(
   let descriptor = createCustomEventsDescriptor<EventDetails, EventDetails>(context)
   let api = {
     on: createReactionNamespace(descriptor.on as unknown as object, reactions),
+    create: descriptor.create,
   } as unknown as EventsApi<X>
 
   instance = new Class(api, ...args)
@@ -602,7 +728,9 @@ function mirrorKeys(live: EventDetails, next: EventDetails, entries: CustomEvent
   for (let entry of entries) {
     let key = entry.type
     if (Object.hasOwn(next, key)) live[key] = next[key]
-    else delete live[key]
+    else {
+      delete live[key]
+    }
   }
 }
 

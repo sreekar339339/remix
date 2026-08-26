@@ -148,12 +148,12 @@ export const SevenGuisCells = clientEntry(import.meta.url, function SevenGuisCel
                           events.dispatchEvent({ commitCell: { id, text: currentTarget.value } })
                           // Clear the local draft with the freshly committed value.
                           currentTarget.dispatchEvent(
-                            events.create({ cellDrafted: events.detail.values[id] ?? '' }),
+                            events.create({ cellDrafted: events.details.values[id] ?? '' }),
                           )
                         }),
                         on('focus', ({ currentTarget }) => {
                           currentTarget.dispatchEvent(
-                            events.create({ cellDrafted: events.detail.formulas[id] ?? '' }),
+                            events.create({ cellDrafted: events.details.formulas[id] ?? '' }),
                           )
                           currentTarget.select()
                         }),

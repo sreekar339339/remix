@@ -177,7 +177,7 @@ export const AsyncJobRunner = clientEntry(import.meta.url, function AsyncJobRunn
           data-action="fail"
           mix={on('click', () => {
             void events
-              .dispatchEvent({ fail: `boom from ${events.detail.phase}` })
+              .dispatchEvent({ fail: `boom from ${events.details.phase}` })
               .catch(() => {})
           })}
         >

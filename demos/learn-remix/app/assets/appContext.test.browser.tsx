@@ -33,7 +33,7 @@ describe('AppContext', () => {
     // Only the user slice was written, so only the user listener fires.
     context.dispatchEvent({ user: { name: 'Ada', age: 37 } })
     assert.equal(calls.join(','), 'user:Ada')
-    assert.equal(context.detail.settings.theme, 'system')
+    assert.equal(context.details.settings.theme, 'system')
 
     // A transaction touching both slices fires both listeners in order.
     context.dispatchEvent({
@@ -82,19 +82,19 @@ describe('AppContext', () => {
     let context = AppContextEvents.define()
 
     await context.dispatchEvent({ user: { name: 'Ada', age: 37 } })
-    assert.equal(context.detail.user?.name, 'Ada')
-    assert.equal(context.detail.settings.theme, 'system')
+    assert.equal(context.details.user?.name, 'Ada')
+    assert.equal(context.details.settings.theme, 'system')
 
     await context.dispatchEvent({ settings: { layout: 'zen', theme: 'dark' } })
-    assert.equal(context.detail.settings.theme, 'dark')
-    assert.equal(context.detail.user?.name, 'Ada')
+    assert.equal(context.details.settings.theme, 'dark')
+    assert.equal(context.details.user?.name, 'Ada')
 
     await context.dispatchEvent({
       user: { name: 'Grace', age: 85 },
       settings: { layout: 'normal', theme: 'light' },
     })
-    assert.equal(context.detail.user?.name, 'Grace')
-    assert.equal(context.detail.settings.theme, 'light')
+    assert.equal(context.details.user?.name, 'Grace')
+    assert.equal(context.details.settings.theme, 'light')
   })
 
   it('provides context and updates imperative and event-aware consumers', async (t) => {

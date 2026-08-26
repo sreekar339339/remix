@@ -402,6 +402,13 @@ function matchesScope(
   if (!carrier.bubbles && isElement(originTarget) && subscription.element !== originTarget) {
     return false
   }
+  // A dispatch on the descriptor or a bridged domain target (a non-element
+  // origin target) broadcasts across every host scope of the descriptor —
+  // reaction derivations ride such carriers, so element hosts must hear
+  // them too.
+  if (!isElement(originTarget)) {
+    return true
+  }
 
   let subscriptionScope = scopeFor(runtime, subscription.element) ?? subscription.element
   return (

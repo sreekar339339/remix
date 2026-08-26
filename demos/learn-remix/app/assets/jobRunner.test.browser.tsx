@@ -55,8 +55,8 @@ describe('AsyncJobRunner', () => {
     let completion = events.dispatchEvent({ fail: 'boom' })
     await tick(200)
     // The phase and its nested log line were flushed before the rejection.
-    assert.equal(events.detail.phase, 'failed')
-    assert.deepEqual(events.detail.log, ['boom'])
+    assert.equal(events.details.phase, 'failed')
+    assert.deepEqual(events.details.log, ['boom'])
     await assert.rejects(completion, /boom/)
   })
 

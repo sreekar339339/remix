@@ -39,7 +39,7 @@ export function UserDisplay2(handle: Handle) {
 
   return () => (
     <div>
-      <div>{events.detail.user?.name ?? 'Not logged in'}</div>
+      <div>{events.details.user?.name ?? 'Not logged in'}</div>
     </div>
   )
 }

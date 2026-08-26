@@ -248,6 +248,31 @@ describe('customEvents', () => {
     assert.equal(second.dataset.effect, 'submitted')
   })
 
+  it('broadcasts descriptor dispatches into every host scope', async (t) => {
+    let events = createEvents()
+
+    function HostedListener() {
+      return () => (
+        <section mix={events.asHost()}>
+          <e.output on={events.on.submitted} aria-label="out">
+            {(detail) => detail?.id ?? ''}
+          </e.output>
+        </section>
+      )
+    }
+    let result = render(<HostedListener />)
+    t.after(() => result.cleanup())
+    assert.equal(result.$('[aria-label="out"]')?.textContent, '')
+
+    await result.act(async () => {
+      // A descriptor-level dispatch (origin on the default host) must reach
+      // subscribers mounted inside element hosts.
+      await events.dispatchEvent({ submitted: { id: 'first' } })
+      await settleEffects()
+    })
+    assert.equal(result.$('[aria-label="out"]')?.textContent, 'first')
+  })
+
   it('keeps unhosted events local and routes siblings through explicit hosts', async (t) => {
     let events = createEvents()
 

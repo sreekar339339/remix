@@ -47,10 +47,13 @@ export const customEventsEvented = new Proxy(Object.create(null), {
 
 export type RememberedEventContext = {
   getState(): EventDetails
-  /** Folds a dispatched event into the remembered composite. */
+  /** Folds a dispatched event into the remembered composite. The owner
+   * signal marks folds triggered by the run that holds it, so their
+   * reaction refires cascade within that run instead of aborting it. */
   fold(
     type: string,
     detail: unknown,
+    owner?: AbortSignal,
   ):
     | CustomEventsRuntimeEntry[]
     | { entries: CustomEventsRuntimeEntry[]; settle: Promise<void> }
@@ -92,24 +95,31 @@ function getEventInit(init: CustomEventInit | undefined): EventInit {
 function customEventsOnMixin(
   runtime: CustomEventsRuntimeState,
   source: { type: string; path: readonly unknown[] } | undefined,
-  listener: (event: Event) => void | Promise<unknown>,
+  listener: (event: Event, signal: AbortSignal) => void | Promise<unknown>,
 ) {
   return createMixin<
     Element,
     [
       runtime: CustomEventsRuntimeState,
       source: { type: string; path: readonly unknown[] } | undefined,
-      listener: (event: Event) => void | Promise<unknown>,
+      listener: (event: Event, signal: AbortSignal) => void | Promise<unknown>,
     ]
   >((handle) => (runtime, source, listener) => (
     <handle.element
       mix={ref((element, signal) => {
+        // Reentry semantics: each delivery aborts the previous signal for
+        // this element+source pair, so stale async work cancels itself.
+        let reentered: AbortController | undefined
         subscribeSource(
           runtime,
           'effect',
           {
             element,
-            notify: (event: CustomEvent) => listener(event),
+            notify: (event: CustomEvent) => {
+              reentered?.abort()
+              reentered = new AbortController()
+              return listener(event, reentered.signal)
+            },
           },
           signal,
           source,
@@ -148,7 +158,7 @@ export function createCustomEventsDescriptor<
     if (type === ALL_EVENTS) {
       throw new TypeError('customEvents "*" is the wildcard and cannot be dispatched.')
     }
-    let folded = state.fold(type, detail)
+    let folded = state.fold(type, detail, options?.signal)
     if (folded !== undefined) {
       if (Array.isArray(folded)) return folded
       settlers.push(folded.settle)
@@ -385,7 +395,7 @@ export function createCustomEventsDescriptor<
 
   let proxy = new Proxy(descriptorTarget, {
     get(target, property, receiver) {
-      if (property === 'detail') {
+      if (property === 'details') {
         return state.getState()
       }
       if (property === EVENT_SOURCE) {

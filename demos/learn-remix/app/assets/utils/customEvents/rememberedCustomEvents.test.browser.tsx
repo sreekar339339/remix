@@ -231,15 +231,15 @@ describe('remembered customEvents', () => {
     }
     let events = __SeedCountEvents.define()
     events.dispatchEvent({ count: 1 })
-    assert.equal(events.detail.count, 1)
+    assert.equal(events.details.count, 1)
     events.dispatchEvent({ count: 2 })
-    assert.equal(events.detail.count, 2)
+    assert.equal(events.details.count, 2)
 
     // The descriptor machinery names are just names: dispatching one that no
     // field declares is a transient occurrence, never a slice write.
     let events2 = __SeedCountEvents.define()
     await events2.dispatchEvent({ on: 1 } as any)
-    assert.equal(events2.detail.count, 0)
+    assert.equal(events2.details.count, 0)
   })
 
   it('exposes the wildcard source over the live composite', async (t) => {
@@ -677,7 +677,7 @@ describe('remembered customEvents', () => {
     // The first mutation flushed before the rejection; the dispatch still
     // rejects with the handler's error.
     await settleEffects()
-    assert.equal(events.detail.count, 1)
+    assert.equal(events.details.count, 1)
     await assert.rejects(completion, /boom/)
   })
 
@@ -710,7 +710,7 @@ describe('remembered customEvents', () => {
 
     // The live instance is the composite: object inputs read it directly.
     await result.act(async () => {
-      await events.dispatchEvent({ drafted: `count=${events.detail.count}` })
+      await events.dispatchEvent({ drafted: `count=${events.details.count}` })
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="draft"]')?.textContent, 'count=0')
@@ -718,7 +718,7 @@ describe('remembered customEvents', () => {
     // Object entries are computed at the call site and fold in order; per-name
     // values are data.
     await result.act(async () => {
-      await events.dispatchEvent({ count: events.detail.count + 1, inc: events.detail.count })
+      await events.dispatchEvent({ count: events.details.count + 1, inc: events.details.count })
       await settleEffects()
     })
     assert.equal(result.$('[aria-label="root"]')?.textContent, 'idle:1')
@@ -726,7 +726,7 @@ describe('remembered customEvents', () => {
     // Object entries replace exactly their own slices.
     await result.act(async () => {
       await events.dispatchEvent({
-        count: events.detail.count * 10,
+        count: events.details.count * 10,
         label: 'derived',
       })
       await settleEffects()
