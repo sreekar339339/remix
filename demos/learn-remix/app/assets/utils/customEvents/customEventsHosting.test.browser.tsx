@@ -3,7 +3,7 @@ import { describe, it } from 'remix/test'
 import { on, ref } from 'remix/ui'
 import { render } from 'remix/ui/test'
 import { Events, evented as e } from './index.tsx'
-import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
+import { createRuntimeState, customEventsRuntime } from './runtime.ts'
 import { createEvents, settleEffects } from './customEvents.test-utils.tsx'
 
 describe('customEvents', () => {
@@ -477,8 +477,8 @@ describe('customEvents', () => {
     assert.equal((result.$('[aria-label="input"]') as HTMLInputElement).dataset.ready, 'true')
   })
 
-  it('indexes subscriptions by phase, type, and event address', async () => {
-    let runtime = createCustomEventsRuntimeState()
+  it('indexes subscriptions by phase, type, and event path', async () => {
+    let runtime = createRuntimeState()
     let host = document.createElement('section')
     let origin = document.createElement('button')
     host.append(origin)
@@ -491,7 +491,7 @@ describe('customEvents', () => {
 
     function subscribe(
       name: string,
-      addresses: Record<string, ReadonlyArray<string>> | null,
+      paths: Record<string, ReadonlyArray<string>> | null,
       eventTypes: ReadonlySet<string> | null,
       phase: 'view' | 'effect' = 'view',
     ) {
@@ -500,7 +500,7 @@ describe('customEvents', () => {
       let subscription = {
         element,
         eventTypes,
-        ...(addresses === null ? {} : { addresses: new Map(Object.entries(addresses)) }),
+        ...(paths === null ? {} : { paths: new Map(Object.entries(paths)) }),
         notify(event: CustomEvent) {
           calls.push(`${name}:${event.type}`)
         },
@@ -521,11 +521,11 @@ describe('customEvents', () => {
 
     function event(key?: string) {
       let init = { bubbles: true, cancelable: false }
-      return customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
+      return customEventsRuntime.createBatchEvent(runtime, 'updated', null, init, [
         {
           type: 'updated',
           detail: null,
-          ...(key === undefined ? {} : { addresses: [[String(key)]] }),
+          ...(key === undefined ? {} : { paths: [[String(key)]] }),
         },
       ])
     }
@@ -558,7 +558,7 @@ describe('customEvents', () => {
   })
 
   it('notifies whole-key and addressed subscribers for every event', async () => {
-    let runtime = createCustomEventsRuntimeState()
+    let runtime = createRuntimeState()
     let host = document.createElement('section')
     let origin = document.createElement('button')
     host.append(origin)
@@ -573,7 +573,7 @@ describe('customEvents', () => {
       let subscription = {
         element,
         eventTypes: new Set(['updated']),
-        addresses: new Map([['updated', address]]),
+        paths: new Map([['updated', address]]),
         notify() {
           calls.push(name)
         },
@@ -585,12 +585,12 @@ describe('customEvents', () => {
     subscribe('whole', [])
     subscribe('key', ['circle:1'])
 
-    function event(addresses: readonly (readonly string[])[]) {
-      return customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
+    function event(paths: readonly (readonly string[])[]) {
+      return customEventsRuntime.createBatchEvent(runtime, 'updated', null, init, [
         {
           type: 'updated',
           detail: null,
-          addresses,
+          paths,
         },
       ])
     }
@@ -607,7 +607,7 @@ describe('customEvents', () => {
     await customEventsRuntime.dispatch(runtime, origin, event([[]]))
     assert.deepEqual(calls, ['whole', 'key'])
 
-    // Entries without addresses notify every subscriber.
+    // Entries without paths notify every subscriber.
     calls = []
     await customEventsRuntime.dispatch(runtime, origin, event(undefined as never))
     assert.deepEqual(calls, ['whole', 'key'])
@@ -617,7 +617,7 @@ describe('customEvents', () => {
   })
 
   it('derives host containment independently of registration order', () => {
-    let runtime = createCustomEventsRuntimeState()
+    let runtime = createRuntimeState()
     let parent = document.createElement('main')
     let host = document.createElement('section')
     parent.append(host)
@@ -634,7 +634,7 @@ describe('customEvents', () => {
     let unregisterHost = customEventsRuntime.registerHost(runtime, host)
     let init = { bubbles: true, cancelable: false }
     host.dispatchEvent(
-      customEventsRuntime.createProductEvent(runtime, 'updated', null, init, [
+      customEventsRuntime.createBatchEvent(runtime, 'updated', null, init, [
         {
           type: 'updated',
           detail: null,

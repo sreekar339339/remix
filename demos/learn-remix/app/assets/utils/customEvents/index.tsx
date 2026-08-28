@@ -4,10 +4,10 @@ import {
   customEventsEvented,
   getEventedSource,
 } from './evented.tsx'
-import type { RememberedEventContext } from './descriptor.tsx'
+import type { BatchContext } from './descriptor.tsx'
 import {
   ALL_EVENTS,
-  canonicalAddressSegment,
+  canonicalPathSegment,
   readPath,
   samePropertyKey,
   type CustomEventsRuntimeEntry,
@@ -170,14 +170,14 @@ function registerChange(
 function pathKeyOf(segments: readonly unknown[]): string {
   let flat = ''
   for (let i = 0; i < segments.length; i++) {
-    flat += (i > 0 ? '\u001f' : '') + String(canonicalAddressSegment(segments[i]))
+    flat += (i > 0 ? '\u001f' : '') + String(canonicalPathSegment(segments[i]))
   }
   return flat
 }
 
 function recordPath(journal: Journal, topKey: string, segments: readonly unknown[]): void {
   const record = registerChange(journal, topKey, undefined)
-  const canonical = segments.map(canonicalAddressSegment)
+  const canonical = segments.map(canonicalPathSegment)
   if (canonical.length === 0) {
     if (!record.seen.has('')) {
       record.paths.length = 0
@@ -246,7 +246,7 @@ function propagate(journal: Journal, handle: Handle, applyLeaf: (current: unknow
 }
 
 function journalPathSegments(handle: Handle): unknown[] {
-  return handle.keys.slice(1).map(canonicalAddressSegment)
+  return handle.keys.slice(1).map(canonicalPathSegment)
 }
 
 /** Self-inclusive ancestry: children append their own RAW original. */
@@ -359,7 +359,7 @@ function createProxy(handle: Handle): object {
             })
             recordPath(journal, String(handle.keys[0]), [
               ...journalPathSegments(handle),
-              canonicalAddressSegment(k),
+              canonicalPathSegment(k),
             ])
             return handle.proxy
           }
@@ -374,7 +374,7 @@ function createProxy(handle: Handle): object {
             if (removed) {
               recordPath(journal, String(handle.keys[0]), [
                 ...journalPathSegments(handle),
-                canonicalAddressSegment(k),
+                canonicalPathSegment(k),
               ])
             }
             return removed
@@ -394,7 +394,7 @@ function createProxy(handle: Handle): object {
               for (let m of members) {
                 recordPath(journal, String(handle.keys[0]), [
                   ...base,
-                  canonicalAddressSegment(m),
+                  canonicalPathSegment(m),
                 ])
               }
             }
@@ -417,7 +417,7 @@ function createProxy(handle: Handle): object {
             })
             recordPath(journal, String(handle.keys[0]), [
               ...journalPathSegments(handle),
-              canonicalAddressSegment(v),
+              canonicalPathSegment(v),
             ])
             return handle.proxy
           }
@@ -432,7 +432,7 @@ function createProxy(handle: Handle): object {
             if (removed) {
               recordPath(journal, String(handle.keys[0]), [
                 ...journalPathSegments(handle),
-                canonicalAddressSegment(v),
+                canonicalPathSegment(v),
               ])
             }
             return removed
@@ -451,7 +451,7 @@ function createProxy(handle: Handle): object {
               for (let m of members) {
                 recordPath(journal, String(handle.keys[0]), [
                   ...base,
-                  canonicalAddressSegment(m),
+                  canonicalPathSegment(m),
                 ])
               }
             }
@@ -737,7 +737,7 @@ function commitJournal(journal: Journal, live: EventDetails): CustomEventsRuntim
     const entry: CustomEventsRuntimeEntry = {
       type: key,
       detail: undefined,
-      addresses: [],
+      paths: [],
     }
 
     const staged = journal.stagedRoot.get(key)
@@ -757,9 +757,9 @@ function commitJournal(journal: Journal, live: EventDetails): CustomEventsRuntim
     ;(live as Record<string, unknown>)[key] = cleanNext
     entry.detail = cleanNext
     if (isPrimitive(previous) && isPrimitive(cleanNext)) {
-      entry.addresses = sliceAddresses(previous, cleanNext)
+      entry.paths = sliceAddresses(previous, cleanNext)
     } else {
-      entry.addresses = record.paths
+      entry.paths = record.paths
     }
     entries.push(entry)
   }
@@ -903,7 +903,7 @@ function runBatch(
           if (fired.has(reaction)) continue
           let routed =
             reaction.path.length === 0 ||
-            (entry.addresses ?? []).some((address) => {
+            (entry.paths ?? []).some((address) => {
               let shared = address.length
               for (let i = 0; i < address.length && i < reaction.path.length; i++) {
                 if (!Object.is(address[i], reaction.path[i])) {
@@ -1086,8 +1086,8 @@ function createBatchEntry(args: {
   sessionRef: BatchSessionRef
   deferred: DeferredQueue
   reactions: Reaction[]
-  context: RememberedEventContext
-}): RememberedEventContext['fold'] {
+  context: BatchContext
+}): BatchContext['apply'] {
   let { batchFns, live, sessionRef, deferred, reactions, context } = args
 
   let reactionIndex: ReactionIndex | undefined
@@ -1204,11 +1204,11 @@ function createBatchEntry(args: {
       },
     )
     let entries = session.entries
-    let addresses = entries.flatMap((entry) => entry.addresses ?? [])
+    let paths = entries.flatMap((entry) => entry.paths ?? [])
     entries.unshift({
       type,
       detail,
-      ...(addresses.length > 0 ? { addresses } : {}),
+      ...(paths.length > 0 ? { paths } : {}),
     })
     if (session.settle) return { entries, settle: session.settle }
     return entries
@@ -1234,11 +1234,11 @@ function createBatchEntry(args: {
         },
       )
       let entries = session.entries
-      let addresses = entries.flatMap((entry) => entry.addresses ?? [])
+      let paths = entries.flatMap((entry) => entry.paths ?? [])
       entries.unshift({
         type,
         detail,
-        ...(addresses.length > 0 ? { addresses } : {}),
+        ...(paths.length > 0 ? { paths } : {}),
       })
       if (session.settle) return { entries, settle: session.settle }
       return entries
@@ -1258,7 +1258,7 @@ function createBatchEntry(args: {
       let previous = live()[type]
       if (Object.is(previous, detail)) return []
       live()[type] = detail
-      return [{ type, detail, addresses: sliceAddresses(previous, detail) }]
+      return [{ type, detail, paths: sliceAddresses(previous, detail) }]
     }
     return undefined
   }
@@ -1305,17 +1305,17 @@ function defineEvents<X extends object, Args extends unknown[]>(
 
   let sessionRef: BatchSessionRef = { current: undefined }
   let deferred = createDeferredQueue()
-  let pendingSession = () => sessionRef.current?.dirty === true
-  let occurrenceKeys = () => new Set<string>(batchFns.keys())
+  let pendingBatch = () => sessionRef.current?.dirty === true
+  let notificationKeys = () => new Set<string>(batchFns.keys())
   let reactions: Reaction[] = []
-  let context: RememberedEventContext = {
+  let context: BatchContext = {
     getState: live,
-    fold: () => undefined,
-    pendingSession,
+    apply: () => undefined,
+    pendingBatch,
     deferDispatch: deferred.defer,
-    occurrenceKeys,
+    notificationKeys,
   }
-  context.fold = createBatchEntry({ batchFns, live, sessionRef, deferred, reactions, context })
+  context.apply = createBatchEntry({ batchFns, live, sessionRef, deferred, reactions, context })
   let descriptor = createCustomEventsDescriptor<EventDetails, EventDetails>(context)
   let api = {
     on: createReactionNamespace(descriptor.on as unknown as object, reactions),
@@ -1341,15 +1341,15 @@ function sliceAddresses(previous: unknown, next: unknown): Array<readonly unknow
   if (isPrimitive(previous) && isPrimitive(next)) {
     let addresses: Array<readonly unknown[]> = []
     if (previous !== undefined && previous !== null) {
-      addresses.push([canonicalAddressSegment(previous)])
+      addresses.push([canonicalPathSegment(previous)])
     }
     if (next !== undefined && next !== null) {
-      addresses.push([canonicalAddressSegment(next)])
+      addresses.push([canonicalPathSegment(next)])
     }
     return addresses
   }
   if (previous instanceof Set || next instanceof Set) {
-    return [[canonicalAddressSegment(next)]]
+    return [[canonicalPathSegment(next)]]
   }
   return [[]]
 }

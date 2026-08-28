@@ -1,14 +1,15 @@
 import { createMixin, ref } from 'remix/ui'
 import {
   ALL_EVENTS,
-  canonicalAddressSegment,
-  createCustomEventsRuntimeState,
+  canonicalPathSegment,
+  createRuntimeState,
   customEventsRuntime,
   readPath,
   samePropertyKey,
-  subscribeSource,
+  subscribeSelector,
+  type BatchEvent,
   type CustomEventsRuntimeEntry,
-  type CustomEventsRuntimeState,
+  type RuntimeState,
 } from './runtime.ts'
 import { CUSTOM_EVENTS_SOURCE, type EventedSource } from './evented.tsx'
 import type {
@@ -28,12 +29,12 @@ const DEFAULT_CUSTOM_EVENTS_INIT: EventInit = {
 }
 const customEventInitKeys = new Set(['bubbles', 'composed', 'signal'])
 
-export type RememberedEventContext = {
+export type BatchContext = {
   getState(): EventDetails
-  /** Folds a dispatched event into the remembered composite. The owner
-   * signal marks folds triggered by the run that holds it, so their
+  /** Applies a dispatched event to the detail composite. The owner signal
+   * marks applications triggered by the run that holds it, so their
    * reaction refires cascade within that run instead of aborting it. */
-  fold(
+  apply(
     type: string,
     detail: unknown,
     owner?: AbortSignal,
@@ -41,14 +42,14 @@ export type RememberedEventContext = {
     | CustomEventsRuntimeEntry[]
     | { entries: CustomEventsRuntimeEntry[]; settle: Promise<void> }
     | undefined
-  /** Dispatches folded entries as a batch; used by async fold sessions. */
+  /** Dispatches applied entries as a batch; used by async batch sessions. */
   dispatchEntries?(entries: CustomEventsRuntimeEntry[]): Promise<unknown>
-  /** True while a fold session holds uncommitted draft mutations. */
-  pendingSession(): boolean
-  /** Defers a dispatch until the active fold session commits and flushes. */
+  /** True while a batch session holds uncommitted detail mutations. */
+  pendingBatch(): boolean
+  /** Defers a dispatch until the active batch session commits and flushes. */
   deferDispatch(run: () => Promise<void> | void): Promise<void>
-  /** Fold names: fields that occupy the composite as callables, never data reads. */
-  occurrenceKeys(): ReadonlySet<string>
+  /** Listener names: fields that occupy the composite as callables, never data reads. */
+  notificationKeys(): ReadonlySet<string>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,24 +77,24 @@ function getEventInit(init: CustomEventInit | undefined): EventInit {
 }
 
 function customEventsOnMixin(
-  runtime: CustomEventsRuntimeState,
-  source: { type: string; path: readonly unknown[] } | undefined,
+  runtime: RuntimeState,
+  selector: { type: string; path: readonly unknown[] } | undefined,
   listener: (event: Event, signal: AbortSignal) => void | Promise<unknown>,
 ) {
   return createMixin<
     Element,
     [
-      runtime: CustomEventsRuntimeState,
-      source: { type: string; path: readonly unknown[] } | undefined,
+      runtime: RuntimeState,
+      selector: { type: string; path: readonly unknown[] } | undefined,
       listener: (event: Event, signal: AbortSignal) => void | Promise<unknown>,
     ]
-  >((handle) => (runtime, source, listener) => (
+  >((handle) => (runtime, selector, listener) => (
     <handle.element
       mix={ref((element, signal) => {
         // Reentry semantics: each delivery aborts the previous signal for
-        // this element+source pair, so stale async work cancels itself.
+        // this element+selector pair, so stale async work cancels itself.
         let reentered: AbortController | undefined
-        subscribeSource(
+        subscribeSelector(
           runtime,
           'effect',
           {
@@ -105,25 +106,22 @@ function customEventsOnMixin(
             },
           },
           signal,
-          source,
+          selector,
         )
       })}
     />
-  ))(runtime, source, listener)
+  ))(runtime, selector, listener)
 }
 
 export function createCustomEventsDescriptor<
   Events extends EventDetails,
   State extends EventDetails,
->(state: RememberedEventContext): CustomEventsDescriptor<Events, State> {
-  let runtime: CustomEventsRuntimeState | undefined
-  let getRuntime = () => (runtime ??= createCustomEventsRuntimeState())
+>(state: BatchContext): CustomEventsDescriptor<Events, State> {
+  let runtime: RuntimeState | undefined
+  let getRuntime = () => (runtime ??= createRuntimeState())
   // The descriptor carries a native EventTarget channel: native listeners
   // attach to it and target-less writes dispatch on it.
   let base = new EventTarget()
-  // Completions that must settle before the dispatch resolves: async fold
-  // sessions register their handler and flush completion here.
-  let settlers: Array<Promise<void>> = []
   state.dispatchEntries = (entries) => {
     let target = customEventsRuntime.defaultHost(getRuntime())
     if (target === undefined) {
@@ -136,45 +134,58 @@ export function createCustomEventsDescriptor<
     type: string,
     detail: unknown,
     options?: CustomEventInit,
+    settles?: Array<Promise<void>>,
   ): CustomEventsRuntimeEntry[] {
     options?.signal?.throwIfAborted()
     if (type === ALL_EVENTS) {
       throw new TypeError('customEvents "*" is the wildcard and cannot be dispatched.')
     }
-    let folded = state.fold(type, detail, options?.signal)
-    if (folded !== undefined) {
-      if (Array.isArray(folded)) return folded
-      settlers.push(folded.settle)
-      return folded.entries
+    let applied = state.apply(type, detail, options?.signal)
+    if (applied !== undefined) {
+      if (Array.isArray(applied)) return applied
+      settles?.push(applied.settle)
+      return applied.entries
     }
     return [{ type, detail }]
   }
 
-  function createBatch(entries: CustomEventsRuntimeEntry[], init?: CustomEventInit) {
+  function createBatch(
+    entries: CustomEventsRuntimeEntry[],
+    init?: CustomEventInit,
+    settles?: Array<Promise<void>>,
+  ) {
     init?.signal?.throwIfAborted()
-    return customEventsRuntime.createProductEvent(
+    let event = customEventsRuntime.createBatchEvent(
       getRuntime(),
       CUSTOM_BATCH,
       undefined,
       getEventInit(init),
       entries,
     )
+    if (settles !== undefined) event.settles = settles
+    return event
   }
 
   // A single resolved entry builds the event under its own name (like the
   // string form); several entries commit as one batch carrier.
-  let buildProduct = (entries: CustomEventsRuntimeEntry[], init?: CustomEventInit) => {
+  let buildBatch = (
+    entries: CustomEventsRuntimeEntry[],
+    init?: CustomEventInit,
+    settles?: Array<Promise<void>>,
+  ) => {
     if (entries.length === 1) {
       let entry = entries[0]!
-      return customEventsRuntime.createProductEvent(
+      let event = customEventsRuntime.createBatchEvent(
         getRuntime(),
         entry.type,
         entry.detail,
         getEventInit(init),
         entries,
       )
+      if (settles !== undefined) event.settles = settles
+      return event
     }
-    return createBatch(entries, init)
+    return createBatch(entries, init, settles)
   }
 
   // The builder member: a bare name builds a detail-less event, an object of
@@ -187,13 +198,16 @@ export function createCustomEventsDescriptor<
       if (args.length >= 2 && !isCustomEventInit(detailOrInit)) {
         throw new TypeError('customEvents create() expects CustomEventInit as the second argument.')
       }
-      return customEventsRuntime.createProductEvent(
+      let settles: Array<Promise<void>> = []
+      let event = customEventsRuntime.createBatchEvent(
         getRuntime(),
         typeOrEvents,
         null,
         getEventInit(init),
-        resolveEntry(typeOrEvents, null, init),
+        resolveEntry(typeOrEvents, null, init, settles),
       )
+      if (settles.length > 0) event.settles = settles
+      return event
     }
 
     if (isRecord(typeOrEvents)) {
@@ -211,15 +225,21 @@ export function createCustomEventsDescriptor<
         singleType = key
       }
       if (singleType !== undefined && !multi) {
-        return buildProduct(resolveEntry(singleType, typeOrEvents[singleType], init), init)
+        let settles: Array<Promise<void>> = []
+        return buildBatch(
+          resolveEntry(singleType, typeOrEvents[singleType]!, init, settles),
+          init,
+          settles,
+        )
       }
       let entries: CustomEventsRuntimeEntry[] = []
+      let settles: Array<Promise<void>> = []
       for (let key in typeOrEvents) {
         if (Object.hasOwn(typeOrEvents, key)) {
-          entries.push(...resolveEntry(key, typeOrEvents[key]!, init))
+          entries.push(...resolveEntry(key, typeOrEvents[key]!, init, settles))
         }
       }
-      return buildProduct(entries, init)
+      return buildBatch(entries, init, settles)
     }
 
     throw new TypeError('customEvents create expects an event name or an object of details.')
@@ -233,37 +253,37 @@ export function createCustomEventsDescriptor<
       path: [],
       read: () => state.getState(),
       subscribe(subscriber, signal) {
-        subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
+        subscribeSelector(getRuntime(), 'view', subscriber, signal, undefined)
       },
     },
   }
   // Unified dispatch: a native `Event` fires on the descriptor (boolean); an
   // event-named input dispatches on the default host and resolves after views
   // and effects settle (Promise). Internal dispatches bypass the override via
-  // EventTarget.prototype so product events never recurse.
+  // EventTarget.prototype so batch events never recurse.
   let eventsProxy: object
   let performDispatch = (...args: unknown[]) => {
     let first = args[0]
     if (first instanceof Event) {
       return EventTarget.prototype.dispatchEvent.call(base, first)
     }
-    let event = (args.length > 1 ? create(first, args[1]) : create(first)) as Event
+    let event = (args.length > 1 ? create(first, args[1]) : create(first)) as BatchEvent
     let target = customEventsRuntime.defaultHost(getRuntime())
     if (target === undefined) {
       throw new TypeError('customEvents dispatchEvent requires a registered host.')
     }
     let completion = customEventsRuntime.dispatch(getRuntime(), target, event)
-    if (settlers.length > 0) {
-      let pending = settlers.splice(0)
-      completion = Promise.all([completion, ...pending]).then(() => {})
+    let settles = event.settles
+    if (settles !== undefined && settles.length > 0) {
+      completion = Promise.all([completion, ...settles]).then(() => {})
     }
     return completion
   }
   let dispatchEvent = ((...args: unknown[]) => {
-    if (state.pendingSession()) {
-      // A fold session is mid-mutation: dispatching now would read and write
-      // against the uncommitted draft window, so the dispatch runs after the
-      // session's next flush instead.
+    if (state.pendingBatch()) {
+      // A batch session is mid-mutation: dispatching now would read and
+      // write against the uncommitted draft window, so the dispatch runs
+      // after the session's next flush instead.
       return state.deferDispatch(() => performDispatch(...args) as Promise<void>)
     }
     return performDispatch(...args)
@@ -277,8 +297,8 @@ export function createCustomEventsDescriptor<
     return eventsProxy
   }) as CustomEventsAsHost<Events, State>
   // The `on` surface is a pure namespace: `'*'` runs an element-owned effect
-  // for every descriptor event, every other name is a source (callable
-  // to scope an effect to one source).
+  // for every descriptor event, every other name is a selector (callable
+  // to scope an effect to one selector).
   let wildcardOn = (listener: (event: Event) => void | Promise<unknown>) => {
     if (!listener) {
       throw new TypeError('customEvents on() requires an event listener.')
@@ -296,24 +316,25 @@ export function createCustomEventsDescriptor<
         subscriber: { element: Element | undefined; notify(event: CustomEvent<unknown>): unknown },
         signal: AbortSignal,
       ) {
-        subscribeSource(getRuntime(), 'view', subscriber, signal, undefined)
+        subscribeSelector(getRuntime(), 'view', subscriber, signal, undefined)
       },
     },
   })
-  let sources = new Map<string, object>()
+  let selectors = new Map<string, object>()
   let on = new Proxy(Object.create(null), {
     get(_, property) {
       if (property === '*') return wildcardOn
       if (typeof property !== 'string') return undefined
-      let source = sources.get(property)
-      if (!source) {
-        // Sources decide at read time whether their name is a data field or
-        // an occurrence, so creation never depends on field initialization
-        // (constructor-time reaction registrations precede the fields).
-        source = createSource(property)
-        sources.set(property, source)
+      let selector = selectors.get(property)
+      if (!selector) {
+        // Selectors decide at read time whether their name is a data field
+        // or an occurrence, so creation never depends on field
+        // initialization (constructor-time effect registrations precede the
+        // fields).
+        selector = createSelector(property)
+        selectors.set(property, selector)
       }
-      return source
+      return selector
     },
   }) as CustomEventsOnNamespace<Events, State>
 
@@ -322,7 +343,7 @@ export function createCustomEventsDescriptor<
   let descriptorTarget = Object.assign({}, { create, dispatchEvent, on, asHost })
   customEventsRuntime.registerHost(getRuntime(), base)
 
-  let createSource = (
+  let createSelector = (
     type: string,
     path: readonly unknown[] = [],
     read?: () => unknown,
@@ -336,29 +357,29 @@ export function createCustomEventsDescriptor<
       // made at read time so creation never depends on field initialization.
       read: read ?? ((trigger?: CustomEvent<unknown>) => {
         let current = state.getState()
-        if (Object.hasOwn(current, type) && !state.occurrenceKeys().has(type)) {
+        if (Object.hasOwn(current, type) && !state.notificationKeys().has(type)) {
           return readPath(current[type], path)
         }
         return trigger && trigger.type === type ? trigger.detail : undefined
       }),
       subscribe(subscriber, signal) {
-        subscribeSource(getRuntime(), 'view', subscriber, signal, { type, path })
+        subscribeSelector(getRuntime(), 'view', subscriber, signal, { type, path })
       },
     }
-    // Sources are callable: invoking one with a listener registers an
-    // element-owned effect scoped to this source.
+    // Selectors are callable: invoking one with a listener registers an
+    // element-owned effect scoped to this selector.
     let nested = new Map<unknown, object>()
     let at = (segment: unknown, read?: () => unknown) => {
-      let canonical = canonicalAddressSegment(segment)
+      let canonical = canonicalPathSegment(segment)
       if (read === undefined) {
-        let source = nested.get(canonical)
-        if (!source) {
-          source = createSource(type, [...path, canonical])
-          nested.set(canonical, source)
+        let selector = nested.get(canonical)
+        if (!selector) {
+          selector = createSelector(type, [...path, canonical])
+          nested.set(canonical, selector)
         }
-        return source
+        return selector
       }
-      return createSource(type, [...path, canonical], read)
+      return createSelector(type, [...path, canonical], read)
     }
     let onNode = (listener: (event: Event) => void | Promise<unknown>) =>
       customEventsOnMixin(getRuntime(), metadata, listener)

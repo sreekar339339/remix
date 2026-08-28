@@ -1,7 +1,7 @@
 import * as assert from 'remix/assert'
 import { it } from 'remix/test'
 import { Events, evented as e } from './index.tsx'
-import { createCustomEventsRuntimeState, customEventsRuntime } from './runtime.ts'
+import { createRuntimeState, customEventsRuntime } from './runtime.ts'
 
 const subscriptionCount = 5_000
 const dispatchCount = 500
@@ -37,7 +37,7 @@ it('benchmarks fold-recipe dispatch', async () => {
 })
 
 it('benchmarks no-subscriber dispatch', async () => {
-  let runtime = createCustomEventsRuntimeState()
+  let runtime = createRuntimeState()
   let host = document.createElement('section')
   let origin = document.createElement('button')
   host.append(origin)
@@ -45,11 +45,11 @@ it('benchmarks no-subscriber dispatch', async () => {
   let init = { bubbles: true, cancelable: false }
 
   let createEvent = () =>
-    customEventsRuntime.createProductEvent(runtime, 'itemUpdated', null, init, [
+    customEventsRuntime.createBatchEvent(runtime, 'itemUpdated', null, init, [
       {
         type: 'itemUpdated',
         detail: null,
-        addresses: [[targetKey]],
+        paths: [[targetKey]],
       },
     ])
 
@@ -73,7 +73,7 @@ it('benchmarks no-subscriber dispatch', async () => {
 })
 
 it('benchmarks addressed subscription matching', async () => {
-  let runtime = createCustomEventsRuntimeState()
+  let runtime = createRuntimeState()
   let host = document.createElement('section')
   let origin = document.createElement('button')
   host.append(origin)
@@ -88,7 +88,7 @@ it('benchmarks addressed subscription matching', async () => {
       customEventsRuntime.subscribe(runtime, 'view', {
         element,
         eventTypes: new Set(['itemUpdated']),
-        addresses: new Map([['itemUpdated', [String(index)]]]),
+        paths: new Map([['itemUpdated', [String(index)]]]),
         notify() {
           notifications++
         },
@@ -98,11 +98,11 @@ it('benchmarks addressed subscription matching', async () => {
 
   function createKeyedEvent() {
     let init = { bubbles: true, cancelable: false }
-    return customEventsRuntime.createProductEvent(runtime, 'itemUpdated', null, init, [
+    return customEventsRuntime.createBatchEvent(runtime, 'itemUpdated', null, init, [
       {
         type: 'itemUpdated',
         detail: null,
-        addresses: [[String(targetKey)]],
+        paths: [[String(targetKey)]],
       },
     ])
   }

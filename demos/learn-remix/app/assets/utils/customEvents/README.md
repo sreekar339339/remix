@@ -103,7 +103,7 @@ constructor({ on, create }: EventsApi<SearchEvents>) {
     this.input?.dispatchEvent(create({ view:{type:'booksFound',books} }, {signal}))
   })
 }
-// Eager fold: call only after `await`, not between draft mutation and flush.
+// Eager apply: call only after `await`, not between detail mutation and flush.
 ```
 
 Deep paths narrow `this`:

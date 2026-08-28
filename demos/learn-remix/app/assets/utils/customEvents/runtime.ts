@@ -1,8 +1,6 @@
 export const ALL_EVENTS = '*'
 const ALL_SELECTORS = [ALL_EVENTS]
 
-const processListener = Symbol('customEvents.processListener')
-
 export type SubscriptionPhase = 'view' | 'effect'
 
 type DispatchTargetRegistration = {
@@ -13,32 +11,35 @@ type DispatchTargetRegistration = {
 type ElementSubscription = {
   element: Element | undefined
   eventTypes: ReadonlySet<string> | null
-  addresses?: ReadonlyMap<string, EventAddress>
+  paths?: ReadonlyMap<string, Path>
   notify(event: CustomEvent): unknown
 }
 
-type AddressNode = {
+type PathNode = {
   subscriptions: Set<ElementSubscription>
-  children: Map<unknown, AddressNode>
+  children: Map<unknown, PathNode>
 }
 
-type SubscriptionIndex = Record<SubscriptionPhase, Map<string, AddressNode>>
+type SubscriptionIndex = Record<SubscriptionPhase, Map<string, PathNode>>
 
 export type CustomEventsRuntimeEntry = {
   type: string
   detail: unknown
-  addresses?: readonly EventAddress[]
+  paths?: readonly Path[]
 }
 
 /**
- * A dispatched product event: the carrier and its metadata are one object, so
- * the runtime never looks product events up in a side table.
+ * A dispatched batch event: the carrier and its metadata are one object, so
+ * the runtime never looks batch events up in a side table.
  */
-class ProductEvent extends CustomEvent<unknown> {
+export class BatchEvent extends CustomEvent<unknown> {
   readonly entries: CustomEventsRuntimeEntry[]
   /** Batch carriers do not natively deliver their entry types. */
   readonly batch: boolean
   completion?: Promise<void>
+  /** Batch-session completions the dispatch promise must await (async
+   * effect continuations opened while this batch was built). */
+  settles?: Array<Promise<void>>
 
   constructor(type: string, init: EventInit, detail: unknown, entries: CustomEventsRuntimeEntry[]) {
     super(type, init)
@@ -53,17 +54,17 @@ class ProductEvent extends CustomEvent<unknown> {
   }
 }
 
-export type EventAddress = readonly unknown[]
+export type Path = readonly unknown[]
 
 /**
  * The single addressing key of a route segment: strings and numbers
  * canonicalise to their string form (they address the same Map key and the
- * same route), while symbols and objects keep their identity. Sources,
- * patches, and subscribers all produce exactly this canonical form, so the
- * route trie is keyed by one consistent representation; value reads tolerate
- * the same string/number equivalence via `samePropertyKey`.
+ * same route), while symbols and objects keep their identity. Selectors,
+ * written paths, and subscribers all produce exactly this canonical form, so
+ * the route trie is keyed by one consistent representation; value reads
+ * tolerate the same string/number equivalence via `samePropertyKey`.
  */
-export function canonicalAddressSegment(value: unknown) {
+export function canonicalPathSegment(value: unknown) {
   return typeof value === 'symbol'
     ? value
     : typeof value === 'string' || typeof value === 'number'
@@ -120,17 +121,17 @@ function setEventProperty(event: Event, property: PropertyKey, value: unknown) {
   })
 }
 
-function createAddressNode(): AddressNode {
+function createPathNode(): PathNode {
   return { subscriptions: new Set(), children: new Map() }
 }
 
-function walkAddress(root: AddressNode, address: EventAddress, create = false) {
+function walkPath(root: PathNode, path: Path, create = false) {
   let nodes = [root]
   let node = root
-  for (let segment of address) {
+  for (let segment of path) {
     let child = node.children.get(segment)
     if (!child && create) {
-      child = createAddressNode()
+      child = createPathNode()
       node.children.set(segment, child)
     }
     if (!child) break
@@ -140,46 +141,42 @@ function walkAddress(root: AddressNode, address: EventAddress, create = false) {
   return nodes
 }
 
-function addToRoute(root: AddressNode, subscription: ElementSubscription, address: EventAddress) {
-  walkAddress(root, address, true).at(-1)!.subscriptions.add(subscription)
+function addToRoute(root: PathNode, subscription: ElementSubscription, path: Path) {
+  walkPath(root, path, true).at(-1)!.subscriptions.add(subscription)
 }
 
-function removeFromRoute(
-  root: AddressNode,
-  subscription: ElementSubscription,
-  address: EventAddress,
-) {
-  let nodes = walkAddress(root, address)
-  if (nodes.length !== address.length + 1) return
+function removeFromRoute(root: PathNode, subscription: ElementSubscription, path: Path) {
+  let nodes = walkPath(root, path)
+  if (nodes.length !== path.length + 1) return
   nodes.at(-1)!.subscriptions.delete(subscription)
-  for (let index = address.length; index > 0; index--) {
+  for (let index = path.length; index > 0; index--) {
     let child = nodes[index]
     if (child.subscriptions.size || child.children.size) break
-    nodes[index - 1].children.delete(address[index - 1])
+    nodes[index - 1].children.delete(path[index - 1])
   }
 }
 
-function collectBranch(selected: Set<ElementSubscription>, node: AddressNode) {
+function collectBranch(selected: Set<ElementSubscription>, node: PathNode) {
   for (let subscription of node.subscriptions) selected.add(subscription)
   for (let child of node.children.values()) collectBranch(selected, child)
 }
 
 function selectRoute(
-  root: AddressNode,
-  addresses: readonly EventAddress[] | undefined,
+  root: PathNode,
+  paths: readonly Path[] | undefined,
   selected: Set<ElementSubscription>,
 ) {
-  if (addresses === undefined) {
+  if (paths === undefined) {
     collectBranch(selected, root)
     return selected
   }
   // Whole-key subscribers always re-resolve; addressed branches fan out to
   // per-item element subscriptions only.
   for (let subscription of root.subscriptions) selected.add(subscription)
-  for (let address of addresses) {
+  for (let path of paths) {
     let node = root
     let depth = 0
-    for (let segment of address) {
+    for (let segment of path) {
       let child = node.children.get(segment)
       if (!child) break
       node = child
@@ -188,7 +185,7 @@ function selectRoute(
         selected.add(subscription)
       }
     }
-    if (depth === address.length) {
+    if (depth === path.length) {
       collectBranch(selected, node)
     }
   }
@@ -243,22 +240,20 @@ export function createCurrentTargetEvent(event: CustomEvent, currentTarget: Even
   return callbackEvent
 }
 
+/** Attribute marking an element as a descriptor host scope. */
+const HOST_ATTRIBUTE = 'data-rmx-custom-host'
+
 /** Descriptor-local data consumed by the shared runtime kernel. */
-export type CustomEventsRuntimeState = {
+export type RuntimeState = {
   eventTypes: Set<string>
   eventTypeListeners: Set<(type: string) => void>
   subscriptions: SubscriptionIndex
   dispatchTargets: WeakMap<EventTarget, DispatchTargetRegistration>
-  hosts: WeakMap<Element, number>
-  /** Host targets whose native listeners are counted for re-dispatch. */
-  wrappedHosts: WeakSet<EventTarget>
-  /** Native listeners attached to wrapped host targets. */
-  nativeListeners: number
   defaultHost?: EventTarget
 }
 
 /** Creates only the mutable state that must remain descriptor-local. */
-export function createCustomEventsRuntimeState(): CustomEventsRuntimeState {
+export function createRuntimeState(): RuntimeState {
   return {
     eventTypes: new Set(),
     eventTypeListeners: new Set(),
@@ -267,20 +262,17 @@ export function createCustomEventsRuntimeState(): CustomEventsRuntimeState {
       effect: new Map(),
     },
     dispatchTargets: new WeakMap(),
-    hosts: new WeakMap(),
-    wrappedHosts: new WeakSet(),
-    nativeListeners: 0,
   }
 }
 
-function addEventType(runtime: CustomEventsRuntimeState, type: string) {
+function addEventType(runtime: RuntimeState, type: string) {
   if (runtime.eventTypes.has(type)) return
   runtime.eventTypes.add(type)
   for (let listener of runtime.eventTypeListeners) listener(type)
 }
 
-function createProductEvent(
-  runtime: CustomEventsRuntimeState,
+function createBatchEvent(
+  runtime: RuntimeState,
   carrierType: string,
   detail: unknown,
   init: EventInit,
@@ -288,37 +280,37 @@ function createProductEvent(
 ) {
   addEventType(runtime, carrierType)
   for (let { type } of entries) addEventType(runtime, type)
-  return new ProductEvent(carrierType, init, detail, entries)
+  return new BatchEvent(carrierType, init, detail, entries)
 }
 
 const RESOLVED = Promise.resolve()
 
-function dispatch(_runtime: CustomEventsRuntimeState, target: EventTarget, event: Event) {
+function dispatch(_runtime: RuntimeState, target: EventTarget, event: Event) {
   // Bypass the descriptor's own dispatchEvent override to avoid recursion.
   EventTarget.prototype.dispatchEvent.call(target, event)
-  return event instanceof ProductEvent ? (event.completion ?? RESOLVED) : RESOLVED
+  return event instanceof BatchEvent ? (event.completion ?? RESOLVED) : RESOLVED
 }
 
 function subscribe(
-  runtime: CustomEventsRuntimeState,
+  runtime: RuntimeState,
   phaseName: SubscriptionPhase,
   subscription: ElementSubscription,
   signal?: AbortSignal,
 ) {
   let phase = runtime.subscriptions[phaseName]
   let selectors = subscription.eventTypes ?? ALL_SELECTORS
-  let routes: Array<[string, AddressNode, EventAddress]> = []
+  let routes: Array<[string, PathNode, Path]> = []
 
   for (let selector of selectors) {
     if (selector !== ALL_EVENTS) addEventType(runtime, selector)
     let route = phase.get(selector)
     if (!route) {
-      route = createAddressNode()
+      route = createPathNode()
       phase.set(selector, route)
     }
-    let address = subscription.addresses?.get(selector) ?? []
-    addToRoute(route, subscription, address)
-    routes.push([selector, route, address])
+    let path = subscription.paths?.get(selector) ?? []
+    addToRoute(route, subscription, path)
+    routes.push([selector, route, path])
   }
 
   let unregisterTarget = subscription.element
@@ -326,8 +318,8 @@ function subscribe(
     : undefined
   return ownCleanup(() => {
     unregisterTarget?.()
-    for (let [selector, route, address] of routes) {
-      removeFromRoute(route, subscription, address)
+    for (let [selector, route, path] of routes) {
+      removeFromRoute(route, subscription, path)
       if (!route.subscriptions.size && !route.children.size) {
         phase.delete(selector)
       }
@@ -335,41 +327,23 @@ function subscribe(
   }, signal)
 }
 
-function wrapHostListeners(runtime: CustomEventsRuntimeState, target: EventTarget) {
-  if (runtime.wrappedHosts.has(target)) return
-  runtime.wrappedHosts.add(target)
-  let originalAdd = target.addEventListener.bind(target)
-  let originalRemove = target.removeEventListener.bind(target)
-  target.addEventListener = ((type, listener, options) => {
-    if (typeof options !== 'object' || options === null || !(processListener in options)) {
-      runtime.nativeListeners += 1
-    }
-    return originalAdd(type, listener, options)
-  }) as typeof target.addEventListener
-  target.removeEventListener = ((type, listener, options) => {
-    if (runtime.nativeListeners > 0) runtime.nativeListeners -= 1
-    return originalRemove(type, listener, options)
-  }) as typeof target.removeEventListener
-}
-
-function registerHost(
-  runtime: CustomEventsRuntimeState,
-  target: EventTarget,
-  signal?: AbortSignal,
-) {
+function registerHost(runtime: RuntimeState, target: EventTarget, signal?: AbortSignal) {
   let unregisterTarget = registerDispatchTarget(runtime, target)
 
   if (isElement(target)) {
-    runtime.hosts.set(target, (runtime.hosts.get(target) ?? 0) + 1)
+    // Host scope marking lives in the DOM: `closest()` resolves scopes, so
+    // no descriptor-side parentElement walk or WeakMap is needed. The
+    // dataset value refcounts nested registrations.
+    let count = Number(target.getAttribute(HOST_ATTRIBUTE) ?? 0) + 1
+    target.setAttribute(HOST_ATTRIBUTE, String(count))
     return ownCleanup(() => {
       unregisterTarget()
-      let count = runtime.hosts.get(target) ?? 0
-      if (count <= 1) runtime.hosts.delete(target)
-      else runtime.hosts.set(target, count - 1)
+      let remaining = Number(target.getAttribute(HOST_ATTRIBUTE) ?? 0) - 1
+      if (remaining <= 0) target.removeAttribute(HOST_ATTRIBUTE)
+      else target.setAttribute(HOST_ATTRIBUTE, String(remaining))
     }, signal)
   }
 
-  wrapHostListeners(runtime, target)
   runtime.defaultHost = target
   return ownCleanup(() => {
     unregisterTarget()
@@ -377,18 +351,18 @@ function registerHost(
   }, signal)
 }
 
-function findHost(runtime: CustomEventsRuntimeState, element: Element | undefined) {
-  for (let current = element; current; current = current.parentElement ?? undefined) {
-    if (runtime.hosts.has(current)) return current
-  }
+const HOST_DATASET_KEY = 'rmxCustomHost'
+
+function findHost(element: Element | undefined) {
+  return element?.closest(`[${HOST_ATTRIBUTE}]`) ?? undefined
 }
 
-function scopeFor(runtime: CustomEventsRuntimeState, element: Element | undefined) {
-  return findHost(runtime, element) ?? runtime.defaultHost
+function scopeFor(runtime: RuntimeState, element: Element | undefined) {
+  return findHost(element) ?? runtime.defaultHost
 }
 
 function matchesScope(
-  runtime: CustomEventsRuntimeState,
+  runtime: RuntimeState,
   subscription: ElementSubscription,
   carrier: CustomEvent,
   originScope: EventTarget,
@@ -419,7 +393,7 @@ function matchesScope(
 }
 
 function matchingSubscriptions(
-  runtime: CustomEventsRuntimeState,
+  runtime: RuntimeState,
   phase: SubscriptionPhase,
   entry: CustomEventsRuntimeEntry,
   selected: Set<ElementSubscription>,
@@ -427,13 +401,13 @@ function matchingSubscriptions(
   let index = runtime.subscriptions[phase]
   let wildcard = index.get(ALL_EVENTS)
   let typed = index.get(entry.type)
-  if (wildcard) selectRoute(wildcard, entry.addresses, selected)
-  if (typed) selectRoute(typed, entry.addresses, selected)
+  if (wildcard) selectRoute(wildcard, entry.paths, selected)
+  if (typed) selectRoute(typed, entry.paths, selected)
   return selected
 }
 
 function notifyEntries(
-  runtime: CustomEventsRuntimeState,
+  runtime: RuntimeState,
   entries: CustomEventsRuntimeEntry[],
   originScope: EventTarget,
   originTarget: EventTarget,
@@ -500,22 +474,21 @@ function notifyEntries(
   return viewsAndEffectsSettled.then(() => {})
 }
 
-function process(runtime: CustomEventsRuntimeState, event: Event) {
-  if (!(event instanceof ProductEvent)) return
+function process(runtime: RuntimeState, event: Event) {
+  if (!(event instanceof BatchEvent)) return
   let originTarget = event.target
   if (!originTarget) return
-  let originHost = isElement(originTarget) ? findHost(runtime, originTarget) : undefined
+  let originHost = isElement(originTarget) ? findHost(originTarget) : undefined
   if (originHost && event.composed !== true) {
     event.stopPropagation()
   }
-  // Native listeners on the configured host receive one event per entry;
-  // those events double as the subscription snapshots, so each entry builds
-  // a single event serving both consumers.
-  let entryEvents: CustomEvent[] | undefined =
-    event.batch && originTarget === runtime.defaultHost && runtime.nativeListeners > 0
-      ? event.entries.map((entry) => createEventSnapshot(entry, originTarget, event))
-      : undefined
-  if (entryEvents) {
+  // Native listeners on a bridged domain target receive one event per
+  // entry; those events double as the subscription snapshots, so each entry
+  // builds a single event serving both consumers. Element origins need no
+  // mirroring — the carrier itself rides real DOM bubbling.
+  let entryEvents: CustomEvent[] | undefined
+  if (event.batch && !isElement(originTarget)) {
+    entryEvents = event.entries.map((entry) => createEventSnapshot(entry, originTarget, event))
     for (let entryEvent of entryEvents) {
       EventTarget.prototype.dispatchEvent.call(originTarget, entryEvent)
     }
@@ -537,7 +510,7 @@ function process(runtime: CustomEventsRuntimeState, event: Event) {
   }
 }
 
-function registerDispatchTarget(runtime: CustomEventsRuntimeState, target: EventTarget) {
+function registerDispatchTarget(runtime: RuntimeState, target: EventTarget) {
   let existing = runtime.dispatchTargets.get(target)
   if (existing) {
     existing.count += 1
@@ -549,11 +522,9 @@ function registerDispatchTarget(runtime: CustomEventsRuntimeState, target: Event
   let listen = (type: string) => {
     if (listenedTypes.has(type)) return
     listenedTypes.add(type)
-    let listenerOptions = {
+    target.addEventListener(type, (event) => process(runtime, event), {
       signal: controller.signal,
-      [processListener]: true,
-    } as AddEventListenerOptions & Record<typeof processListener, boolean>
-    target.addEventListener(type, (event) => process(runtime, event), listenerOptions)
+    })
   }
   runtime.eventTypeListeners.add(listen)
   for (let type of runtime.eventTypes) listen(type)
@@ -570,7 +541,7 @@ function registerDispatchTarget(runtime: CustomEventsRuntimeState, target: Event
 }
 
 function releaseDispatchTarget(
-  runtime: CustomEventsRuntimeState,
+  runtime: RuntimeState,
   target: EventTarget,
   registration: DispatchTargetRegistration,
 ) {
@@ -582,38 +553,38 @@ function releaseDispatchTarget(
 
 /** Shared operations over descriptor-local runtime state. */
 export const customEventsRuntime = {
-  createProductEvent,
+  createBatchEvent,
   dispatch,
   subscribe,
   registerHost,
   /** The descriptor's registered default host, if any. */
-  defaultHost(runtime: CustomEventsRuntimeState) {
+  defaultHost(runtime: RuntimeState) {
     return runtime.defaultHost
   },
 }
 
 /**
- * Registers a subscription from one source (or the wildcard when absent),
- * shared by evented views and element-owned effects. The source's type and
- * path become the subscription's selectors and address routes.
+ * Registers a subscription from one selector (or the wildcard when absent),
+ * shared by evented views and element-owned effects. The selector's type and
+ * path become the subscription's event types and path routes.
  */
-export function subscribeSource(
-  runtime: CustomEventsRuntimeState,
+export function subscribeSelector(
+  runtime: RuntimeState,
   phase: SubscriptionPhase,
   subscriber: {
     element: Element | undefined
     notify(event: CustomEvent<unknown>): unknown
   },
   signal: AbortSignal,
-  source: { type: string; path: readonly unknown[] } | undefined,
+  selector: { type: string; path: readonly unknown[] } | undefined,
 ) {
   customEventsRuntime.subscribe(
     runtime,
     phase,
     {
       element: subscriber.element,
-      eventTypes: source ? new Set([source.type]) : null,
-      ...(source ? { addresses: new Map([[source.type, source.path]]) } : {}),
+      eventTypes: selector ? new Set([selector.type]) : null,
+      ...(selector ? { paths: new Map([[selector.type, selector.path]]) } : {}),
       notify(event) {
         // Every element-owned subscription receives the matched event with
         // its element as the currentTarget, like a native listener.

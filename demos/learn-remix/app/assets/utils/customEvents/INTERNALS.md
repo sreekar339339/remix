@@ -17,14 +17,11 @@ index.tsx      — Events.define(), journal (COW draft, write-time paths), batch
 ### Current details & runtime bookkeeping
 
 ```ts
-type CustomEventsRuntimeState = {
+type RuntimeState = {
   eventTypes
   eventTypeListeners
   subscriptions: { view; effect } // Map<string, PathNode>
   dispatchTargets: WeakMap<EventTarget, Registration>
-  hosts: WeakMap<Element, number>
-  wrappedHosts
-  nativeListeners
   defaultHost?
 }
 type PathNode = { subscriptions: Set<ElementSubscription>; children: Map<unknown, PathNode> }
@@ -35,7 +32,7 @@ One runtime per descriptor, lazily created. `eventTypes` drives `registerDispatc
 ### Paths
 
 ```ts
-canonicalAddressSegment(v) // string|number → String, symbol/object → identity
+canonicalPathSegment(v) // string|number → String, symbol/object → identity
 samePropertyKey(a, b) // Object.is || String(a)===String(b) non-symbol
 readPath(value, path) // Map (canonical+Number twin+samePropertyKey scan), Set→boolean, Array index, Reflect.get
 ```
@@ -45,10 +42,11 @@ Selectors, patches, and subscriptions all canonicalize identically, so the trie 
 ### Batch event
 
 ```ts
-class ProductEvent extends CustomEvent {
+class BatchEvent extends CustomEvent {
   entries: CustomEventsRuntimeEntry[] // {type, detail, paths?}
-  batch: boolean // entries.length!==1 || entries[0].type!==type  (was `transaction`)
+  batch: boolean // entries.length!==1 || entries[0].type!==type
   completion?: Promise<void>
+  settles?: Array<Promise<void>> // batch-session completions the dispatch awaits
 }
 ```
 
@@ -64,8 +62,8 @@ One object is both event and entry table — runtime never looks up a side table
 ### Scope
 
 ```ts
-findHost(el) // walk parentElement chain for hosts WeakMap
-scopeFor(el) // findHost(el) ?? defaultHost
+findHost(el) // el.closest('[data-rmx-custom-host]')
+scopeFor(runtime, el) // findHost(el) ?? defaultHost
 matchesScope(runtime, sub, carrier, originScope, originTarget)
 // 1) originTarget element === sub.element → true
 // 2) !carrier.bubbles && isElement(originTarget) && sub.element!==originTarget → false
@@ -73,15 +71,15 @@ matchesScope(runtime, sub, carrier, originScope, originTarget)
 // 4) else scopeFor(sub.element) === originScope || (composed && contains)
 ```
 
-Element host: `hosts` counter + `registerDispatchTarget`. Domain target: `wrappedHosts` monkey-patches `addEventListener/removeEventListener` to count `nativeListeners` (excluding `processListener` symbol), sets `defaultHost = target`.
+Element host: `registerHost` writes a refcounted `data-rmx-custom-host` attribute (scopes resolve via `closest`, no descriptor-side walk) + `registerDispatchTarget`. Domain target: sets `defaultHost = target`.
 
 ### Dispatch & process
 
 ```ts
-createProductEvent(runtime, carrierType, detail, init, entries) // also addEventType
+createBatchEvent(runtime, carrierType, detail, init, entries) // also addEventType
 dispatch(runtime, target, event) // EventTarget.prototype.dispatchEvent.call(target, event); return completion ?? RESOLVED
-registerDispatchTarget(target) // AbortController + per-type process(event) listeners with processListener symbol
-process(event) // only ProductEvent: originTarget=event.target; originHost=findHost(originTarget); stopPropagation if hosted && !composed; fan out entryEvents per-entry for nativeListeners when batch && origin===defaultHost; originScope = originHost ?? (isElement(originTarget)?originTarget:defaultHost??originTarget); notifyEntries(...)
+registerDispatchTarget(target) // AbortController + per-type process(event) listeners
+process(event) // only BatchEvent: originTarget=event.target; originHost=findHost(originTarget); stopPropagation if hosted && !composed; mirror entryEvents per-entry on NON-ELEMENT origins when batch (they double as subscription snapshots); originScope = originHost ?? (isElement(originTarget)?originTarget:defaultHost??originTarget); notifyEntries(...)
 ```
 
 `notifyEntries(entries, originScope, originTarget, carrier, entryEvents?)`:
@@ -98,32 +96,30 @@ subscribeSelector(runtime, phase, subscriber, signal, selector?: {type, path})
   // notify wraps createCurrentTargetEvent(event, subscriber.element) when element present
 ```
 
-Was `subscribeSource`; canonical term is now selector.
-
 ## Descriptor — `descriptor.tsx`
 
-### `RememberedEventContext`
+### `BatchContext`
 
 ```ts
-type RememberedEventContext = {
+type BatchContext = {
   getState(): EventDetails
-  fold(type, detail, owner?: AbortSignal): Entry[] | { entries; settle } | undefined
+  apply(type, detail, owner?: AbortSignal): Entry[] | { entries; settle } | undefined
   dispatchEntries(entries): Promise<void>
-  pendingBatch(): boolean // was pendingSession
+  pendingBatch(): boolean
   deferDispatch(run: () => Promise<void>): Promise<void>
-  notificationKeys(): ReadonlySet<string> // was occurrenceKeys
+  notificationKeys(): ReadonlySet<string>
 }
 ```
 
 ### `createCustomEventsDescriptor`
 
-Holds `runtime` (lazy), `base = new EventTarget` (defaultHost), `settlers: Promise<void>[]`, `state.dispatchEntries = (entries) => dispatch(defaultHost, createBatch(entries))` (was `createTransaction`).
+Holds `runtime` (lazy), `base = new EventTarget` (defaultHost); `state.dispatchEntries = (entries) => dispatch(defaultHost, createBatch(entries))`.
 
-- `resolveEntry(type, detail, init)` — `init.signal.throwIfAborted()`, `ALL_EVENTS` guard, `state.fold(type,detail,init.signal)`, settle push.
-- `createBatch/createProductEvent/buildProduct` — single entry → carrier type = entry.type; else `$batch` with `bubbles:true` (was `$transaction`).
-- `create(...args)` — `string` → bare, `Record` → single-key fast path vs multi-key loop → `buildProduct`. Validates `CustomEventInit` (`bubbles/composed/signal` only, `cancelable` throws).
+- `resolveEntry(type, detail, init, settles)` — `init.signal.throwIfAborted()`, `ALL_EVENTS` guard, `state.apply(type,detail,init.signal)`, settle collected into the caller's array.
+- `createBatch/buildBatch` — single entry → carrier type = entry.type; else `$batch` with `bubbles:true`; `event.settles = settles` rides the carrier.
+- `create(...args)` — `string` → bare, `Record` → single-key fast path vs multi-key loop → `buildBatch`. Validates `CustomEventInit` (`bubbles/composed/signal` only, `cancelable` throws).
 - `wildcardSelector` — selector metadata with `type:'*', read=>getState`, subscribe as view wildcard.
-- `performDispatch(...args)` — `instanceof Event` → native boolean; else `create` → `defaultHost` → `dispatch` + `Promise.all(settlers)`.
+- `performDispatch(...args)` — `instanceof Event` → native boolean; else `create` → `defaultHost` → `dispatch` + `Promise.all(event.settles)`.
 - `dispatchEvent` wrapper — `if (pendingBatch()) return deferDispatch(()=>performDispatch(...))` else direct (was `pendingSession`).
 - `hostMixin = ref((target,signal)=>registerHost(runtime,target,signal))`; `asHost():Mixin` vs `asHost(target):descriptor`.
 - `on` proxy — `'*'` → `wildcardOn`; else `createSelector(property)` lazy, cached in `selectors` Map. `createSelector` defers field-existence check to `read` at delivery (so constructor-time registrations precede field initializers).
@@ -216,3 +212,4 @@ at write time via `seen`) — no patch post-pass.
 - No build step — tests run from source via `remix/node-tsx`.
 - `pnpm -C demos/learn-remix run typecheck`, `pnpm -C demos/learn-remix test` (server + Chromium), `pnpm run lint` (oxlint). Browser tests assert Chromium focus.
 - Test helpers: `customEvents.test-utils.tsx` `TestEventsFactory`, `createEvents()`, `settleEffects()` (3 microtasks).
+- Benchmarks (`benchmark:custom-events`, `benchmark:list-updates`, journal kernel, Chromium): fold dispatch 500× ≈ 0.14 ms/dispatch over a 1,000-entry Map; no-subscriber dispatch ≈ 0.001 ms; addressed matching over 5,000 subscriptions ≈ 0.002 ms/dispatch; list updates ≈ 0.2 ms/op at one `childList` mutation per keyed op.

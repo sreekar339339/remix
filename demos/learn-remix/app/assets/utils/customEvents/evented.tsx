@@ -1,4 +1,4 @@
-import { createElement, createMixin, type Handle, type RemixNode } from 'remix/ui'
+import { createElement, createMixin, ref, type Handle, type RemixNode } from 'remix/ui'
 
 import type { CustomEventInit, EventSourceMetadata } from './types.ts'
 
@@ -123,15 +123,6 @@ const subscribe = createMixin<
     }
   }
 
-  handle.addEventListener('insert', (event) => {
-    element = event.node
-    connect()
-  })
-  handle.addEventListener('remove', () => {
-    disconnect()
-    element = undefined
-  })
-
   return (nextSources, nextNotify) => {
     if (!sameSources(sources, nextSources)) {
       disconnect()
@@ -139,7 +130,21 @@ const subscribe = createMixin<
     }
     notify = nextNotify
     connect()
-    return handle.element
+    // The ref mixin owns the element lifecycle: subscriptions attach when
+    // the host inserts and its signal aborts on removal — the same
+    // signal-driven contract element-owned effects use.
+    return (
+      <handle.element
+        mix={ref((node, signal) => {
+          element = node
+          connect()
+          signal.addEventListener('abort', () => {
+            disconnect()
+            element = undefined
+          })
+        })}
+      />
+    )
   }
 })
 
