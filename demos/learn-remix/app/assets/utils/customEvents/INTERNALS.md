@@ -5,11 +5,11 @@ For library authors. Learner API is in `./README.md`.
 ## Module layout
 
 ```
-types.ts       — public types: DetailsOf/HandlersOf, selectors, effects, batches
+types.ts       — public types: DetailsOf/HandlersOf, selectors, effects, batches (+ local Draft/Immutable)
 runtime.ts     — kernel: path trie, batch event, scope matching, delivery
 evented.tsx    — selector-aware intrinsic components and mounted subscriptions
 descriptor.tsx — createCustomEventsDescriptor: create/dispatchEvent/on/asHost
-index.tsx      — Events.define(), batch lifecycle, effects, Immer patches → entries
+index.tsx      — Events.define(), journal (COW draft, write-time paths), batch sessions, linear cascades
 ```
 
 ## Runtime kernel — `runtime.ts`
@@ -129,65 +129,87 @@ Holds `runtime` (lazy), `base = new EventTarget` (defaultHost), `settlers: Promi
 - `on` proxy — `'*'` → `wildcardOn`; else `createSelector(property)` lazy, cached in `selectors` Map. `createSelector` defers field-existence check to `read` at delivery (so constructor-time registrations precede field initializers).
 - `createSelector(type, path, read?)` — `metadata {type,path,read: read ?? ((trigger)=> Object.hasOwn(current,type) && !notificationKeys.has(type) ? readPath(current[type],path) : trigger?.type===type ? trigger.detail : undefined), subscribe}`; callable proxy `onNode` → `customEventsOnMixin`; `nested` Map of canonical segments → `at(segment,read?)`; `get/has/as` via `at`.
 
-## Details & batches — `index.tsx`
+## Journal & batches — `index.tsx`
 
-### Setup
+The kernel is a copy-on-write draft journal that records affected paths at
+write time. No immer: no patches, no freezing, no revoked drafts — handles
+stay valid across commits, so async listeners keep mutating between awaits.
 
-```ts
-enablePatches()
-enableMapSet()
-setAutoFreeze(false)
-export const evented = customEventsEvented as CustomEventsEventedViews<EventDetails, never>
-```
-
-### `defineEvents(Class, ...args)`
-
-Collects `handlers` from `Class.prototype` (`Object.getOwnPropertyNames` minus constructor, `typeof value==='function'` → `((detail,draft)=>method.call(draft,detail))`).
-
-Wires `BatchRef {current?: {dirty,stale?,flushNow?}}` (was `FoldSessionRef`), `DeferredQueue {defer,drain}`, `pendingBatch=()=>dirty`, `notificationKeys=()=>Set(handlers.keys())`, `effects: Effect[]` (was `reactions`), `context`, `descriptor`, `api = {on: createEffectNamespace(descriptor.on), create: descriptor.create}`, `instance = new Class(api,...args)`, `immerable` non-enumerable, handler shadows `instance[name]=(detail)=>void dispatchEvent({[name]:detail})`.
-
-### Batch
+### Draft handles
 
 ```ts
-type Batch = { dirty; stale?; flushNow?: () => void }
+type Handle = {
+  journal; source           // ORIGINAL node (never mutated)
+  ancestors                 // self-inclusive originals: ancestors[i] ↔ keys[i]
+  keys                      // RAW key forms (numeric twins preserved)
+  proxy
+}
 ```
 
-`runBatch(handler, type, detail, live, handlerNames, batchRef, deferred, dispatchEntries, cross?)` (was `runFoldRecipe`):
+- Reads resolve `copies.get(source) ?? source`; writes `copyForWrite` the
+  leaf, then link child copies up the ancestor chain; the top-level
+  candidate is always `ancestors[0]`.
+- Map `.get(k)` resolves the ACTUAL stored key (numeric twin /
+  `samePropertyKey` match) so ancestry keeps raw form; iteration methods are
+  bound to the current copy, so `new Map(draft)` snapshots the generation.
+- Root-level whole-slice replacements: primitives stage in `stagedRoot`
+  (readable mid-session); objects anchor a child handle so later descents
+  mutate drafted copies, never the caller's reference.
+- Same-value writes (`Object.is`) are no-ops — no copy, no route (immer
+  parity, keeps `Object.assign`-style bulk writes patch-free).
+- `Map.set/delete` route by key, `Set.add/delete` by value, `clear`
+  enumerates members; array mutators expand the touched range into
+  per-index routes (immer-parity fan-out).
+- `finalizeValue` walks modified subtrees converting embedded handles to
+  clean values, so mid-handler snapshots (`history.push(new Map(draft))`)
+  hold generation-faithful data. Handles registered in `handleSources`
+  (introspection bypasses traps).
+- Child-handle registries stamp the generation; commit bumps it, so stale
+  handles re-anchor on published identities.
 
-- Captures `previousBatch = batchRef.current`; `previousBatch?.flushNow?.()` **before** opening draft — commits parent so nested reads it; marks `previousBatch.stale=true`; installs `batch`; `currentDraft = createDraft(live)` **after** flush.
-- `draftProxy` — `get` schedules batch, `handlerNames.has(p)` → `Reflect.get(live,p)`, else `Reflect.get(currentDraft,p)`; `set/has/deleteProperty` schedule/filter dirty.
-- `flush()` — `finishDraft(currentDraft, patches=>...)` → `entriesFromPatches(live,next,patches)` → `mirrorKeys(live,next,entries)` → `asyncMode ? flushed.push(dispatchEntries) : sliceEntries.push`; effect queue: per-entry `matched=[byKey.get(type), wildcards]` not suppressed, path-matched (`shared===len` test), `queue.push`; `while(queue)` → `fireWithSignal` + `trackRun` → `cross.runs.push` if promise; `fires` budget `MAX_REACTION_FIRES`. `deferred.drain()` per flush.
-- `drain()` — `while(true){ if(stale) rebuild createDraft(live); flush(); if(!dirty) break }`.
-- `handler(detail, draftProxy)` → `effectRuns = cross?.runs ?? []`; branch:
-  - `result instanceof Promise` → asyncMode, entries `[{type,detail}]`, settle awaits `[result,...effectRuns]` then drain+flushed.
-  - `effectRuns.length>0` (sync body fired async effects) → same asyncMode path after initial `drain()` into `sliceEntries`.
-  - else sync → `drain()` then return `sliceEntries` or `{entries,settle:deferred}`.
-- `batch.flushNow = ()=>void flush()` assigned after `flush` for parent-nest use.
+### Batch sessions
+
+`runBatch(batchFn, type, detail, live, batchNames, sessionRef, deferred, dispatchEntries, cross?)`:
+
+- `previousSession?.flushNow?.()` commits the parent before opening; new
+  journal per session; `journal.onWrite = () => { session.dirty = true;
+  scheduleFlush() }`.
+- `flush()` — `commitJournal` publishes changed keys onto `live` and emits
+  entries `{type, detail, addresses}`; cross-fire loop matches reactions,
+  queues routed ones, fires with the journal root (path `[]`) or the walked
+  proxy at the reaction's path; `deferred.drain()` per flush.
+- `drain()` — `while (session.dirty) flush()`; fired reactions' writes
+  reopen generations so derived slices land before callers observe settle.
+- Async: `batchFn` promise or reaction continuations keep the session open;
+  `settle` awaits runs, drains again, then restores `sessionRef`.
+
+### Linear cascades
+
+The session-wide visited set (`fired`) fires each reaction **at most once
+per dispatch** — inline field firings register in the same set the
+cross-fire loop checks. A committed write that routes to an already-fired
+reaction still lands (the detail updates) but the callback does not
+re-run: A→B→A converges instead of cycling. Self-retriggering is an
+explicit re-dispatch (`api.create`/`dispatchEvent` — a new cause, a new
+session). There is no fire budget and no cycle throw.
 
 ### Effects & cancellation
 
-```ts
-type Effect = {type, path, callback}
-createEffectNamespace(descriptorOn, effects): Proxy
-```
+`effectSignals: Map<Effect,AbortController>`, `gateWrites(receiver, signal)`
+proxy dropping `set/delete/defineProperty` when `signal.aborted`,
+`trackRun(result, signal)` swallowing `AbortError`/aborted rejections,
+owner-aware `fireWithSignal` reusing the run's controller for owned
+publishes. `createBatchEntry` — `effectIndex` lazy, `runFieldEffects`
+synthetic batch writing `draft[type]=value`, firing effects inline
+(collecting `runs`), cross with `suppress: fired, runs`.
 
-`effectSignals: Map<Effect,AbortController>`, `gateWrites(receiver, signal)` proxy dropping `set/delete/defineProperty` when `signal.aborted`, `trackRun(result,signal)` swallowing `AbortError`/aborted rejections.
-
-`fireWithSignal(effect, receiver, event, owner?)`:
-
-- `current = map.get(effect)`
-- `owner!==undefined && owner===current.signal` → **owned publish** — reuse controller, gate receiver, `trackRun(callback.call(gated,event,current.signal))`.
-- else `current?.abort(); controller=new AbortController(); map.set(effect,controller); gateWrites(receiver,signal); trackRun(call)`.
-
-`createFoldEntry` (now `createBatchEntry`) — `effectIndex` lazy, `fireWithSignal` owner-aware, `runFieldEffects` synthetic batch writing `draft[type]=value`, firing effects inline (collecting `runs` promises), cross with `suppress:fired, runs`.
-
-### Patches → entries
+### Routes
 
 ```ts
 sliceAddresses(prev, next) // primitive→[[prev],[next]] filtered nullish; Set→[[canonical(next)]]; else [[]]
-mirrorKeys(live, next, entries) // live[key]=next[key] or delete
-entriesFromPatches(prev, next, patches) // Map<string,path[]> per patch.path[0]; Set→value segment; else path[1..] canonicalized; appendAddress dedup; primitive override via sliceAddresses; emit {type,detail:next[key],paths}
 ```
+Entries build directly from the journal's per-key change records (deduped
+at write time via `seen`) — no patch post-pass.
 
 ## Build & test
 

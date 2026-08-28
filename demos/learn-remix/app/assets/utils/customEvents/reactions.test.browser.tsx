@@ -205,28 +205,46 @@ describe('reactions', () => {
     assert.equal(events.details.count, 2)
   })
 
-  it('throws on runaway reaction cycles instead of looping forever', async (t) => {
+  it('runs each reaction at most once per dispatch, converging instead of cycling', async () => {
+    let fires = { kick: 0, a: 0, b: 0 }
     class __PingPongEvents extends Events {
       kick = 0
       a = 0
       b = 0
       constructor(api: EventsApi<__PingPongEvents>) {
         super()
-        // Neither `a` nor `b` is the dispatched field, so neither is ever
-        // suppressed — the two feed each other and never converge.
+        // The two feed each other: kick → a → b → a … The cascade stays
+        // linear — each reaction fires at most once per dispatch, and the
+        // would-be cycle only updates the event detail.
         api.on.kick(function ({ detail }) {
+          fires.kick++
           this.a = detail
         })
         api.on.a(function () {
+          fires.a++
           this.b += 1
         })
         api.on.b(function () {
+          fires.b++
           this.a += 2
         })
       }
     }
     let events = __PingPongEvents.define()
-    assert.throws(() => events.dispatchEvent({ kick: 1 }), /possible cycle/)
+    await events.dispatchEvent({ kick: 1 })
+    // kick fired once; its write routed a's reaction once; a's write routed
+    // b's reaction once; b's write routed back to a — already fired this
+    // session, so the detail updated (1 + 2) without re-running a's reaction.
+    assert.deepEqual({ ...fires }, { kick: 1, a: 1, b: 1 })
+    assert.equal(events.details.a, 3)
+    assert.equal(events.details.b, 1)
+    assert.equal(events.details.kick, 1)
+
+    // A fresh dispatch runs the reactions again (new session, new visits).
+    await events.dispatchEvent({ kick: 5 })
+    assert.deepEqual({ ...fires }, { kick: 2, a: 2, b: 2 })
+    assert.equal(events.details.a, 7)
+    assert.equal(events.details.b, 2)
   })
 
   it('routes fold-cross writes from a reaction through the session', async (t) => {

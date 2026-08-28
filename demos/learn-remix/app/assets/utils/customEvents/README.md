@@ -89,7 +89,7 @@ constructor(private api: EventsApi<X>){} // ❌ adds `api` as remembered event
 | Phase  | Rule                                                                                             |
 | ------ | ------------------------------------------------------------------------------------------------ |
 | Fires  | only when value at path changes; same-value = no-op                                              |
-| Chains | microtask loop until settled; throws if >100 iterations                                          |
+| Chains | linear: each reaction fires at most once per dispatch; A→B→A updates the detail without re-running A |
 | Abort  | `signal` aborts prior run for same selector; further `this`-writes dropped (reads/`create` live) |
 | Settle | aborted rejection quiet; real error rejects `dispatchEvent`                                      |
 
